@@ -187,6 +187,49 @@ test('validateDayResponse accepte une scission proposée par l’IA', () => {
   assert.equal(splits[0].action.update_description, false);
 });
 
+test('les parents (avec sous-tâches) ne sont pas proposés, seules les feuilles le sont', () => {
+  const parent = task({ id: 'parent', content: 'Faire toute la lessive', display_title: 'Faire toute la lessive', subtask_count: 8 });
+  const child = task({ id: 'child', content: 'Plier le linge', display_title: 'Plier le linge', parent_id: 'parent' });
+  const snapshot = snapshotWith([parent, child]);
+  const digest = buildDayDigest(snapshot, DAY, GOOD);
+
+  const ids = digest.tasks.map((t) => t.id);
+  assert.ok(!ids.includes('parent'), 'le parent ne doit pas être proposé');
+  assert.ok(ids.includes('child'), 'la sous-tâche doit être proposée');
+  assert.equal(digest.tasks.find((t) => t.id === 'child').parent, 'Faire toute la lessive');
+});
+
+test('validateDayResponse refuse de scinder une tâche qui a déjà des sous-tâches', () => {
+  const parent = task({ id: 'parent', content: 'Faire toute la lessive', display_title: 'Faire toute la lessive', subtask_count: 8, due_date: DAY });
+  const snapshot = snapshotWith([parent]);
+  const digest = buildDayDigest(snapshot, DAY, GOOD);
+
+  const { splits } = validateDayResponse(
+    { splits: [{ task_id: 'parent', reason: 'fourre-tout', subtasks: ['A', 'B'] }] },
+    snapshot,
+    DAY,
+    digest,
+    null
+  );
+  assert.equal(splits.length, 0);
+});
+
+test('validateDayResponse respecte « jamais » pour les scissions', () => {
+  const free = task({ id: 'free' });
+  const snapshot = snapshotWith([free]);
+  const digest = buildDayDigest(snapshot, DAY, GOOD);
+  const profile = { never: ['free'], postpone: [], sizes: [], improve: [] };
+
+  const { splits } = validateDayResponse(
+    { splits: [{ task_id: 'free', reason: 'x', subtasks: ['A', 'B'] }] },
+    snapshot,
+    DAY,
+    digest,
+    profile
+  );
+  assert.equal(splits.length, 0);
+});
+
 test('un jour reste résolvable et une proposition retirée ne casse pas les autres', async () => {
   clearAiCache();
   const snapshot = snapshotWith([task({ id: 't1' }), task({ id: 't2' })]);

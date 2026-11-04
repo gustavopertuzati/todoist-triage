@@ -117,6 +117,13 @@ Depuis l'itération 5, l'IA ne propose plus un lot global : on planifie **un jou
    n'affecte **pas** les autres : la place du jour est simplement recalculée.
 5. L'IA peut aussi proposer de **scinder** une grosse tâche en 2 à 10 sous-tâches.
 
+### Sous-tâches
+
+- un **parent qui a des sous-tâches** est un conteneur : il n'est **jamais** proposé
+  directement, ni **jamais scindé** (on ne recrée pas des sous-tâches à l'infini) ;
+- ce sont ses **sous-tâches** (tâches « feuilles ») qui sont analysées, triées et planifiées ;
+- le parent daté affiche son nombre de sous-tâches dans « Déjà prévu ce jour ».
+
 ### Check-in du jour (itération 7)
 
 Avant de planifier, tu peux répondre à **5 questions rapides** : énergie, forme, temps

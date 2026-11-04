@@ -364,7 +364,9 @@ function createApp() {
       // et, s'ils existent déjà, les propositions mises en cache.
       const analyze = req.body?.analyze === true;
 
-      const { snapshot } = await getSnapshot({ force: false });
+      // Une analyse explicite relit Todoist en direct : on ne veut pas d'un
+      // instantané vieux de 60 s (tâches déplacées, sous-tâches ajoutées…).
+      const { snapshot } = await getSnapshot({ force: analyze });
       const days = (snapshot.capacity && snapshot.capacity.days) || [];
       if (!isValidIsoDate(date) || !days.some((day) => day.date === date)) {
         return res.status(400).json({

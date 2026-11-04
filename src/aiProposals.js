@@ -92,6 +92,7 @@ function dayInfo(snapshot, date) {
       size_label: SIZE_LABELS[estimateTaskSize(task)],
       priority_label: task.priority_label,
       project_name: task.project_name,
+      subtasks: task.subtask_count || 0,
     }));
 
   const load = day ? { ...day.load } : { L: 0, M: 0, S: 0 };
@@ -122,9 +123,17 @@ function buildDayDigest(snapshot, date, checkin, profile) {
 
   const seen = new Set();
   const tasks = [];
+  const titleById = new Map(
+    active.map((task) => [task.id, String(task.display_title || task.content || '').slice(0, 60)])
+  );
+  const taskById = new Map(active.map((task) => [task.id, task]));
+
   for (const task of [...overdue, ...undated]) {
     if (seen.has(task.id)) continue;
     if (never.has(task.id)) continue; // ne jamais reproposer
+    // Un parent qui a des sous-tâches est un conteneur : on ne le propose pas
+    // directement, ce sont ses sous-tâches (les « feuilles ») qu'on planifie.
+    if ((task.subtask_count || 0) > 0) continue;
     seen.add(task.id);
     tasks.push({
       id: task.id,
@@ -136,6 +145,8 @@ function buildDayDigest(snapshot, date, checkin, profile) {
       age_days: task.age_days,
       labels: (task.labels || []).slice(0, 3),
       has_note: Boolean(task.description && task.description.trim()),
+      is_subtask: Boolean(task.parent_id),
+      parent: task.parent_id ? titleById.get(task.parent_id) || null : null,
       size_hint: sizeCorrections.get(task.id) || estimateTaskSize(task),
       reported_size: sizeCorrections.get(task.id) || null,
       avoid_until: postpone.get(task.id) || null,
@@ -162,6 +173,7 @@ function buildDayDigest(snapshot, date, checkin, profile) {
     title: String(task.title).slice(0, 80),
     size: task.size,
     priority: task.priority_label,
+    has_subtasks: (taskById.get(task.id)?.subtask_count || 0) > 0,
   }));
 
   return {
@@ -283,9 +295,12 @@ function buildUserPrompt(digest) {
     '- "due_date" des ajouts doit être EXACTEMENT ' + digest.date + '.',
     '- "reason" : une phrase courte en français, tenant compte de son état.',
     `- Au maximum ${digest.max_proposals} ajout(s).`,
+    '- Les tâches listées sont des tâches « feuilles » (sans sous-tâches). Si une tâche a',
+    '  "parent", tu peux la regrouper avec ses sœurs sur un même jour.',
     '',
-    'Tu peux aussi proposer de scinder une grosse tâche fourre-tout (2 à 10 sous-tâches)',
-    'dans "splits" (parmi les tâches listées ou celles du jour).',
+    'Scissions : uniquement pour une tâche SANS sous-tâches (une tâche fourre-tout).',
+    'N’essaie JAMAIS de scinder une tâche qui a déjà des sous-tâches (voir "has_subtasks").',
+    'Dans ce cas, propose plutôt des échéances pour ses sous-tâches existantes.',
     '',
     'Et, pour une tâche au titre peu clair (voir les retours ci-dessus), un titre plus clair',
     'dans "renames".',
@@ -435,6 +450,8 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
     if (seen.has(taskId) || (!allowedIds.has(taskId) && !dayTaskIds.has(taskId))) continue;
     const task = tasksById.get(taskId);
     if (!task || task.project_archived) continue;
+    // On ne scinde jamais une tâche qui a déjà des sous-tâches, ni une tâche « jamais ».
+    if ((task.subtask_count || 0) > 0 || never.has(taskId)) continue;
 
     const titles = (Array.isArray(raw?.subtasks) ? raw.subtasks : [])
       .map((sub) => (typeof sub === 'string' ? sub : sub?.title))
@@ -476,6 +493,7 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
     if (!allowedIds.has(taskId) && !dayTaskIds.has(taskId)) continue;
     const task = tasksById.get(taskId);
     if (!task || task.project_archived) continue;
+    if (never.has(taskId)) continue;
 
     const title = String(raw?.title || '').trim().slice(0, 160);
     const current = String(task.display_title || task.content || '').trim();

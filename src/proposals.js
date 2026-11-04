@@ -320,6 +320,7 @@ function buildProposals({ projects, tasks, today, limits }) {
     .map((project) => buildArchive(project));
 
   pools.split_task = activeTasks
+    .filter((task) => (task.subtask_count || 0) === 0)
     .filter((task) => parseChecklist(task.description).length >= 2)
     .sort((a, b) => (b.priority || 0) - (a.priority || 0))
     .map((task) => buildSplit(task));

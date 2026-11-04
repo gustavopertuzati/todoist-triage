@@ -876,7 +876,10 @@
             h(
               'span',
               { class: 'plain-item-body' },
-              h('span', { class: 'plain-item-title' }, task.title)
+              h('span', { class: 'plain-item-title' }, task.title),
+              task.subtasks
+                ? h('span', { class: 'plain-item-meta' }, `${task.subtasks} sous-tâche(s)`)
+                : null
             )
           )
         );
