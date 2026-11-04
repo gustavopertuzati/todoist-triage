@@ -651,7 +651,7 @@
         isToday ? 'Visibles aujourd’hui' : `Tâches du ${formatDate(focusDate)}`,
         `${dayTasks.length} tâche(s)`,
         dayTasks.length > 0
-          ? dayTasks.slice(0, 12).map((task) => taskLine(task))
+          ? dayTasks.slice(0, 12).map((task) => taskLine(task, null, { tools: true }))
           : [
               h(
                 'p',
@@ -671,7 +671,7 @@
           'En retard (à replacer)',
           `${overdue.length} tâche(s)`,
           overdue.slice(0, 8).map((task) =>
-            taskLine(task, `${task.days_overdue || 0} j de retard`)
+            taskLine(task, `${task.days_overdue || 0} j de retard`, { tools: true })
           ),
           'danger'
         )
@@ -724,29 +724,54 @@
     );
   }
 
-  function taskLine(task, meta = null) {
+  function taskLine(task, meta = null, options = {}) {
+    const body = h(
+      'span',
+      { class: 'plain-item-body' },
+      h('span', { class: 'plain-item-title' }, task.display_title || task.content),
+      meta
+        ? h('span', { class: 'plain-item-meta' }, meta)
+        : task.due_date
+          ? h(
+              'span',
+              { class: `plain-item-meta${task.is_overdue ? ' is-danger' : ''}` },
+              task.is_overdue
+                ? `${task.days_overdue} j de retard`
+                : task.is_due_today
+                  ? "aujourd'hui"
+                  : formatDate(task.due_date)
+            )
+          : null
+    );
+
+    // Même actions que dans l'explorateur, directement depuis le widget du jour.
+    if (options.tools) {
+      const tools = h('div', { class: 'task-tools widget-task-tools' });
+      const detailBtn = h(
+        'button',
+        { type: 'button', class: 'btn btn-ghost btn-small' },
+        task.subtask_count ? `🗂 Voir (${task.subtask_count})` : '🗂 Voir la tâche'
+      );
+      detailBtn.addEventListener('click', () => openTaskDetail(task));
+      tools.append(detailBtn);
+
+      if (state.data?.ai?.enabled && !task.subtask_count && task.type !== 'note') {
+        const prepareBtn = h(
+          'button',
+          { type: 'button', class: 'btn btn-ghost btn-small' },
+          '✨ Préparer'
+        );
+        prepareBtn.addEventListener('click', () => openPrepare(task));
+        tools.append(prepareBtn);
+      }
+      body.append(tools);
+    }
+
     return h(
       'li',
       { class: 'plain-item' },
       h('span', { class: `prio prio-${task.priority}` }, task.priority_label),
-      h(
-        'span',
-        { class: 'plain-item-body' },
-        h('span', { class: 'plain-item-title' }, task.display_title || task.content),
-        meta
-          ? h('span', { class: 'plain-item-meta' }, meta)
-          : task.due_date
-            ? h(
-                'span',
-                { class: `plain-item-meta${task.is_overdue ? ' is-danger' : ''}` },
-                task.is_overdue
-                  ? `${task.days_overdue} j de retard`
-                  : task.is_due_today
-                    ? "aujourd'hui"
-                    : formatDate(task.due_date)
-              )
-            : null
-      ),
+      body,
       todoistLink(task.id, 'Ouvrir dans Todoist')
     );
   }

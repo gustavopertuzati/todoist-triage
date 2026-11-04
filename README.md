@@ -327,6 +327,12 @@ immédiatement **les tâches prévues ce jour-là** (et non plus seulement aujou
 Le titre, le compteur et la liste changent avec le jour sélectionné ; les retards restent
 visibles dans un bloc séparé quand le jour choisi est aujourd'hui.
 
+Chaque tâche de cette liste a les **mêmes actions que dans l'explorateur** :
+
+- **« 🗂 Voir »** ouvre le détail avec toutes les sous-tâches (et permet d'en ajouter) ;
+- au dernier niveau, **« ✨ Préparer »** propose les petites étapes datées ;
+- le détail permet aussi de **découper** une tâche feuille.
+
 ### Explorer une tâche à tous les niveaux
 
 Dans **Explorer**, chaque tâche a un bouton **« 🗂 Voir »** qui ouvre son détail :
@@ -357,12 +363,14 @@ Un résumé indique le niveau, le seuil de fantômes, le nombre de tâches inspe
 extensions actives. Aucune suppression n'est automatique : ce sont toujours des
 propositions à valider.
 
-### Espacements mobile
+### Espacements
 
-Les blocs encadrés (widget, KPI, propositions, diagnostic, projets) ont des gouttières
-plus franches, un fond et un padding cohérents ; sur petit écran, la page et les panneaux
-respirent davantage, les boutons de proposition passent à la ligne et les formulaires
-s'empilent.
+Les sections du tableau de bord sont maintenant dans un **conteneur flex avec une vraie
+gouttière** (`#content`, 22 px) : les panneaux ne se touchent plus, ni sur mobile ni sur
+desktop. Les KPI ont 16 px entre eux, les propositions/diagnostics 14 px, les projets
+12 px, et chaque bloc du widget a son propre fond arrondi avec padding. Sur petit écran,
+la page et les panneaux respirent davantage, les boutons de proposition passent à la ligne
+et les formulaires s'empilent.
 
 ## Carnet « Notes & idées » pour OpenCode
 

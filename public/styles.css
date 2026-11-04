@@ -2409,34 +2409,70 @@ button:disabled {
 }
 
 /* Respiration des blocs encadrÃ©s (surtout sur mobile). */
+#content {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
 .proposals {
-  gap: 12px;
+  gap: 14px;
 }
 
 .diagnosis-list {
-  gap: 12px;
+  gap: 14px;
 }
 
 .projects {
-  gap: 10px;
-}
-
-.kpis {
   gap: 12px;
 }
 
-.widget-summary {
-  gap: 10px;
-}
-
-.widget-lists {
+.kpis {
   gap: 16px;
 }
 
+.widget-summary {
+  gap: 12px;
+}
+
+.widget-lists {
+  gap: 18px;
+}
+
 .list-block {
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
+}
+
+.widget-task-tools {
+  margin-top: 8px;
+}
+
+.widget-task-tools .btn {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.plain-item {
+  gap: 12px;
+}
+
+.plain-item-body {
+  gap: 4px;
+}
+
+.panel {
+  padding: 20px;
+}
+
+.task-row {
+  padding: 12px 2px;
+}
+
+.plain-item {
+  padding: 10px 0;
 }
 
 .proposal-head {
@@ -2452,7 +2488,7 @@ button:disabled {
 }
 
 .diagnosis-summary {
-  gap: 10px;
+  gap: 12px;
 }
 
 @media (max-width: 480px) {
@@ -2460,6 +2496,10 @@ button:disabled {
     gap: 14px;
     padding-left: 12px;
     padding-right: 12px;
+  }
+
+  #content {
+    gap: 16px;
   }
 
   .panel {
