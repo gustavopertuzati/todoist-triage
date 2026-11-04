@@ -18,7 +18,12 @@ const {
   deleteTask,
 } = require('./todoist');
 const { normalizeDueDate } = require('./proposals');
-const { numberedTitle } = require('./prepare');
+const { isValidIsoDate } = require('./dates');
+const {
+  numberedTitle,
+  stripOrderPrefix,
+  PREPARATION_MARKER,
+} = require('./prepare');
 const recycleBin = require('./recycleBin');
 
 class ProposalError extends Error {
@@ -171,8 +176,34 @@ async function applyRename(proposal) {
   };
 }
 
-async function applyPrepare(proposal) {
-  const items = Array.isArray(proposal.action?.subtasks) ? proposal.action.subtasks : [];
+/**
+ * Préparations retenues : la sélection du client (cases décochées) prime.
+ * Chaque élément garde sa date ; l'interface peut les avoir recalées.
+ */
+function selectedPreparations(proposal, overrides) {
+  const raw = Array.isArray(overrides?.preparations)
+    ? overrides.preparations
+    : Array.isArray(proposal?.action?.subtasks)
+      ? proposal.action.subtasks
+      : [];
+
+  const items = [];
+  for (const entry of raw) {
+    const value = typeof entry === 'string' ? entry : entry?.title;
+    const title = stripOrderPrefix(value).slice(0, 200);
+    if (!title) continue;
+    items.push({
+      title,
+      date: isValidIsoDate(entry?.date) ? entry.date : null,
+      reason: typeof entry?.reason === 'string' ? entry.reason.slice(0, 200) : null,
+    });
+    if (items.length >= 20) break;
+  }
+  return items;
+}
+
+async function applyPrepare(proposal, overrides) {
+  const items = selectedPreparations(proposal, overrides);
   if (items.length === 0) throw new ProposalError('PREP_EMPTY', 'Aucune préparation à créer.');
 
   const created = [];
@@ -186,6 +217,8 @@ async function applyPrepare(proposal) {
     if (proposal.target.project_id) payload.project_id = proposal.target.project_id;
     if (proposal.target.section_id) payload.section_id = proposal.target.section_id;
     if (item.date) payload.due_date = item.date;
+    // Marqueur pour que le widget du jour affiche bien les préparations.
+    payload.description = PREPARATION_MARKER;
     const child = await createTask(payload);
     created.push(child?.id || null);
   }
@@ -215,7 +248,7 @@ async function applyProposal({ proposal, overrides = null }) {
     case 'split_task':
       return applySplit(proposal, overrides);
     case 'prepare_task':
-      return applyPrepare(proposal);
+      return applyPrepare(proposal, overrides);
     case 'delete_task':
       return applyDelete(proposal);
     case 'rename_task':
@@ -225,4 +258,9 @@ async function applyProposal({ proposal, overrides = null }) {
   }
 }
 
-module.exports = { ProposalError, applyProposal, selectedSplitSubtasks };
+module.exports = {
+  ProposalError,
+  applyProposal,
+  selectedSplitSubtasks,
+  selectedPreparations,
+};

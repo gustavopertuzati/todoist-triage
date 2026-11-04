@@ -22,6 +22,10 @@ const { estimateTaskSize } = require('./capacity');
 const { normalizeTitle, targetFromTask } = require('./proposals');
 const { rememberItems } = require('./aiProposals');
 
+// Marqueur discret dans la description : permet au widget du jour de
+// reconnaître une préparation sans la confondre avec une découpe classique.
+const PREPARATION_MARKER = 'Préparation créée par Triage';
+
 const SYSTEM_PROMPT = [
   'Tu aides une personne à PRÉPARER une tâche pour qu’elle soit moins difficile.',
   'Tu proposes des tâches de préparation courtes, concrètes et réellement utiles.',
@@ -270,50 +274,123 @@ function clearPrepareCache() {
 
 const DECOMPOSE_SYSTEM_PROMPT = [
   'Tu aides une personne à DÉCOUPER une tâche trop grosse en sous-tâches concrètes.',
-  'Chaque sous-tâche doit être une action claire, autonome et réalisable.',
+  'Tu t’appuies sur le contexte hiérarchique fourni (tâche racine, parent, note, projet).',
+  'Chaque sous-tâche doit être une action claire, autonome, avec un objet et un résultat.',
   'Réfléchis brièvement. Tu réponds UNIQUEMENT par un objet JSON valide, sans texte autour.',
 ].join(' ');
 
 let decomposeCache = new Map();
 
 function buildDecomposeDigest(task, snapshot, { maxItems = 5 } = {}) {
-  const existing = snapshot.tasks
+  const tasks = snapshot.tasks || [];
+  const byId = new Map(tasks.map((item) => [item.id, item]));
+
+  const existing = tasks
     .filter((item) => item.parent_id === task.id)
     .map((item) => stripOrderPrefix(item.display_title || item.content || '').slice(0, 120));
+
+  // Chaîne des ancêtres, de la racine jusqu'au parent direct.
+  const ancestors = [];
+  const guard = new Set([task.id]);
+  let current = task.parent_id ? byId.get(task.parent_id) : null;
+  while (current && !guard.has(current.id) && ancestors.length < 10) {
+    guard.add(current.id);
+    ancestors.unshift(current);
+    current = current.parent_id ? byId.get(current.parent_id) : null;
+  }
+  const root = ancestors[0] || task;
+  const parent = ancestors[ancestors.length - 1] || null;
+  const depth = ancestors.length;
+
+  const siblings =
+    task.parent_id
+      ? tasks
+          .filter((item) => item.parent_id === task.parent_id && item.id !== task.id)
+          .slice(0, 12)
+          .map((item) => stripOrderPrefix(item.display_title || item.content || '').slice(0, 100))
+      : [];
 
   return {
     today: snapshot.meta.today,
     max_items: maxItems,
+    context: {
+      root: {
+        title: stripOrderPrefix(root.display_title || root.content || '').slice(0, 160),
+        note: String(root.description || '').slice(0, 400) || null,
+      },
+      parent: parent
+        ? {
+            title: stripOrderPrefix(parent.display_title || parent.content || '').slice(0, 160),
+            note: String(parent.description || '').slice(0, 300) || null,
+          }
+        : null,
+      level: depth,
+      level_label:
+        depth === 0
+          ? 'tâche principale'
+          : depth === 1
+            ? 'sous-tâche de niveau 1'
+            : `sous-tâche imbriquée (niveau ${depth})`,
+      ancestors: ancestors.map((item) => ({
+        title: stripOrderPrefix(item.display_title || item.content || '').slice(0, 120),
+      })),
+      project: task.project_name || null,
+      labels: (task.labels || []).slice(0, 6),
+      siblings,
+    },
     task: {
       id: task.id,
-      title: String(task.display_title || task.content || '').slice(0, 160),
+      title: stripOrderPrefix(task.display_title || task.content || '').slice(0, 160),
       project: task.project_name || null,
       date: task.due_date || null,
       size: estimateTaskSize(task, task.subtask_count || 0),
       note: String(task.description || '').slice(0, 500),
       existing_subtasks: existing,
+      children_count: existing.length,
     },
   };
 }
 
 function buildDecomposePrompt(digest) {
+  const context = digest.context;
   return [
-    `Découpe la tâche « ${digest.task.title} » en 2 à ${digest.max_items} sous-tâches.`,
+    `Découpe la tâche « ${digest.task.title} » (${context.level_label}) en 2 à ${digest.max_items} sous-tâches réellement utiles.`,
     '',
-    'Règles :',
-    '- Chaque sous-tâche est une action concrète, à l’infinitif, réalisable seule.',
-    '- Ne recopie pas la tâche parente et n’ajoute pas de sous-tâche déjà existante.',
-    '- Pas de dates : ce sont des morceaux de la tâche, pas un planning.',
-    '- Si la tâche est déjà atomique (une seule action), renvoie une liste vide.',
-    '- Ordonne les sous-tâches dans l’ordre logique d’exécution.',
+    `Contexte : projet « ${context.project || 'sans projet'} »`,
+    `Tâche racine : « ${context.root.title} »${context.root.note ? ` — note : ${context.root.note}` : ''}`,
+    context.parent ? `Parent direct : « ${context.parent.title} »` : 'C’est la tâche principale.',
+    context.ancestors.length > 1
+      ? `Chemin : ${context.ancestors.map((item) => item.title).join(' → ')}`
+      : '',
+    digest.task.note ? `Note de la tâche : ${digest.task.note}` : '',
+    context.labels.length ? `Labels : ${context.labels.join(', ')}` : '',
+    '',
+    'Règles de découpage :',
+    '- Comprends d’abord ce que la tâche accomplit réellement dans son contexte (projet, parent, note).',
+    '- Chaque morceau doit être une action concrète : un verbe + un objet précis + un résultat vérifiable.',
+    '- Adapte la granularité au niveau :',
+    '  · tâche principale / niveau 1 → phases ou blocs de 20 à 60 min, avec un livrable clair ;',
+    '  · niveaux plus profonds → gestes physiques précis (quoi, où, avec quel outil).',
+    '- Interdit : « s’organiser », « préparer », « faire le point », « avancer » sans objet précis,',
+    '  ou découper artificiellement une action unique en micro-étapes inutiles.',
+    '- Ne crée pas une sous-tâche par série ou par répétition : regroupe les séries d’un même',
+    '  exercice en une seule action, et garde seulement les étapes vraiment distinctes.',
+    '- Ne recopie pas la tâche parente et n’ajoute pas une sous-tâche déjà existante.',
+    '- Ne propose pas de planning ni de dates : ce sont des morceaux de la tâche.',
+    '- Si la tâche est vraiment atomique, renvoie une liste vide plutôt que du remplissage.',
+    '- Ordonne les morceaux dans l’ordre logique d’exécution.',
+    '',
+    'Dans "summary", commence par « Ce que je comprends : … » puis explique en une phrase le découpage choisi.',
     '',
     'Réponds EXACTEMENT par ce JSON :',
-    '{"summary":"phrase courte expliquant le découpage",',
-    ' "subtasks":["première action","deuxième action"]}',
+    '{"summary":"Ce que je comprends : … Puis …",',
+    ' "subtasks":["action précise 1","action précise 2"]}',
     '',
     'Données :',
     JSON.stringify(digest),
-  ].join('\n');
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 }
 
 function validateDecomposeResponse(parsed, task, digest) {
@@ -424,6 +501,7 @@ async function generateDecomposition(snapshot, taskId, { force = false } = {}) {
 module.exports = {
   SYSTEM_PROMPT,
   DECOMPOSE_SYSTEM_PROMPT,
+  PREPARATION_MARKER,
   stripOrderPrefix,
   numberedTitle,
   prepWindow,

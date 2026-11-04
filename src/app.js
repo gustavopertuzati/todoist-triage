@@ -860,6 +860,9 @@ function createApp() {
         subtasks: Array.isArray(req.body?.subtasks)
           ? req.body.subtasks.map((item) => String(item))
           : null,
+        preparations: Array.isArray(req.body?.preparations)
+          ? req.body.preparations
+          : null,
       };
 
       // On résout la proposition sans forcer une resynchronisation : cela

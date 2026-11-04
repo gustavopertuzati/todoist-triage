@@ -2063,13 +2063,30 @@ button:disabled {
 }
 
 .proposal-prep li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 8px;
   padding: 8px 10px;
   background: var(--surface-2);
   border-radius: var(--radius-sm);
   font-size: 14px;
+}
+
+.proposal-prep-choice {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: start;
+  cursor: pointer;
+}
+
+.proposal-prep-choice input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.proposal-prep-choice.is-done {
+  opacity: 0.55;
+  text-decoration: line-through;
 }
 
 .proposal-prep-date {
@@ -2083,7 +2100,7 @@ button:disabled {
 }
 
 .proposal-prep-reason {
-  grid-column: 2;
+  grid-column: 2 / -1;
   color: var(--muted);
   font-size: 12px;
 }
@@ -2588,6 +2605,17 @@ button:disabled {
 
 .widget-task-tools {
   margin-top: 8px;
+}
+
+.prep-meta {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.badge-prep {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .widget-task-tools .btn {

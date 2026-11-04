@@ -13,6 +13,7 @@ const {
   validateDecomposeResponse,
   stripOrderPrefix,
   numberedTitle,
+  PREPARATION_MARKER,
 } = require('../src/prepare');
 
 const TODAY = '2026-11-04';
@@ -225,6 +226,10 @@ test('validatePrepareResponse renvoie une liste vide sans préparation valable',
   assert.equal(dropped, 0);
 });
 
+test('le marqueur de préparation est stable pour le widget', () => {
+  assert.equal(PREPARATION_MARKER, 'Préparation créée par Triage');
+});
+
 test('numberedTitle numérote sans jamais doubler le préfixe', () => {
   assert.equal(numberedTitle('Trier les outils', 0), '1. Trier les outils');
   assert.equal(numberedTitle('1. Trier les outils', 1), '2. Trier les outils');
@@ -246,12 +251,53 @@ test('buildDecomposeDigest liste les sous-tâches existantes', () => {
   assert.deepEqual(digest.task.existing_subtasks, ['Sortir les cartons']);
 });
 
-test('buildDecomposePrompt demande des morceaux concrets sans date', () => {
+test('buildDecomposePrompt demande des morceaux concrets et contextualisés', () => {
   const task = makeTask();
   const prompt = buildDecomposePrompt(buildDecomposeDigest(task, makeSnapshot(), { maxItems: 3 }));
   assert.match(prompt, /Découpe la tâche/);
-  assert.match(prompt, /Pas de dates/);
+  assert.match(prompt, /planning ni de dates/);
   assert.match(prompt, /2 à 3 sous-tâches/);
+  assert.match(prompt, /Ce que je comprends/);
+  assert.match(prompt, /Adapte la granularité/);
+});
+
+test('buildDecomposeDigest expose la hiérarchie et le niveau courant', () => {
+  const root = makeTask({ id: 'root', content: 'Rénover la cave', display_title: 'Rénover la cave' });
+  const mid = makeTask({
+    id: 'mid',
+    content: 'Ranger la cave',
+    display_title: 'Ranger la cave',
+    parent_id: 'root',
+  });
+  const leaf = makeTask({
+    id: 'leaf',
+    content: 'Trier les cartons',
+    display_title: 'Trier les cartons',
+    parent_id: 'mid',
+  });
+  const sibling = makeTask({
+    id: 'sib',
+    content: 'Descendre les outils',
+    display_title: 'Descendre les outils',
+    parent_id: 'mid',
+  });
+  const snapshot = {
+    meta: { today: TODAY, timezone: 'Europe/Zurich' },
+    tasks: [root, mid, leaf, sibling],
+    capacity: { days: [] },
+    projects: [],
+  };
+
+  const digest = buildDecomposeDigest(leaf, snapshot, { maxItems: 4 });
+  assert.equal(digest.context.level, 2);
+  assert.match(digest.context.level_label, /niveau 2/);
+  assert.equal(digest.context.root.title, 'Rénover la cave');
+  assert.equal(digest.context.parent.title, 'Ranger la cave');
+  assert.deepEqual(digest.context.ancestors.map((item) => item.title), [
+    'Rénover la cave',
+    'Ranger la cave',
+  ]);
+  assert.deepEqual(digest.context.siblings, ['Descendre les outils']);
 });
 
 test('validateDecomposeResponse crée une proposition de découpage', () => {

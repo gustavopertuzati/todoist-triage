@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 15.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 16.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -436,6 +436,45 @@ sélection vide.
 - Réglages inchangés : les questions énergie / forme / temps / envie / humeur continuent
   de moduler la charge 1-3-5.
 
+## Itération 16 — découpage contextualisé, préparations dans le widget, sélection
+
+### Un découpage qui comprend le contexte
+
+Le découpage assisté reçoit maintenant **toute la hiérarchie** :
+
+- tâche racine, parent direct, chemin complet, niveau courant ;
+- projet, labels, note, échéance, sous-tâches existantes et tâches sœurs.
+
+L’IA doit d’abord expliquer **ce qu’elle comprend**, puis proposer des morceaux :
+
+- concrets : un verbe + un objet précis + un résultat vérifiable ;
+- adaptés au niveau : phases de 20-60 min au niveau 1, gestes précis aux niveaux
+  profonds ;
+- sans micro-découpage artificiel (pas une sous-tâche par série/répétition) ;
+- sans morceau vague du type « s’organiser » ou « préparer ».
+
+Le résumé de la proposition commence par « Ce que je comprends : … ».
+
+### Les préparations apparaissent dans le widget du jour
+
+- Les préparations créées sont marquées dans leur description
+  (`Préparation créée par Triage`).
+- Le **widget du jour** affiche donc les préparations prévues ce jour-là, avec un badge
+  **🧩 Préparation de « tâche parente »**.
+- On peut les **voir**, les **préparer à leur tour** ou les **découper** depuis le détail.
+- Les autres sous-tâches (découpes classiques) restent masquées du widget.
+
+### Choisir les préparations à créer
+
+Dans la fenêtre « Préparer la tâche », chaque préparation a une **case à cocher** :
+
+- décoche ce qui est **déjà fait** ou inutile ;
+- les **dates des préparations conservées se recalent** automatiquement sur les dates
+  disponibles, dans l’ordre ;
+- l’aperçu et le compteur se mettent à jour ;
+- le serveur ne crée que la sélection envoyée (`preparations`), refuse une sélection vide
+  et renumérote les préparations créées.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -647,14 +686,15 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 15 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 16 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
 récap hebdo), **retour adaptatif sur les propositions ignorées**, **préparation des tâches**
-en sous-étapes datées, **numérotées** et **renumérotées** après suppression, **exploration
-des sous-tâches** avec ajout manuel et **découpage assisté**, **ordre logique récursif** des
-sous-tâches, **nettoyage approfondi progressif** et **carnet de notes éditable** persistant
-pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage automatique,
-planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées et
-seront abordées après retour d'usage.
+en sous-étapes datées, **numérotées**, **renumérotées** après suppression et **visibles dans
+le widget du jour**, **sélection des préparations à créer**, **exploration des sous-tâches**
+avec ajout manuel et **découpage contextualisé** selon le niveau, **ordre logique récursif**
+des sous-tâches, **nettoyage approfondi progressif** et **carnet de notes éditable**
+persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
+automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
+implémentées et seront abordées après retour d'usage.

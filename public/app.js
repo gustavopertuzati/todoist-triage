@@ -584,9 +584,12 @@
 
   function tasksDueOn(date) {
     return activeTasks()
-      // Les préparations et autres sous-tâches restent sous leur parent :
-      // le widget du jour montre les tâches principales, pas chaque morceau.
-      .filter((task) => task.due_date === date && !task.parent_id)
+      // Le widget montre les tâches principales ET les préparations du jour
+      // (pour pouvoir les voir, les découper ou les préparer à leur tour).
+      .filter(
+        (task) =>
+          task.due_date === date && (!task.parent_id || isPreparationTask(task))
+      )
       .sort(
         (a, b) =>
           (b.priority || 0) - (a.priority || 0) ||
@@ -603,7 +606,10 @@
     const overdue = isToday
       ? tasks
           .filter(
-            (task) => task.is_overdue && task.due_date !== focusDate && !task.parent_id
+            (task) =>
+              task.is_overdue &&
+              task.due_date !== focusDate &&
+              (!task.parent_id || isPreparationTask(task))
           )
           .sort((a, b) => (b.days_overdue || 0) - (a.days_overdue || 0))
       : [];
@@ -751,6 +757,17 @@
             )
           : null
     );
+
+    if (isPreparationTask(task)) {
+      const parent = (state.data?.tasks || []).find((item) => item.id === task.parent_id);
+      body.append(
+        h(
+          'span',
+          { class: 'plain-item-meta prep-meta' },
+          `🧩 Préparation${parent ? ` de « ${cleanTaskTitle(parent)} »` : ''}`
+        )
+      );
+    }
 
     // Même actions que dans l'explorateur, directement depuis le widget du jour.
     if (options.tools) {
@@ -1348,21 +1365,68 @@
       }
     }
 
-    // Préparation : chaque sous-tâche proposée est datée (avance ou jour même).
+    // Préparation : chaque préparation est datée et sélectionnable (déjà faite,
+    // inutile…). Les dates se recalent sur les éléments conservés.
+    let prepChoices = [];
     if (proposal.format === 'prepare' && Array.isArray(proposal.prep_items)) {
-      const list = h('ul', { class: 'proposal-prep' });
+      const list = h('ul', { class: 'proposal-prep is-selectable' });
       for (const item of proposal.prep_items) {
-        list.append(
-          h(
-            'li',
-            {},
-            h('span', { class: 'proposal-prep-date' }, formatDate(item.date)),
-            h('span', { class: 'proposal-prep-title' }, item.title),
-            item.reason ? h('span', { class: 'proposal-prep-reason' }, item.reason) : null
-          )
+        const input = h('input', {
+          type: 'checkbox',
+          checked: true,
+          'aria-label': `Créer « ${item.title} »`,
+        });
+        const dateEl = h(
+          'span',
+          { class: 'proposal-prep-date' },
+          item.date ? formatDate(item.date) : ''
         );
+        const row = h(
+          'label',
+          { class: 'proposal-prep-choice' },
+          input,
+          dateEl,
+          h('span', { class: 'proposal-prep-title' }, item.title),
+          item.reason ? h('span', { class: 'proposal-prep-reason' }, item.reason) : null
+        );
+        prepChoices.push({ input, item, dateEl, row, effectiveDate: item.date });
+        list.append(h('li', {}, row));
       }
       card.append(list);
+      card.append(
+        h(
+          'p',
+          { class: 'fine-print' },
+          'Décoche ce que tu as déjà fait ou ce dont tu n’as pas besoin : les dates des préparations gardées se recalent.'
+        )
+      );
+
+      const previewEl = card.querySelector('.proposal-preview');
+      const reflow = () => {
+        const active = prepChoices.filter((choice) => choice.input.checked);
+        const dates = [
+          ...new Set(prepChoices.map((choice) => choice.item.date).filter(Boolean)),
+        ].sort();
+        active.forEach((choice, index) => {
+          const date = dates[index] || dates[dates.length - 1] || choice.item.date || null;
+          choice.effectiveDate = date;
+          choice.dateEl.textContent = date ? formatDate(date) : '';
+        });
+        for (const choice of prepChoices) {
+          choice.row.classList.toggle('is-done', !choice.input.checked);
+        }
+        if (previewEl) {
+          previewEl.textContent = active.length
+            ? `${active.length} préparation(s) : ${active
+                .map((choice) => `${choice.item.title} (${choice.effectiveDate || 'sans date'})`)
+                .slice(0, 3)
+                .join(' · ')}${active.length > 3 ? '…' : ''}`
+            : 'Aucune préparation sélectionnée.';
+        }
+      };
+      for (const choice of prepChoices) {
+        choice.input.addEventListener('change', reflow);
+      }
     }
 
     let dateInput = null;
@@ -1394,12 +1458,26 @@
         toast('Sélectionne au moins une sous-tâche.', 'error');
         return;
       }
+
+      const selectedPrep = prepChoices
+        .filter((choice) => choice.input.checked)
+        .map((choice) => ({
+          title: choice.item.title,
+          date: choice.effectiveDate,
+          reason: choice.item.reason,
+        }));
+      if (proposal.type === 'prepare_task' && selectedPrep.length === 0) {
+        toast('Sélectionne au moins une préparation.', 'error');
+        return;
+      }
+
       validateProposal(
         proposal,
         dateInput,
         validateBtn,
         ignoreBtn,
-        proposal.type === 'split_task' ? selected : undefined
+        proposal.type === 'split_task' ? selected : undefined,
+        proposal.type === 'prepare_task' ? selectedPrep : undefined
       );
     });
     ignoreBtn.addEventListener('click', () => openIgnorePanel(card, proposal));
@@ -1527,10 +1605,11 @@
   }
 
   /** Applique une proposition (réutilisé par la carte et « Tout valider »). */
-  async function sendApply(proposal, dueDateValue, subtasks) {
+  async function sendApply(proposal, dueDateValue, subtasks, preparations) {
     const body = {};
     if (dueDateValue) body.due_date = dueDateValue;
     if (Array.isArray(subtasks)) body.subtasks = subtasks;
+    if (Array.isArray(preparations)) body.preparations = preparations;
     return apiJson(`/api/proposals/${encodeURIComponent(proposal.id)}/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
@@ -1607,7 +1686,14 @@
     if (btn) btn.disabled = false;
   }
 
-  async function validateProposal(proposal, dateInput, validateBtn, ignoreBtn, subtasks) {
+  async function validateProposal(
+    proposal,
+    dateInput,
+    validateBtn,
+    ignoreBtn,
+    subtasks,
+    preparations
+  ) {
     validateBtn.disabled = true;
     ignoreBtn.disabled = true;
     const original = validateBtn.textContent;
@@ -1617,7 +1703,8 @@
       const result = await sendApply(
         proposal,
         dateInput ? dateInput.value : undefined,
-        subtasks
+        subtasks,
+        preparations
       );
       consumeApplied(proposal, result);
       toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
@@ -2387,6 +2474,9 @@
       if (task.is_old && !task.due_date) {
         badges.append(h('span', { class: 'badge' }, `Ancienne · ${task.age_days} j`));
       }
+      if (isPreparationTask(task)) {
+        badges.append(h('span', { class: 'badge badge-prep' }, '🧩 Préparation'));
+      }
       if (badges.childElementCount > 0) content.append(badges);
 
       // Détail : voir les sous-tâches à tous les niveaux, en ajouter, découper.
@@ -2555,6 +2645,19 @@
 
   function findTaskById(id) {
     return (state.data?.tasks || []).find((task) => task.id === id) || null;
+  }
+
+  const PREPARATION_MARKER = 'Préparation créée par Triage';
+
+  /** Une préparation créée par l'app (sous-tâche marquée dans sa note). */
+  function isPreparationTask(task) {
+    if (!task?.parent_id) return false;
+    if (String(task.description || '').includes(PREPARATION_MARKER)) return true;
+    // Anciennes préparations (avant le marqueur) : sous-tâche numérotée ET datée.
+    // Une découpe classique n'a pas de date ; c'est ce qui les distingue.
+    return Boolean(
+      task.due_date && /^\s*\d+[.)]\s+/.test(String(task.display_title || task.content || ''))
+    );
   }
 
   /** Titre sans le préfixe « 2. » : les numéros affichés sont dynamiques. */
