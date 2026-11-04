@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 16 : découpage contextualisé, préparations visibles dans le widget, sélection des préparations).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 17 : réorganisation de la journée par priorité et ordre d'exécution).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

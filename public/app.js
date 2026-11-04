@@ -38,6 +38,7 @@
       error: null,
     },
     cleanup: { depth: 0, scan: null, loading: false },
+    dayOrder: { date: null, loading: false, error: null, data: null, mode: 'execution' },
     taskDetail: {
       open: false,
       taskId: null,
@@ -71,6 +72,8 @@
     kpis: document.getElementById('kpis'),
     widgetSummary: document.getElementById('widget-summary'),
     widgetLists: document.getElementById('widget-lists'),
+    dayOrderBtn: document.getElementById('day-order-btn'),
+    dayOrder: document.getElementById('day-order'),
     proposalsCount: document.getElementById('proposals-count'),
     capacity: document.getElementById('capacity'),
     dayPlan: document.getElementById('day-plan'),
@@ -721,6 +724,161 @@
         )
       );
     }
+
+    renderDayOrder();
+  }
+
+  function currentFocusDate() {
+    return state.selectedDate || state.data?.meta?.today || null;
+  }
+
+  async function loadDayOrder() {
+    const date = currentFocusDate();
+    if (!date || state.dayOrder.loading) return;
+    state.dayOrder = {
+      date,
+      loading: true,
+      error: null,
+      data: null,
+      mode: state.dayOrder.mode || 'execution',
+    };
+    renderDayOrder();
+
+    try {
+      const result = await apiJson('/api/day/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ date }),
+      });
+      state.dayOrder.data = result;
+      state.dayOrder.loading = false;
+      state.dayOrder.mode = 'execution';
+      renderDayOrder();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.dayOrder.loading = false;
+      state.dayOrder.error = error.message || 'Impossible d’ordonner la journée.';
+      renderDayOrder();
+    }
+  }
+
+  function renderDayOrder() {
+    if (!els.dayOrder) return;
+    els.dayOrderBtn.disabled = Boolean(state.dayOrder.loading);
+    els.dayOrderBtn.textContent = state.dayOrder.loading
+      ? '🔀 Analyse de l’ordre…'
+      : '🔀 Réorganiser la journée';
+
+    const focus = currentFocusDate();
+    const data = state.dayOrder.data;
+    const sameDay = data && data.date === focus;
+
+    if (state.dayOrder.error) {
+      els.dayOrder.hidden = false;
+      clear(els.dayOrder);
+      els.dayOrder.append(
+        h('p', { class: 'day-status is-error' }, state.dayOrder.error)
+      );
+      return;
+    }
+
+    if (state.dayOrder.loading) {
+      els.dayOrder.hidden = false;
+      clear(els.dayOrder);
+      els.dayOrder.append(
+        h('p', { class: 'day-status' }, '🧠 Je cherche l’ordre de priorité et d’exécution…')
+      );
+      return;
+    }
+
+    if (!sameDay) {
+      els.dayOrder.hidden = true;
+      clear(els.dayOrder);
+      return;
+    }
+
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    const mode = state.dayOrder.mode === 'priority' ? 'priority' : 'execution';
+
+    const ordered = (() => {
+      if (mode === 'priority') {
+        return (data.priority || []).map((id) => ({ id, why: null }));
+      }
+      return (data.execution || []).map((entry) => ({
+        id: typeof entry === 'string' ? entry : entry.id,
+        why: typeof entry === 'string' ? null : entry.why,
+      }));
+    })();
+
+    const toggle = (value, label) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: `chip${mode === value ? ' is-active' : ''}`,
+          onclick: () => {
+            state.dayOrder.mode = value;
+            renderDayOrder();
+          },
+        },
+        label
+      );
+
+    els.dayOrder.hidden = false;
+    clear(els.dayOrder);
+    els.dayOrder.append(
+      h(
+        'div',
+        { class: 'day-order-head' },
+        h('h3', {}, `Ordre du ${formatDate(focus)}`),
+        h('div', { class: 'chips' }, toggle('priority', 'Priorité'), toggle('execution', 'Exécution'))
+      )
+    );
+
+    if (data.strategy) {
+      els.dayOrder.append(h('p', { class: 'day-strategy' }, `🧠 ${data.strategy}`));
+    }
+
+    if (ordered.length === 0) {
+      els.dayOrder.append(h('p', { class: 'empty-line' }, 'Aucune tâche à ordonner ce jour-là.'));
+      return;
+    }
+
+    const list = h('div', { class: 'day-order-list' });
+    const sizeLabel = { L: 'Gros', M: 'Moyen', S: 'Petit' };
+    for (const [index, entry] of ordered.entries()) {
+      const task = byId.get(entry.id);
+      if (!task) continue;
+      list.append(
+        h(
+          'div',
+          { class: 'day-order-item' },
+          h('span', { class: 'day-order-rank' }, `${index + 1}.`),
+          h('span', { class: `pill prio-pill` }, task.priority_label),
+          h(
+            'div',
+            { class: 'day-order-body' },
+            h(
+              'div',
+              { class: 'day-order-title-line' },
+              h('span', { class: 'day-order-title' }, task.title),
+              h('span', { class: `pill size-${task.size}` }, sizeLabel[task.size] || task.size),
+              task.overdue ? h('span', { class: 'pill pill-danger' }, 'En retard') : null,
+              task.is_prep
+                ? h(
+                    'span',
+                    { class: 'pill pill-soft' },
+                    `🧩${task.parent_title ? ` de « ${task.parent_title} »` : ''}`
+                  )
+                : null
+            ),
+            entry.why ? h('span', { class: 'day-order-why' }, entry.why) : null
+          )
+        )
+      );
+    }
+    els.dayOrder.append(list);
   }
 
   function buildListBlock(title, count, items, tone = 'muted', note = null) {
@@ -900,6 +1058,10 @@
     state.selectedDate = date;
     state.dayLoading = true;
     state.dayError = null;
+    if (state.dayOrder.data?.date !== date) {
+      state.dayOrder.data = null;
+      state.dayOrder.error = null;
+    }
     renderWidget();
     renderPlanner();
     await loadDay(date, { analyze, force });
@@ -3354,6 +3516,7 @@
   els.retryBtn.addEventListener('click', () => load({ force: true }));
   els.exportBtn.addEventListener('click', exportJson);
   els.logoutBtn.addEventListener('click', logout);
+  els.dayOrderBtn.addEventListener('click', loadDayOrder);
 
   // Assistant « Notes & idées ».
   els.assistantFab.addEventListener('click', () => setAssistantOpen(!state.assistant.open));

@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 16.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 17.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -475,6 +475,23 @@ Dans la fenêtre « Préparer la tâche », chaque préparation a une **case à 
 - le serveur ne crée que la sélection envoyée (`preparations`), refuse une sélection vide
   et renumérote les préparations créées.
 
+## Itération 17 — réorganiser la journée
+
+Dans le widget du jour, un bouton **« 🔀 Réorganiser la journée »** produit deux ordres :
+
+- **Priorité** : P1 → P4, retards d'abord, puis ordre alphabétique ;
+- **Exécution** : proposé par l'IA en tenant compte des dépendances, des préparations
+  (avant leur tâche parente), des retards, des priorités et de l'alternance
+  grosses/petites tâches.
+
+L'ordre s'affiche avec des **numéros**, la priorité, la taille, les retards, le parent des
+préparations et une **raison courte** par tâche en mode exécution. Un sélecteur
+**Priorité / Exécution** permet de basculer. La liste inclut les tâches principales, les
+**préparations du jour** et, si le jour choisi est aujourd'hui, les retards.
+
+Aucun ordre n'est écrit dans Todoist : c'est une aide à l'exécution, en lecture seule.
+Route : `POST /api/day/order` — implémentation `src/dayOrder.js` (cache 30 min).
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -665,6 +682,7 @@ src/aiProposals.js     condensé, invite, validation et cache des propositions I
 src/prepare.js         préparation et découpage assisté d'une tâche (IA)
 src/subtaskOrder.js    ordre logique récursif des sous-tâches (IA)
 src/renumber.js        renumérotation des sous-tâches après ajout/suppression
+src/dayOrder.js        ordre de priorité et ordre d'exécution de la journée (IA)
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
@@ -686,7 +704,7 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 16 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 17 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -694,7 +712,8 @@ récap hebdo), **retour adaptatif sur les propositions ignorées**, **préparati
 en sous-étapes datées, **numérotées**, **renumérotées** après suppression et **visibles dans
 le widget du jour**, **sélection des préparations à créer**, **exploration des sous-tâches**
 avec ajout manuel et **découpage contextualisé** selon le niveau, **ordre logique récursif**
-des sous-tâches, **nettoyage approfondi progressif** et **carnet de notes éditable**
-persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
+des sous-tâches, **réorganisation de la journée** par priorité et ordre d'exécution,
+**nettoyage approfondi progressif** et **carnet de notes éditable** persistant pour
+OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
 automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
 implémentées et seront abordées après retour d'usage.

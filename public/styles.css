@@ -2695,3 +2695,98 @@ button:disabled {
     width: 100%;
   }
 }
+
+/* ==========================================================================
+   Itération 17 — ordre de la journée
+   ========================================================================== */
+
+.widget-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 14px;
+}
+
+.widget-tools .fine-print {
+  margin: 0;
+}
+
+.day-order {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.day-order-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.day-order-head h3 {
+  font-size: 15px;
+}
+
+.day-order-head .chips {
+  margin: 0;
+  padding-bottom: 0;
+}
+
+.day-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.day-order-item {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.day-order-rank {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-order-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.day-order-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.day-order-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.day-order-why {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.prio-pill {
+  background: var(--surface-3);
+  color: var(--ink);
+  font-weight: 700;
+}

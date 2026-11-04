@@ -29,6 +29,7 @@ const {
 } = require('./aiProposals');
 const { generatePreparation, generateDecomposition } = require('./prepare');
 const { generateSubtaskOrder } = require('./subtaskOrder');
+const { generateDayOrder } = require('./dayOrder');
 const {
   renumberNumberedChildren,
   nextNumberedTitle,
@@ -475,6 +476,42 @@ function createApp() {
         strategy: plan.summary || null,
         cached: Boolean(plan.cached),
         usage: plan.usage || null,
+      });
+    })
+  );
+
+  /**
+   * Réorganise la journée : ordre de priorité + ordre d'exécution proposé.
+   * Lecture seule, aucun ordre n'est écrit dans Todoist.
+   */
+  app.post(
+    '/api/day/order',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      const date = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
+      if (!isValidIsoDate(date)) {
+        return res.status(400).json({
+          error: { code: 'BAD_DATE', message: 'Date invalide.' },
+        });
+      }
+
+      const force = req.body?.force === true;
+      const { snapshot } = await getSnapshot({ force: false });
+      const result = await generateDayOrder(snapshot, date, { force });
+
+      return res.json({
+        ok: true,
+        date,
+        tasks: result.tasks,
+        priority: result.priority,
+        execution: result.execution,
+        strategy: result.summary || null,
+        cached: Boolean(result.cached),
+        usage: result.usage || null,
       });
     })
   );
