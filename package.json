@@ -1,0 +1,19 @@
+{
+  "name": "todoist-triage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 1 : export en lecture seule).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "test:watch": "node --test --watch"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

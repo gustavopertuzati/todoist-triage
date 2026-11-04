@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f5f0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Triage pour Todoist</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Aller au contenu</a>
+
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/" aria-label="Triage pour Todoist, accueil">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M4 6h16M4 12h10M4 18h7" stroke-linecap="round" />
+              <path d="m16 16 2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="brand-text"><strong>Triage</strong><span>pour Todoist</span></span>
+        </a>
+
+        <div class="topbar-actions">
+          <button id="refresh-btn" class="icon-btn" type="button" aria-label="Rafraîchir les données" title="Rafraîchir">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M20 11a8 8 0 1 0-2.3 5.7" stroke-linecap="round" />
+              <path d="M20 4v7h-7" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button id="export-btn" class="btn btn-primary" type="button">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" />
+            </svg>
+            <span>Exporter</span>
+          </button>
+          <button id="logout-btn" class="icon-btn" type="button" aria-label="Se déconnecter" title="Se déconnecter">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" stroke-linecap="round" />
+              <path d="M10 8l-4 4 4 4M6 12h10" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="page">
+      <section id="loading" class="loading" aria-live="polite">
+        <div class="skeleton skeleton-title"></div>
+        <div class="skeleton-grid">
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+        </div>
+        <div class="skeleton skeleton-panel"></div>
+        <p class="loading-text">Lecture de ton Todoist…</p>
+      </section>
+
+      <section id="error-panel" class="alert alert-error alert-panel" hidden role="alert">
+        <h2 id="error-title">Impossible de lire Todoist</h2>
+        <p id="error-message"></p>
+        <p id="error-hint" class="alert-hint" hidden></p>
+        <button id="retry-btn" class="btn btn-secondary" type="button">Réessayer</button>
+      </section>
+
+      <div id="content" hidden>
+        <section class="hero">
+          <p id="today-label" class="eyebrow"></p>
+          <h1>Ton Todoist, en clair.</h1>
+          <p id="synced-at" class="hero-sub"></p>
+        </section>
+
+        <section id="warnings-panel" class="alert alert-warn" hidden aria-live="polite">
+          <h2>À savoir</h2>
+          <ul id="warnings-list"></ul>
+        </section>
+
+        <section id="kpis" class="kpis" aria-label="Résumé"></section>
+
+        <section class="panel" aria-labelledby="widget-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="widget-title">Le widget « Aujourd’hui »</h2>
+              <p class="panel-sub">
+                Pour apparaître dans ton filtre, une tâche doit avoir une vraie échéance Todoist.
+              </p>
+            </div>
+            <span class="pill pill-readonly">Lecture seule</span>
+          </div>
+          <div id="widget-summary" class="widget-summary"></div>
+          <div id="widget-lists" class="widget-lists"></div>
+          <p class="fine-print">
+            Rien n’a été modifié dans Todoist par cette page. Les dates lues dans les titres
+            seront appliquées à l’itération 2, après confirmation.
+          </p>
+        </section>
+
+        <section class="panel" aria-labelledby="insights-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="insights-title">À regarder</h2>
+              <p class="panel-sub">Les signaux qui expliquent le désordre, sans jugement.</p>
+            </div>
+          </div>
+          <div id="insights" class="insights"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="explorer-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="explorer-title">Explorer</h2>
+              <p class="panel-sub">Tous les projets actifs, sections et sous-tâches.</p>
+            </div>
+          </div>
+          <div class="search-row">
+            <label class="sr-only" for="search">Rechercher une tâche ou un projet</label>
+            <input id="search" type="search" placeholder="Rechercher une tâche, un label, un projet…" autocomplete="off" />
+            <span id="search-count" class="search-count" aria-live="polite"></span>
+          </div>
+          <div id="projects" class="projects"></div>
+          <p id="archived-note" class="fine-print" hidden></p>
+        </section>
+
+        <footer class="page-footer">
+          <p>
+            Données lues via l’API Todoist v1 · fuseau <span id="footer-tz"></span> ·
+            aucune écriture.
+          </p>
+          <p>Non affilié à Todoist. Version <span id="footer-version"></span>.</p>
+        </footer>
+      </div>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

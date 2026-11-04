@@ -1,0 +1,8 @@
+# Normalise les fins de ligne : le dépôt et l'image Docker restent en LF.
+* text=auto eol=lf
+
+# Fichiers binaires éventuels
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary

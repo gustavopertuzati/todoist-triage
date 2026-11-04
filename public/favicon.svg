@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Triage pour Todoist">
+  <rect width="64" height="64" rx="16" fill="#b4441f"/>
+  <g fill="none" stroke="#fff8f4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 20h36M14 32h24M14 44h16"/>
+    <path d="m38 43 5 5 10-11"/>
+  </g>
+</svg>

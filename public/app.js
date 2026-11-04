@@ -1,0 +1,1065 @@
+'use strict';
+
+/*
+ * Interface de l'itération 1.
+ *
+ * Règles :
+ * - tous les contenus Todoist sont insérés avec textContent (jamais innerHTML) ;
+ * - aucune écriture Todoist n'est possible depuis cette page ;
+ * - l'export est un fichier JSON téléchargé, pas un stockage serveur.
+ */
+
+(() => {
+  const state = {
+    data: null,
+    query: '',
+    loading: false,
+    toastTimer: null,
+  };
+
+  const els = {
+    loading: document.getElementById('loading'),
+    content: document.getElementById('content'),
+    errorPanel: document.getElementById('error-panel'),
+    errorTitle: document.getElementById('error-title'),
+    errorMessage: document.getElementById('error-message'),
+    errorHint: document.getElementById('error-hint'),
+    retryBtn: document.getElementById('retry-btn'),
+    refreshBtn: document.getElementById('refresh-btn'),
+    exportBtn: document.getElementById('export-btn'),
+    logoutBtn: document.getElementById('logout-btn'),
+    todayLabel: document.getElementById('today-label'),
+    syncedAt: document.getElementById('synced-at'),
+    warningsPanel: document.getElementById('warnings-panel'),
+    warningsList: document.getElementById('warnings-list'),
+    kpis: document.getElementById('kpis'),
+    widgetSummary: document.getElementById('widget-summary'),
+    widgetLists: document.getElementById('widget-lists'),
+    insights: document.getElementById('insights'),
+    search: document.getElementById('search'),
+    searchCount: document.getElementById('search-count'),
+    projects: document.getElementById('projects'),
+    archivedNote: document.getElementById('archived-note'),
+    footerTz: document.getElementById('footer-tz'),
+    footerVersion: document.getElementById('footer-version'),
+    toast: document.getElementById('toast'),
+  };
+
+  const TODOIST_COLORS = new Set([
+    'berry_red', 'red', 'orange', 'yellow', 'olive_green', 'lime_green', 'green',
+    'mint_green', 'teal', 'sky_blue', 'light_blue', 'blue', 'grape', 'violet',
+    'lavender', 'magenta', 'salmon', 'charcoal', 'grey', 'taupe',
+  ]);
+
+  const shortDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+  const shortDateYear = new Intl.DateTimeFormat('fr-FR', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  const longDate = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  // ---------------------------------------------------------------------------
+  // Petites aides DOM
+  // ---------------------------------------------------------------------------
+
+  function appendChildren(element, children) {
+    for (const child of children.flat(Infinity)) {
+      if (child === null || child === undefined || child === false) continue;
+      if (child instanceof Node) element.append(child);
+      else element.append(document.createTextNode(String(child)));
+    }
+  }
+
+  function h(tag, attrs = {}, ...children) {
+    const element = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs || {})) {
+      if (value === null || value === undefined || value === false) continue;
+      if (key === 'class') element.className = value;
+      else if (key === 'text') element.textContent = value;
+      else if (key === 'dataset') {
+        for (const [dataKey, dataValue] of Object.entries(value)) {
+          if (dataValue !== null && dataValue !== undefined) element.dataset[dataKey] = dataValue;
+        }
+      } else if (key.startsWith('on') && typeof value === 'function') {
+        element.addEventListener(key.slice(2).toLowerCase(), value);
+      } else if (value === true) {
+        element.setAttribute(key, '');
+      } else {
+        element.setAttribute(key, String(value));
+      }
+    }
+    appendChildren(element, children);
+    return element;
+  }
+
+  function clear(element) {
+    element.replaceChildren();
+  }
+
+  function colorClass(color) {
+    return TODOIST_COLORS.has(color) ? `color-${color}` : 'color-grey';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dates
+  // ---------------------------------------------------------------------------
+
+  function isoToLocalDate(iso) {
+    return new Date(`${iso}T12:00:00`);
+  }
+
+  function addDaysIso(iso, days) {
+    const date = new Date(`${iso}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    const today = state.data?.meta?.today;
+    if (today && iso === today) return "aujourd'hui";
+    if (today && iso === addDaysIso(today, 1)) return 'demain';
+    if (today && iso === addDaysIso(today, -1)) return 'hier';
+    const date = isoToLocalDate(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    const sameYear = today ? iso.slice(0, 4) === today.slice(0, 4) : true;
+    return sameYear ? shortDate.format(date) : shortDateYear.format(date);
+  }
+
+  function formatTodayLabel(iso) {
+    const date = isoToLocalDate(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    const label = longDate.format(date);
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
+  function formatTime(isoString, timeZone) {
+    if (!isoString) return '';
+    try {
+      return new Intl.DateTimeFormat('fr-FR', {
+        timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(isoString));
+    } catch {
+      return '';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Réseau
+  // ---------------------------------------------------------------------------
+
+  async function apiJson(url, options = {}) {
+    let response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: { Accept: 'application/json', ...(options.headers || {}) },
+      });
+    } catch {
+      const error = new Error('Connexion au serveur impossible.');
+      error.code = 'NETWORK_ERROR';
+      throw error;
+    }
+
+    if (response.status === 401) {
+      window.location.replace('/login');
+      const error = new Error('Session expirée.');
+      error.code = 'SESSION_REQUIRED';
+      throw error;
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(payload?.error?.message || `Erreur ${response.status}.`);
+      error.code = payload?.error?.code || 'HTTP_ERROR';
+      error.hint = payload?.error?.hint || null;
+      error.retryAfter = payload?.error?.retry_after || null;
+      throw error;
+    }
+    return payload;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chargement et états
+  // ---------------------------------------------------------------------------
+
+  function setLoading(loading) {
+    state.loading = loading;
+    els.refreshBtn.disabled = loading;
+    els.refreshBtn.classList.toggle('is-spinning', loading);
+  }
+
+  function showError(error) {
+    els.loading.hidden = true;
+    els.content.hidden = true;
+    els.errorPanel.hidden = false;
+
+    const titles = {
+      CONFIG_MISSING: 'Configuration serveur incomplète',
+      TODOIST_AUTH: 'Token Todoist refusé',
+      TODOIST_FORBIDDEN: 'Accès Todoist refusé',
+      RATE_LIMITED: 'Quota Todoist atteint',
+      NETWORK_ERROR: 'Réseau indisponible',
+      TODOIST_UPSTREAM: 'Todoist est indisponible',
+      TODOIST_BAD_RESPONSE: 'Réponse Todoist illisible',
+    };
+    els.errorTitle.textContent = titles[error.code] || 'Impossible de lire Todoist';
+    els.errorMessage.textContent = error.message || 'Erreur inconnue.';
+    if (error.hint) {
+      els.errorHint.textContent = error.hint;
+      els.errorHint.hidden = false;
+    } else {
+      els.errorHint.hidden = true;
+    }
+  }
+
+  async function load({ force = false } = {}) {
+    if (state.loading) return;
+    setLoading(true);
+    els.errorPanel.hidden = true;
+    els.content.hidden = true;
+    els.loading.hidden = false;
+
+    try {
+      const data = await apiJson(`/api/overview${force ? '?refresh=1' : ''}`);
+      state.data = data;
+      render();
+      els.loading.hidden = true;
+      els.content.hidden = false;
+      if (force) toast('Données rafraîchies depuis Todoist.', 'ok');
+    } catch (error) {
+      if (error.code !== 'SESSION_REQUIRED') showError(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rendu principal
+  // ---------------------------------------------------------------------------
+
+  function render() {
+    const { meta, summary, warnings } = state.data;
+    document.title = `Triage · ${formatDate(meta.today)}`;
+    els.todayLabel.textContent = formatTodayLabel(meta.today);
+    els.syncedAt.textContent = buildSyncLabel(meta);
+    els.footerTz.textContent = meta.timezone;
+    els.footerVersion.textContent = meta.app_version || '';
+    renderWarnings(warnings);
+    renderKpis(summary);
+    renderWidget();
+    renderInsights();
+    renderProjects();
+  }
+
+  function buildSyncLabel(meta) {
+    const time = formatTime(meta.generated_at, meta.timezone);
+    const cached = meta.cache?.hit
+      ? ` · cache de ${meta.cache.age_seconds}s`
+      : '';
+    return `Synchronisé à ${time}${cached} · ${meta.timezone}`;
+  }
+
+  function renderWarnings(warnings) {
+    clear(els.warningsList);
+    const unique = [...new Set((warnings || []).filter(Boolean))];
+    if (unique.length === 0) {
+      els.warningsPanel.hidden = true;
+      return;
+    }
+    for (const warning of unique) els.warningsList.append(h('li', {}, warning));
+    els.warningsPanel.hidden = false;
+  }
+
+  function renderKpis(summary) {
+    clear(els.kpis);
+    const cards = [
+      {
+        label: 'Projets actifs',
+        value: summary.projects_total,
+        sub: `${summary.sections_total} section(s)`,
+      },
+      {
+        label: 'Tâches actives',
+        value: summary.tasks_total,
+        sub: `${summary.subtasks_total} sous-tâche(s)`,
+      },
+      {
+        label: 'En retard',
+        value: summary.overdue_total,
+        sub: 'échéance Todoist dépassée',
+        tone: summary.overdue_total > 0 ? 'danger' : null,
+      },
+      {
+        label: "Aujourd'hui",
+        value: summary.due_today_total,
+        sub:
+          summary.title_dates_today > 0
+            ? `+ ${summary.title_dates_today} à appliquer depuis le titre`
+            : 'échéance du jour',
+        tone: summary.due_today_total > 0 ? 'today' : null,
+      },
+      {
+        label: 'Sans échéance',
+        value: summary.no_due_total,
+        sub: `${summary.title_dates_total} date(s) dans le titre`,
+      },
+      {
+        label: 'Sans activité',
+        value: summary.projects_empty + summary.projects_no_progress,
+        sub: `${summary.projects_empty} vide(s) · ${summary.projects_no_progress} sans progression`,
+      },
+    ];
+
+    for (const card of cards) {
+      els.kpis.append(
+        h(
+          'article',
+          { class: `kpi${card.tone ? ` kpi-${card.tone}` : ''}` },
+          h('span', { class: 'kpi-label' }, card.label),
+          h('strong', { class: 'kpi-value' }, card.value),
+          h('span', { class: 'kpi-sub' }, card.sub)
+        )
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Widget Aujourd'hui
+  // ---------------------------------------------------------------------------
+
+  function activeTasks() {
+    return state.data.tasks.filter((task) => !task.project_archived);
+  }
+
+  function sortedTodayTasks() {
+    return activeTasks()
+      .filter((task) => task.is_due_today || task.is_overdue)
+      .sort((a, b) => {
+        if (a.is_overdue !== b.is_overdue) return a.is_overdue ? -1 : 1;
+        return (b.days_overdue || 0) - (a.days_overdue || 0) ||
+          a.display_title.localeCompare(b.display_title);
+      });
+  }
+
+  function renderWidget() {
+    const tasks = activeTasks();
+    const todayTasks = sortedTodayTasks();
+    const titleOnly = tasks
+      .filter((task) => task.date_convention.valid && !task.due_date)
+      .sort((a, b) => (a.title_due_date || '').localeCompare(b.title_due_date || '') ||
+        a.display_title.localeCompare(b.display_title));
+    const conflicts = tasks.filter((task) => task.conflict);
+
+    clear(els.widgetSummary);
+    clear(els.widgetLists);
+
+    const stats = [
+      {
+        tone: todayTasks.length > 0 ? 'ok' : 'muted',
+        value: todayTasks.length,
+        label: 'tâche(s) avec une échéance aujourd’hui ou en retard',
+      },
+      {
+        tone: titleOnly.length > 0 ? 'warn' : 'muted',
+        value: titleOnly.length,
+        label: 'date(s) lue(s) dans le titre, pas encore appliquée(s)',
+      },
+      {
+        tone: conflicts.length > 0 ? 'danger' : 'muted',
+        value: conflicts.length,
+        label: 'conflit(s) entre titre et échéance',
+      },
+    ];
+    for (const stat of stats) {
+      els.widgetSummary.append(
+        h(
+          'div',
+          { class: `widget-stat tone-${stat.tone}` },
+          h('strong', {}, stat.value),
+          h('span', {}, stat.label)
+        )
+      );
+    }
+
+    if (todayTasks.length > 0) {
+      els.widgetLists.append(
+        buildListBlock(
+          'Visibles dans le widget',
+          `${todayTasks.length} tâche(s)`,
+          todayTasks.slice(0, 8).map((task) => taskLine(task)),
+          'ok'
+        )
+      );
+    } else {
+      els.widgetLists.append(
+        buildListBlock(
+          'Visibles dans le widget',
+          '0 tâche',
+          [h('p', { class: 'empty-line' }, 'Aucune échéance aujourd’hui ni en retard.')],
+          'ok'
+        )
+      );
+    }
+
+    if (titleOnly.length > 0) {
+      els.widgetLists.append(
+        buildListBlock(
+          'Dans le titre, pas encore dans le widget',
+          `${titleOnly.length} tâche(s)`,
+          titleOnly.slice(0, 8).map((task) =>
+            taskLine(task, `${formatDate(task.title_due_date)} · à appliquer`)
+          ),
+          'warn',
+          'Elles n’apparaîtront dans « Aujourd’hui » qu’une fois la date appliquée à l’itération 2.'
+        )
+      );
+    }
+
+    if (conflicts.length > 0) {
+      els.widgetLists.append(
+        buildListBlock(
+          'Conflits à arbitrer',
+          `${conflicts.length} tâche(s)`,
+          conflicts.slice(0, 8).map((task) =>
+            taskLine(
+              task,
+              `titre : ${formatDate(task.title_due_date)} / échéance : ${formatDate(task.due_date)}`
+            )
+          ),
+          'danger'
+        )
+      );
+    }
+  }
+
+  function buildListBlock(title, count, items, tone = 'muted', note = null) {
+    return h(
+      'div',
+      { class: `list-block tone-${tone}` },
+      h(
+        'div',
+        { class: 'list-head' },
+        h('h3', {}, title),
+        h('span', { class: 'pill' }, count)
+      ),
+      h('ul', { class: 'plain-list' }, items),
+      note ? h('p', { class: 'fine-print' }, note) : null
+    );
+  }
+
+  function taskLine(task, meta = null) {
+    return h(
+      'li',
+      { class: 'plain-item' },
+      h('span', { class: `prio prio-${task.priority}` }, task.priority_label),
+      h(
+        'span',
+        { class: 'plain-item-body' },
+        h('span', { class: 'plain-item-title' }, task.display_title || task.content),
+        meta
+          ? h('span', { class: 'plain-item-meta' }, meta)
+          : task.due_date
+            ? h(
+                'span',
+                { class: `plain-item-meta${task.is_overdue ? ' is-danger' : ''}` },
+                task.is_overdue
+                  ? `${task.days_overdue} j de retard`
+                  : task.is_due_today
+                    ? "aujourd'hui"
+                    : formatDate(task.due_date)
+              )
+            : null
+      ),
+      todoistLink(task.id, 'Ouvrir dans Todoist')
+    );
+  }
+
+  function todoistLink(taskId, label) {
+    return h(
+      'a',
+      {
+        class: 'task-open',
+        href: `https://app.todoist.com/app/task/${encodeURIComponent(taskId)}`,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        'aria-label': label,
+        title: label,
+      },
+      '↗'
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Insights
+  // ---------------------------------------------------------------------------
+
+  function renderInsights() {
+    const { projects, summary, meta } = state.data;
+    clear(els.insights);
+    const activeProjects = projects.filter((project) => !project.is_archived);
+    const overdue = activeTasks()
+      .filter((task) => task.is_overdue)
+      .sort((a, b) => (b.days_overdue || 0) - (a.days_overdue || 0));
+    const emptyProjects = activeProjects.filter((project) => project.stats.empty);
+    const noProgress = activeProjects
+      .filter((project) => project.stats.no_progress)
+      .sort((a, b) => b.stats.tasks - a.stats.tasks);
+
+    let blocks = 0;
+
+    if (overdue.length > 0) {
+      blocks += 1;
+      els.insights.append(
+        buildListBlock(
+          'En retard',
+          `${overdue.length} tâche(s)`,
+          overdue.slice(0, 8).map((task) => taskLine(task)),
+          'danger',
+          overdue.length > 8 ? `Et ${overdue.length - 8} autre(s), visibles dans les projets.` : null
+        )
+      );
+    }
+
+    if (emptyProjects.length > 0) {
+      blocks += 1;
+      els.insights.append(
+        buildListBlock(
+          'Projets vides',
+          `${emptyProjects.length} projet(s)`,
+          emptyProjects.slice(0, 10).map((project) => projectLine(project, 'aucune tâche active')),
+          'muted',
+          emptyProjects.length > 10 ? `Et ${emptyProjects.length - 10} autre(s).` : null
+        )
+      );
+    }
+
+    if (noProgress.length > 0) {
+      blocks += 1;
+      els.insights.append(
+        buildListBlock(
+          'Projets sans progression',
+          `${noProgress.length} projet(s)`,
+          noProgress.slice(0, 10).map((project) =>
+            projectLine(
+              project,
+              `${project.stats.tasks} tâche(s) · 0 terminée sur ${meta.completed_lookback_days} j`
+            )
+          ),
+          'warn',
+          noProgress.length > 10 ? `Et ${noProgress.length - 10} autre(s).` : null
+        )
+      );
+    }
+
+    if (summary.old_undated_total > 0) {
+      blocks += 1;
+      els.insights.append(
+        h(
+          'div',
+          { class: 'insight-note' },
+          h('strong', {}, `${summary.old_undated_total} tâche(s) ancienne(s) sans échéance`),
+          h(
+            'span',
+            {},
+            `Créées depuis plus de ${meta.old_task_days || 180} jours et sans date : de bonnes candidates au tri de l’itération 4.`
+          )
+        )
+      );
+    }
+
+    if (blocks === 0) {
+      els.insights.append(
+        h(
+          'p',
+          { class: 'empty-line' },
+          'Rien de particulier à signaler. Ton Todoist est peut-être simplement bien rangé.'
+        )
+      );
+    }
+  }
+
+  function projectLine(project, meta) {
+    return h(
+      'li',
+      { class: 'plain-item' },
+      h('span', { class: `project-dot ${colorClass(project.color)}`, 'aria-hidden': 'true' }),
+      h(
+        'span',
+        { class: 'plain-item-body' },
+        h('span', { class: 'plain-item-title' }, project.name),
+        h('span', { class: 'plain-item-meta' }, meta)
+      ),
+      h(
+        'a',
+        {
+          class: 'task-open',
+          href: `https://app.todoist.com/app/project/${encodeURIComponent(project.id)}`,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          'aria-label': `Ouvrir ${project.name} dans Todoist`,
+          title: 'Ouvrir dans Todoist',
+        },
+        '↗'
+      )
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Exploration des projets
+  // ---------------------------------------------------------------------------
+
+  function taskMatches(task, query) {
+    if (!query) return true;
+    const haystack = [
+      task.display_title,
+      task.content,
+      task.description,
+      task.priority_label,
+      ...(task.labels || []),
+      task.due_string || '',
+    ]
+      .join(' ')
+      .toLocaleLowerCase('fr-FR');
+    return haystack.includes(query);
+  }
+
+  function buildVisibleTaskIds(projectTasks, query) {
+    if (!query) return null;
+    const byId = new Map(projectTasks.map((task) => [task.id, task]));
+    const children = new Map();
+    for (const task of projectTasks) {
+      if (!task.parent_id || !byId.has(task.parent_id)) continue;
+      if (!children.has(task.parent_id)) children.set(task.parent_id, []);
+      children.get(task.parent_id).push(task);
+    }
+    const matched = new Set(
+      projectTasks.filter((task) => taskMatches(task, query)).map((task) => task.id)
+    );
+    const visible = new Set();
+
+    function addWithAncestors(task) {
+      let current = task;
+      const guard = new Set();
+      while (current && !guard.has(current.id)) {
+        guard.add(current.id);
+        visible.add(current.id);
+        current = current.parent_id ? byId.get(current.parent_id) : null;
+      }
+    }
+
+    function addDescendants(task) {
+      const stack = [...(children.get(task.id) || [])];
+      const guard = new Set();
+      while (stack.length) {
+        const current = stack.pop();
+        if (guard.has(current.id)) continue;
+        guard.add(current.id);
+        visible.add(current.id);
+        stack.push(...(children.get(current.id) || []));
+      }
+    }
+
+    for (const id of matched) {
+      const task = byId.get(id);
+      addWithAncestors(task);
+      addDescendants(task);
+    }
+    return visible;
+  }
+
+  function sortTasks(tasks) {
+    return tasks.sort((a, b) => {
+      const aKey = a.order_key || '';
+      const bKey = b.order_key || '';
+      if (aKey && bKey && aKey !== bKey) return aKey.localeCompare(bKey);
+      const aOrder = Number(a.child_order ?? 0);
+      const bOrder = Number(b.child_order ?? 0);
+      return aOrder - bOrder || a.display_title.localeCompare(b.display_title, 'fr-FR');
+    });
+  }
+
+  function renderProjects() {
+    const { projects, sections, meta } = state.data;
+    const query = state.query.trim().toLocaleLowerCase('fr-FR');
+    const activeProjects = projects.filter((project) => !project.is_archived);
+    clear(els.projects);
+
+    let visibleCount = 0;
+    let visibleProjects = 0;
+
+    for (const project of activeProjects) {
+      const projectTasks = state.data.tasks.filter((task) => task.project_id === project.id);
+      const projectMatches =
+        !query ||
+        project.name.toLocaleLowerCase('fr-FR').includes(query) ||
+        (project.description || '').toLocaleLowerCase('fr-FR').includes(query);
+      const visibleIds = projectMatches
+        ? null
+        : buildVisibleTaskIds(projectTasks, query);
+      const hasVisibleTasks = projectMatches || (visibleIds && visibleIds.size > 0);
+      if (!hasVisibleTasks) continue;
+
+      visibleProjects += 1;
+      visibleCount += projectMatches
+        ? projectTasks.length
+        : projectTasks.filter((task) => visibleIds.has(task.id)).length;
+
+      const details = h('details', { class: 'project', open: query ? true : null });
+      const summary = h(
+        'summary',
+        { class: 'project-summary' },
+        h('span', { class: `project-dot ${colorClass(project.color)}`, 'aria-hidden': 'true' }),
+        h(
+          'span',
+          { class: 'project-title-wrap' },
+          h(
+            'span',
+            { class: 'project-title-line' },
+            h('span', { class: 'project-name' }, project.name),
+            project.is_inbox ? h('span', { class: 'pill pill-soft' }, 'Inbox') : null,
+            project.stats.overdue > 0
+              ? h('span', { class: 'pill pill-danger' }, `${project.stats.overdue} en retard`)
+              : null,
+            project.stats.no_progress
+              ? h('span', { class: 'pill pill-warn' }, 'sans progression')
+              : null
+          ),
+          h(
+            'span',
+            { class: 'project-meta' },
+            `${project.stats.tasks} tâche(s)` +
+              (project.stats.sections > 0 ? ` · ${project.stats.sections} section(s)` : '') +
+              ` · ${project.stats.completed_lookback} terminée(s) sur ${meta.completed_lookback_days} j`
+          )
+        ),
+        h('span', { class: 'chevron', 'aria-hidden': 'true' }, '⌄')
+      );
+
+      const body = h('div', { class: 'project-body' });
+      details.append(summary, body);
+
+      let bodyRendered = false;
+      const ensureBody = () => {
+        if (bodyRendered) return;
+        bodyRendered = true;
+        renderProjectBody(body, project, sections, projectTasks, visibleIds, query);
+      };
+      details.addEventListener('toggle', () => {
+        if (details.open) ensureBody();
+      });
+      if (query) ensureBody();
+
+      els.projects.append(details);
+    }
+
+    if (visibleProjects === 0) {
+      els.projects.append(
+        h(
+          'p',
+          { class: 'empty-line' },
+          query ? 'Aucun projet ou tâche ne correspond à cette recherche.' : 'Aucun projet actif.'
+        )
+      );
+    }
+
+    els.searchCount.textContent = query
+      ? `${visibleCount} tâche(s) dans ${visibleProjects} projet(s)`
+      : '';
+
+    const archived = state.data.summary.projects_archived;
+    if (archived > 0) {
+      els.archivedNote.textContent = `${archived} projet(s) archivé(s) inclus dans l’export JSON, masqué(s) ici.`;
+      els.archivedNote.hidden = false;
+    } else {
+      els.archivedNote.hidden = true;
+    }
+  }
+
+  function renderProjectBody(body, project, allSections, projectTasks, visibleIds, query) {
+    // Statistiques détaillées du projet.
+    body.append(
+      h(
+        'div',
+        { class: 'project-stats' },
+        statLine('Sans échéance', project.stats.no_due),
+        statLine('Dates dans le titre', project.stats.title_dates),
+        statLine('Conflits', project.stats.conflicts),
+        project.stats.last_completed_at
+          ? h(
+              'span',
+              { class: 'stat-line' },
+              h('span', {}, 'Dernière tâche terminée'),
+              h('strong', {}, formatDateOnly(project.stats.last_completed_at))
+            )
+          : null
+      )
+    );
+
+    const byId = new Map(projectTasks.map((task) => [task.id, task]));
+    const children = new Map();
+    const roots = [];
+    for (const task of projectTasks) {
+      if (task.parent_id && byId.has(task.parent_id)) {
+        if (!children.has(task.parent_id)) children.set(task.parent_id, []);
+        children.get(task.parent_id).push(task);
+      } else {
+        roots.push(task);
+      }
+    }
+    for (const list of children.values()) sortTasks(list);
+    sortTasks(roots);
+
+    const isVisible = (task) => !visibleIds || visibleIds.has(task.id);
+    const visibleRoots = roots.filter(isVisible);
+
+    if (visibleRoots.length === 0) {
+      body.append(
+        h(
+          'p',
+          { class: 'empty-line' },
+          projectTasks.length === 0
+            ? 'Aucune tâche active.'
+            : 'Aucune tâche ne correspond à cette recherche.'
+        )
+      );
+      return;
+    }
+
+    const projectSections = allSections
+      .filter((section) => section.project_id === project.id && !section.is_archived)
+      .sort(
+        (a, b) =>
+          Number(a.section_order ?? 0) - Number(b.section_order ?? 0) ||
+          (a.order_key || '').localeCompare(b.order_key || '') ||
+          a.name.localeCompare(b.name)
+      );
+    const sectionIds = new Set(projectSections.map((section) => section.id));
+    const groups = new Map();
+    groups.set(null, []);
+    for (const section of projectSections) groups.set(section.id, []);
+    for (const task of visibleRoots) {
+      const key = task.section_id && sectionIds.has(task.section_id) ? task.section_id : null;
+      groups.get(key).push(task);
+    }
+
+    const renderTask = (task, depth) => {
+      const listItem = h('li', { class: 'task' });
+      const row = h('div', { class: `task-row${depth > 0 ? ' is-subtask' : ''}` });
+
+      row.append(h('span', { class: `prio prio-${task.priority}` }, task.priority_label));
+
+      const content = h('div', { class: 'task-content' });
+      content.append(
+        h('div', { class: 'task-head' }, h('span', { class: 'task-title' }, task.display_title || task.content))
+      );
+
+      const badges = h('div', { class: 'badges' });
+      if (task.is_overdue) {
+        badges.append(
+          h(
+            'span',
+            { class: 'badge badge-danger' },
+            task.days_overdue ? `En retard · ${task.days_overdue} j` : 'En retard'
+          )
+        );
+      } else if (task.is_due_today) {
+        badges.append(h('span', { class: 'badge badge-today' }, "Aujourd'hui"));
+      } else if (task.due_date) {
+        badges.append(h('span', { class: 'badge badge-due' }, `Échéance ${formatDate(task.due_date)}`));
+      }
+
+      if (task.due_is_recurring) badges.append(h('span', { class: 'badge' }, '↻ récurrente'));
+      if (task.deadline_date) {
+        badges.append(h('span', { class: 'badge' }, `Deadline ${formatDate(task.deadline_date)}`));
+      }
+
+      if (task.date_convention.valid && !task.due_date) {
+        badges.append(
+          h(
+            'span',
+            { class: 'badge badge-title' },
+            `Titre → ${formatDate(task.title_due_date)} · à appliquer`
+          )
+        );
+      }
+      if (task.conflict) {
+        badges.append(
+          h(
+            'span',
+            { class: 'badge badge-warn' },
+            `Conflit : titre ${formatDate(task.title_due_date)} / échéance ${formatDate(task.due_date)}`
+          )
+        );
+      }
+      if (task.date_convention.detected && !task.date_convention.valid) {
+        badges.append(
+          h(
+            'span',
+            { class: 'badge badge-warn' },
+            `Date illisible${task.date_convention.reason ? ` · ${task.date_convention.reason}` : ''}`
+          )
+        );
+      }
+      for (const label of task.labels) {
+        badges.append(h('span', { class: 'badge badge-label' }, `#${label}`));
+      }
+      if (task.is_old && !task.due_date) {
+        badges.append(h('span', { class: 'badge' }, `Ancienne · ${task.age_days} j`));
+      }
+      if (badges.childElementCount > 0) content.append(badges);
+
+      if (task.description) {
+        content.append(
+          h(
+            'details',
+            { class: 'task-note' },
+            h('summary', {}, 'Note'),
+            h('p', {}, task.description)
+          )
+        );
+      }
+
+      row.append(content, todoistLink(task.id, 'Ouvrir la tâche dans Todoist'));
+      listItem.append(row);
+
+      const childTasks = (children.get(task.id) || []).filter(isVisible);
+      if (childTasks.length > 0 && depth < 12) {
+        const childList = h('ul', { class: 'task-children' });
+        for (const child of childTasks) childList.append(renderTask(child, depth + 1));
+        listItem.append(childList);
+      }
+      return listItem;
+    };
+
+    const hasNamedSections = projectSections.length > 0;
+    const sectionGroups = [
+      { id: null, name: 'Sans section', tasks: groups.get(null) || [] },
+      ...projectSections.map((section) => ({
+        id: section.id,
+        name: section.name,
+        tasks: groups.get(section.id) || [],
+      })),
+    ].filter((group) => group.tasks.length > 0);
+
+    for (const group of sectionGroups) {
+      const section = h('section', { class: 'task-section' });
+      if (hasNamedSections) {
+        section.append(h('h3', { class: 'section-title' }, group.name));
+      }
+      const list = h('ul', { class: 'task-tree' });
+      for (const task of group.tasks) list.append(renderTask(task, 0));
+      section.append(list);
+      body.append(section);
+    }
+  }
+
+  function statLine(label, value) {
+    return h(
+      'span',
+      { class: 'stat-line' },
+      h('span', {}, label),
+      h('strong', {}, value)
+    );
+  }
+
+  function formatDateOnly(value) {
+    const iso = String(value).slice(0, 10);
+    return formatDate(iso);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
+
+  async function exportJson() {
+    if (!state.data) return;
+    const original = els.exportBtn.innerHTML;
+    els.exportBtn.disabled = true;
+    els.exportBtn.textContent = 'Préparation…';
+    try {
+      const response = await fetch('/api/export', {
+        headers: { Accept: 'application/json' },
+      });
+      if (response.status === 401) {
+        window.location.replace('/login');
+        return;
+      }
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error?.message || `Erreur ${response.status}.`);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') || '';
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const fallback = `todoist-export-${state.data.meta.today}.json`;
+      const filename = match?.[1] || fallback;
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      toast('Export préparé. Sur iPhone, il arrive dans Fichiers → Téléchargements.', 'ok');
+    } catch (error) {
+      toast(error.message || 'Export impossible.', 'error');
+    } finally {
+      els.exportBtn.disabled = false;
+      els.exportBtn.innerHTML = original;
+    }
+  }
+
+  async function logout() {
+    try {
+      await apiJson('/api/logout', {
+        method: 'POST',
+        headers: { 'X-App-Request': '1' },
+      });
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+    }
+    window.location.replace('/login');
+  }
+
+  function toast(message, tone = 'ok') {
+    clearTimeout(state.toastTimer);
+    els.toast.textContent = message;
+    els.toast.className = `toast toast-${tone}`;
+    els.toast.hidden = false;
+    state.toastTimer = setTimeout(() => {
+      els.toast.hidden = true;
+    }, 4500);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Événements
+  // ---------------------------------------------------------------------------
+
+  let searchTimer = null;
+  els.search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.query = els.search.value;
+      renderProjects();
+    }, 120);
+  });
+
+  els.refreshBtn.addEventListener('click', () => load({ force: true }));
+  els.retryBtn.addEventListener('click', () => load({ force: true }));
+  els.exportBtn.addEventListener('click', exportJson);
+  els.logoutBtn.addEventListener('click', logout);
+
+  // Démarrage.
+  load({ force: false });
+})();
