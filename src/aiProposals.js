@@ -1,18 +1,17 @@
 'use strict';
 
 /**
- * Planification par jour assistée par l'IA (itération 6).
+ * Planification par jour assistée par l'IA (itérations 6 et 7).
  *
- * Le principe a changé : au lieu d'un lot global de propositions, on raisonne
- * JOUR PAR JOUR. Pour une date donnée, l'app :
+ * Pour une date donnée, l'app :
  *   1. mesure ce qui est déjà prévu ce jour-là (taille estimée de chaque tâche) ;
- *   2. en déduit la place restante selon la règle « 1-3-5 » (1 gros, 3 moyens,
- *      5 petits) ;
- *   3. demande à l'IA quelles tâches non planifiées conviennent le mieux à ce
- *      jour, sans dépasser la place restante.
+ *   2. applique le check-in du jour (énergie, forme, temps, envie, humeur) pour
+ *      calculer la charge AUTORISÉE, plus légère si tu es fatigué ou malade ;
+ *   3. demande à l'IA quelles tâches conviennent le mieux à ce jour — et, si la
+ *      journée est trop chargée, quelles tâches **reporter** vers d'autres jours.
  *
- * L'IA ne peut produire que des échéances (`set_due_date`) et, éventuellement,
- * des scissions (`split_task`). Rien n'est écrit ici.
+ * L'IA ne peut produire que des échéances (`set_due_date`, ajout ou report) et des
+ * scissions (`split_task`). Aucune écriture ici.
  */
 
 const crypto = require('node:crypto');
@@ -20,10 +19,12 @@ const { config } = require('./config');
 const { chatJson, AiError } = require('./ai');
 const { weekdayName, estimateTaskSize, SIZE_LABELS } = require('./capacity');
 const { targetFromTask } = require('./proposals');
+const { computeAllowed, describeCheckin, normalizeCheckin } = require('./checkin');
 
 const SYSTEM_PROMPT = [
   'Tu es un assistant d’organisation personnelle, spécialisé dans la planification d’une',
-  'journée précise d’un Todoist surchargé. Tu respectes strictement la place disponible.',
+  'journée précise d’un Todoist surchargé. Tu tiens compte de l’état et de l’humeur de la',
+  'personne, et tu respectes strictement la charge autorisée.',
   'Réfléchis brièvement, sans digression.',
   'Tu réponds UNIQUEMENT par un objet JSON valide, sans texte autour, sans balises Markdown.',
 ].join(' ');
@@ -36,12 +37,14 @@ function signatureOf(value) {
   return crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex');
 }
 
-// Propositions déjà présentées mais pas encore tranchées : elles restent
-// résolvables pour la validation, même après une écriture.
+function total(load) {
+  return load.L + load.M + load.S;
+}
+
 const STORE_TTL_MS = 2 * 60 * 60 * 1000;
 const STORE_MAX = 400;
-let store = new Map(); // id -> { proposal, at }
-let dayCache = new Map(); // date -> { signature, items, summary, generatedAt, usage, model }
+let store = new Map();
+let dayCache = new Map();
 
 function rememberItems(items) {
   const now = Date.now();
@@ -77,7 +80,7 @@ function clearAiCache() {
 /** Informations brutes d'une journée (sans IA). */
 function dayInfo(snapshot, date) {
   const rule = (snapshot.capacity && snapshot.capacity.rule) || config.capacityRule;
-  const day = (snapshot.capacity && snapshot.capacity.days || []).find((d) => d.date === date);
+  const day = ((snapshot.capacity && snapshot.capacity.days) || []).find((d) => d.date === date);
 
   const planned = snapshot.tasks
     .filter((task) => !task.project_archived && task.due_date === date)
@@ -88,27 +91,18 @@ function dayInfo(snapshot, date) {
       size_label: SIZE_LABELS[estimateTaskSize(task)],
       priority_label: task.priority_label,
       project_name: task.project_name,
-      is_overdue: task.is_overdue,
-      is_done: false,
     }));
 
   const load = day ? { ...day.load } : { L: 0, M: 0, S: 0 };
   const remaining = day ? { ...day.remaining } : { ...rule };
 
-  return {
-    date,
-    weekday: weekdayName(date),
-    rule,
-    load,
-    remaining,
-    total: planned.length,
-    planned,
-  };
+  return { date, weekday: weekdayName(date), rule, load, remaining, total: planned.length, planned };
 }
 
-/** Condensé envoyé au modèle pour une journée. */
-function buildDayDigest(snapshot, date) {
+/** Condensé envoyé au modèle pour une journée (avec le check-in). */
+function buildDayDigest(snapshot, date, checkin) {
   const info = dayInfo(snapshot, date);
+  const { allowed, label, notes, answers } = computeAllowed(checkin, info.rule);
   const active = snapshot.tasks.filter((task) => !task.project_archived);
 
   const overdue = active
@@ -140,103 +134,179 @@ function buildDayDigest(snapshot, date) {
     });
   }
 
-  const remainingTotal = info.remaining.L + info.remaining.M + info.remaining.S;
+  const excess = {
+    L: Math.max(0, info.load.L - allowed.L),
+    M: Math.max(0, info.load.M - allowed.M),
+    S: Math.max(0, info.load.S - allowed.S),
+  };
+  const room = {
+    L: Math.max(0, allowed.L - info.load.L),
+    M: Math.max(0, allowed.M - info.load.M),
+    S: Math.max(0, allowed.S - info.load.S),
+  };
 
-  const projects = snapshot.projects
-    .filter((project) => !project.is_archived)
-    .map((project) => ({ id: project.id, name: project.name }));
+  const otherDays = ((snapshot.capacity && snapshot.capacity.days) || [])
+    .filter((day) => day.date !== date)
+    .map((day) => ({ date: day.date, weekday: day.weekday, remaining: day.remaining }));
+
+  const selectedDayTasks = info.planned.slice(0, 20).map((task) => ({
+    id: task.id,
+    title: String(task.title).slice(0, 80),
+    size: task.size,
+    priority: task.priority_label,
+  }));
 
   return {
     today: snapshot.meta.today,
     timezone: snapshot.meta.timezone,
     date,
     weekday: info.weekday,
+    checkin: {
+      answers: describeCheckin(answers),
+      notes,
+      label,
+    },
     capacity_rule: info.rule,
-    remaining: info.remaining,
-    already_planned: info.planned.slice(0, 12).map((task) => ({
-      title: task.title.slice(0, 40),
-      size: task.size,
-    })),
-    max_proposals: Math.min(config.aiMaxProposals, Math.max(0, remainingTotal)),
-    projects,
+    allowed,
+    day_load: info.load,
+    can_add: room,
+    to_remove: excess,
+    max_proposals: Math.min(config.aiMaxProposals, Math.max(0, total(room))),
+    max_defers: Math.min(config.aiMaxProposals, Math.max(0, total(excess))),
+    selected_day_tasks: selectedDayTasks,
+    agenda: otherDays,
+    projects: snapshot.projects
+      .filter((project) => !project.is_archived)
+      .map((project) => ({ id: project.id, name: project.name })),
     tasks,
   };
 }
 
 function buildUserPrompt(digest) {
-  return [
-    `Remplis la journée du ${digest.date} (${digest.weekday}).`,
+  const answers = digest.checkin.answers
+    .map((answer) => `- ${answer.label} : ${answer.option}`)
+    .join('\n');
+
+  const lines = [
+    `Planifie la journée du ${digest.date} (${digest.weekday}).`,
     '',
-    'Place disponible ce jour (règle 1-3-5) :',
-    `- gros (L) : ${digest.remaining.L}`,
-    `- moyens (M) : ${digest.remaining.M}`,
-    `- petits (S) : ${digest.remaining.S}`,
-    'Tu ne dois PAS dépasser ces quantités. Si une taille est à 0, ne propose rien de cette taille.',
+    'Check-in de la personne :',
+    answers,
+  ];
+
+  if (digest.checkin.notes.length > 0) {
+    lines.push('Consignes liées au check-in :', ...digest.checkin.notes.map((n) => `- ${n}`));
+  }
+
+  lines.push(
     '',
+    'Charge autorisée pour cette journée (règle adaptée à son état) :',
+    `- gros (L) : ${digest.allowed.L}`,
+    `- moyens (M) : ${digest.allowed.M}`,
+    `- petits (S) : ${digest.allowed.S}`,
+    '',
+    `Déjà prévu ce jour : ${digest.day_load.L} gros, ${digest.day_load.M} moyens, ${digest.day_load.S} petits.`,
+    ''
+  );
+
+  const remove = total(digest.to_remove);
+  const add = total(digest.can_add);
+
+  if (remove > 0) {
+    lines.push(
+      `La journée est TROP CHARGÉE : il faudrait reporter environ ${remove} tâche(s) pour`,
+      `respecter la charge autorisée. Dans cette passe, propose au maximum ${digest.max_defers}`,
+      'report(s) : choisis dans "selected_day_tasks" les tâches les moins essentielles',
+      '(petites priorités d’abord) et mets-les dans "defer" avec une nouvelle date, en',
+      'respectant la place restante des autres jours (voir "agenda").',
+      ''
+    );
+  }
+
+  if (add > 0) {
+    lines.push(
+      `Il reste de la place pour environ ${add} tâche(s) : choisis dans "tasks" les plus`,
+      'adaptées à son état (voir le check-in) et mets-les dans "proposals" avec la date',
+      `exacte ${digest.date}.`,
+      ''
+    );
+  }
+
+  lines.push(
     'Règles :',
-    '- Choisis les tâches les plus adaptées à ce jour parmi celles listées (retards d’abord,',
-    '  puis priorités hautes et tâches anciennes), sans dépasser la place disponible.',
-    '- Regroupe si possible des tâches d’un même thème ce jour-là.',
-    '- Donne pour chaque proposition une taille "L", "M" ou "S" (indice : "size_hint").',
-    '- due_date doit être EXACTEMENT ' + digest.date + '.',
-    '- reason : une phrase courte, concrète et en français.',
-    '- group : un thème court et optionnel.',
-    `- Propose au maximum ${digest.max_proposals} tâches, uniquement parmi celles listées.`,
+    '- Ne dépasse jamais "allowed" pour les ajouts.',
+    '- Donne pour chaque ajout une taille "L", "M" ou "S".',
+    '- "due_date" des ajouts doit être EXACTEMENT ' + digest.date + '.',
+    '- "reason" : une phrase courte en français, tenant compte de son état.',
+    `- Au maximum ${digest.max_proposals} ajout(s).`,
     '',
-    'En plus, pour une tâche listée qui te semble un « fourre-tout » trop gros pour une',
-    'seule journée, tu peux proposer de la scinder (2 à 10 sous-tâches) dans "splits".',
-    'N’utilise pas "splits" pour une tâche déjà présente dans "proposals".',
+    'Tu peux aussi proposer de scinder une grosse tâche fourre-tout (2 à 10 sous-tâches)',
+    'dans "splits" (parmi les tâches listées ou celles du jour).',
     '',
     'Réponds EXACTEMENT par ce JSON :',
-    '{"summary":"phrase décrivant tes choix pour cette journée",',
+    '{"summary":"phrase décrivant la journée adaptée à son état",',
     ' "proposals":[{"task_id":"...","due_date":"' + digest.date + '","size":"L|M|S","reason":"...","group":"..."}],',
+    ' "defer":[{"task_id":"...","due_date":"AAAA-MM-JJ","reason":"..."}],',
     ' "splits":[{"task_id":"...","reason":"...","subtasks":["...","..."]}]}',
     '',
     'Données :',
-    JSON.stringify(digest),
-  ].join('\n');
+    JSON.stringify(digest)
+  );
+
+  return lines.join('\n');
 }
 
 /**
- * Valide la réponse du modèle pour la journée et la borne à la place restante.
- * @returns {{items: object[], dropped: number}}
+ * Valide la réponse du modèle pour la journée : ajouts bornés à la charge autorisée,
+ * reports bornés à la place des jours cibles, scissions.
  */
 function validateDayResponse(parsed, snapshot, date, digest) {
-  const allowed = new Map(digest.tasks.map((task) => [task.id, task]));
   const tasksById = new Map(snapshot.tasks.map((task) => [task.id, task]));
-  const remaining = { ...digest.remaining };
+  const allowedIds = new Set(digest.tasks.map((task) => task.id));
+  const dayTaskIds = new Set(digest.selected_day_tasks.map((task) => task.id));
+  const rule = digest.capacity_rule;
+
+  const dayRemaining = new Map(
+    ((snapshot.capacity && snapshot.capacity.days) || []).map((day) => [
+      day.date,
+      { ...day.remaining },
+    ])
+  );
+
+  const addBudget = { ...digest.can_add };
+  let deferBudget = Math.min(
+    config.aiMaxProposals,
+    Math.max(0, total(digest.to_remove))
+  );
   const seen = new Set();
   const items = [];
 
-  const rawProposals = Array.isArray(parsed?.proposals) ? parsed.proposals : [];
-
-  for (const raw of rawProposals) {
-    if (items.filter((item) => item.type === 'set_due_date').length >= digest.max_proposals) break;
-
+  // Ajouts à la journée.
+  for (const raw of Array.isArray(parsed?.proposals) ? parsed.proposals : []) {
+    if (items.filter((item) => !item.move).length >= digest.max_proposals) break;
     const taskId = String(raw?.task_id || '');
-    if (!allowed.has(taskId) || seen.has(taskId)) continue;
+    if (!allowedIds.has(taskId) || seen.has(taskId)) continue;
 
     const due = String(raw?.due_date || '').trim();
     if (due !== date) continue;
 
     const task = tasksById.get(taskId);
-    if (!task || task.project_archived) continue;
-    if (task.due_date === date) continue;
+    if (!task || task.project_archived || task.due_date === date) continue;
 
     const size = ['L', 'M', 'S'].includes(raw?.size)
       ? raw.size
       : estimateTaskSize(task, task.subtask_count || 0);
-    if (remaining[size] <= 0) continue;
-    remaining[size] -= 1;
+    if (addBudget[size] <= 0) continue;
+    addBudget[size] -= 1;
 
     const reason = String(raw?.reason || '').trim().slice(0, 300);
     const group = raw?.group ? String(raw.group).trim().slice(0, 40) : null;
-
     seen.add(taskId);
+
     items.push({
       id: `ai:set_due_date:${taskId}:${hashId([date, reason, group || '', size])}`,
       type: 'set_due_date',
-      type_label: 'Dater',
+      type_label: 'Placer',
       source: 'ai',
       tone: 'warn',
       score: 55,
@@ -253,13 +323,56 @@ function validateDayResponse(parsed, snapshot, date, digest) {
     });
   }
 
-  // Scissions : utiles mais non rattachées à une date.
+  // Reports de tâches déjà prévues ce jour vers un autre jour.
+  for (const raw of Array.isArray(parsed?.defer) ? parsed.defer : []) {
+    if (deferBudget <= 0) break;
+    const taskId = String(raw?.task_id || '');
+    if (!dayTaskIds.has(taskId) || seen.has(taskId)) continue;
+
+    const due = String(raw?.due_date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || due === date) continue;
+
+    const slot = dayRemaining.get(due);
+    if (!slot) continue;
+
+    const task = tasksById.get(taskId);
+    if (!task || task.due_date !== date) continue;
+
+    const size = estimateTaskSize(task, task.subtask_count || 0);
+    if (slot[size] <= 0) continue;
+    slot[size] -= 1;
+    deferBudget -= 1;
+
+    const reason = String(raw?.reason || '').trim().slice(0, 300);
+    seen.add(taskId);
+
+    items.push({
+      id: `ai:defer:${taskId}:${hashId([due, reason])}`,
+      type: 'set_due_date',
+      type_label: 'Reporter',
+      source: 'ai',
+      move: true,
+      tone: 'muted',
+      score: 70,
+      size,
+      size_label: SIZE_LABELS[size],
+      title: 'Reporter à plus tard',
+      rationale: reason || 'Journée trop chargée : à reporter.',
+      ai_group: null,
+      target: targetFromTask(task),
+      action: { due_date: due },
+      editable: ['due_date'],
+      preview: `Reporter au ${due}`,
+      format: 'date',
+    });
+  }
+
+  // Scissions.
   const splits = [];
-  const rawSplits = config.aiAllowSplits && Array.isArray(parsed?.splits) ? parsed.splits : [];
-  for (const raw of rawSplits) {
+  for (const raw of config.aiAllowSplits && Array.isArray(parsed?.splits) ? parsed.splits : []) {
     if (splits.length >= 3) break;
     const taskId = String(raw?.task_id || '');
-    if (!allowed.has(taskId) || seen.has(taskId)) continue;
+    if (seen.has(taskId) || (!allowedIds.has(taskId) && !dayTaskIds.has(taskId))) continue;
     const task = tasksById.get(taskId);
     if (!task || task.project_archived) continue;
 
@@ -294,18 +407,21 @@ function validateDayResponse(parsed, snapshot, date, digest) {
     });
   }
 
-  return { items, splits, dropped: rawProposals.length - items.length };
+  const rawCount =
+    (Array.isArray(parsed?.proposals) ? parsed.proposals.length : 0) +
+    (Array.isArray(parsed?.defer) ? parsed.defer.length : 0);
+
+  return { items, splits, dropped: Math.max(0, rawCount - items.length) };
 }
 
-/**
- * Génère (ou récupère depuis le cache) les propositions pour une journée.
- */
-async function generateDayProposals(snapshot, date, { force = false } = {}) {
+/** Génère (ou récupère) les propositions pour une journée, avec check-in. */
+async function generateDayProposals(snapshot, date, { force = false, checkin = null } = {}) {
   if (!config.aiEnabled) {
     throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
   }
 
-  const digest = buildDayDigest(snapshot, date);
+  const answers = normalizeCheckin(checkin);
+  const digest = buildDayDigest(snapshot, date, answers);
   const signature = signatureOf(digest);
   const cached = dayCache.get(date);
 
@@ -318,30 +434,22 @@ async function generateDayProposals(snapshot, date, { force = false } = {}) {
     return { ...cached, cached: true };
   }
 
-  const remainingTotal = digest.remaining.L + digest.remaining.M + digest.remaining.S;
-  if (remainingTotal <= 0) {
+  const canAdd = total(digest.can_add);
+  const toRemove = total(digest.to_remove);
+  if (canAdd <= 0 && toRemove <= 0) {
     const empty = {
       signature,
       items: [],
       splits: [],
-      summary: 'Cette journée est déjà complète selon la règle 1-3-5.',
+      summary:
+        canAdd === 0 && toRemove === 0
+          ? 'Cette journée correspond déjà à ta charge autorisée.'
+          : 'Rien à ajuster pour cette journée.',
       generatedAt: Date.now(),
       usage: null,
       model: null,
-    };
-    dayCache.set(date, empty);
-    return { ...empty, cached: false };
-  }
-
-  if (digest.tasks.length === 0) {
-    const empty = {
-      signature,
-      items: [],
-      splits: [],
-      summary: 'Aucune tâche non planifiée à proposer pour cette journée.',
-      generatedAt: Date.now(),
-      usage: null,
-      model: null,
+      checkin: digest.checkin,
+      allowed: digest.allowed,
     };
     dayCache.set(date, empty);
     return { ...empty, cached: false };
@@ -356,21 +464,41 @@ async function generateDayProposals(snapshot, date, { force = false } = {}) {
 
   let summary = typeof data?.summary === 'string' ? data.summary.trim().slice(0, 400) : null;
   if (dropped > 0) {
-    summary = `${summary ? `${summary} ` : ''}(${dropped} proposition(s) écartée(s) : place insuffisante.)`;
+    summary = `${summary ? `${summary} ` : ''}(${dropped} proposition(s) écartée(s) : charge non respectée.)`;
   }
 
-  const entry = { signature, items, splits, summary, generatedAt: Date.now(), usage, model };
+  const entry = {
+    signature,
+    items,
+    splits,
+    summary,
+    generatedAt: Date.now(),
+    usage,
+    model,
+    checkin: digest.checkin,
+    allowed: digest.allowed,
+  };
   dayCache.set(date, entry);
   rememberItems([...items, ...splits]);
 
   return { ...entry, cached: false };
 }
 
-/** Propositions déjà en cache pour une date (sans appel réseau). */
-function peekDay(date) {
-  const entry = dayCache.get(date);
-  if (!entry) return null;
-  return entry;
+/** Résumé d'une journée selon le check-in (sans IA). */
+function describeDay(snapshot, date, checkin) {
+  const info = dayInfo(snapshot, date);
+  const { allowed, label, notes } = computeAllowed(checkin, info.rule);
+  const canAdd = {
+    L: Math.max(0, allowed.L - info.load.L),
+    M: Math.max(0, allowed.M - info.load.M),
+    S: Math.max(0, allowed.S - info.load.S),
+  };
+  const toRemove = {
+    L: Math.max(0, info.load.L - allowed.L),
+    M: Math.max(0, info.load.M - allowed.M),
+    S: Math.max(0, info.load.S - allowed.S),
+  };
+  return { ...info, allowed, canAdd, toRemove, label, notes };
 }
 
 module.exports = {
@@ -379,8 +507,8 @@ module.exports = {
   buildUserPrompt,
   validateDayResponse,
   dayInfo,
+  describeDay,
   generateDayProposals,
-  peekDay,
   findAiProposal,
   removeAiProposal,
   clearAiCache,

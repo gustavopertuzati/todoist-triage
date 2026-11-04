@@ -973,6 +973,60 @@ button:disabled {
   gap: 8px;
 }
 
+.checkin {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.checkin summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.checkin-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.checkin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.checkin-select {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 15px;
+}
+
+.day-notes {
+  display: grid;
+  gap: 3px;
+  padding-left: 18px;
+  list-style: disc;
+  font-size: 13px;
+  color: var(--warn);
+}
+
+.day-status.is-warn {
+  background: var(--warn-bg);
+  border-left-color: var(--warn);
+  color: var(--warn);
+}
+
 .proposal {
   padding: 12px 14px;
   border: 1px solid var(--line);

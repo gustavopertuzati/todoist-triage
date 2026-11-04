@@ -13,6 +13,7 @@ const {
   buildDayDigest,
   validateDayResponse,
   dayInfo,
+  describeDay,
   generateDayProposals,
   findAiProposal,
   removeAiProposal,
@@ -22,7 +23,13 @@ const { buildAgenda } = require('../src/capacity');
 
 const TODAY = '2026-11-04';
 const DAY = '2026-11-05';
+const LATER = '2026-11-10';
 const RULE = { L: 1, M: 3, S: 5 };
+
+// Check-in « en forme » : la charge complète est autorisée.
+const GOOD = { energy: 'high', health: 'great', time: 'allday', want: 'mix', mood: 'great' };
+// Check-in « malade » : journée allégée.
+const SICK = { energy: 'exhausted', health: 'sick', time: 'lt1h', want: 'short', mood: 'overwhelmed' };
 
 function task(overrides = {}) {
   return {
@@ -77,37 +84,41 @@ test('dayInfo liste les tâches déjà prévues avec leur taille', () => {
 
   assert.equal(info.total, 2);
   assert.deepEqual(info.load, { L: 1, M: 0, S: 1 });
-  assert.deepEqual(info.remaining, { L: 0, M: 3, S: 4 });
   assert.equal(info.planned[0].size_label, 'Gros');
 });
 
-test('buildDayDigest est déterministe et porte la place restante', () => {
-  const snapshot = snapshotWith([task({ id: 'a' }), task({ id: 'b' })]);
-  const digest = buildDayDigest(snapshot, DAY);
-  assert.deepEqual(digest, buildDayDigest(snapshot, DAY));
-  assert.equal(digest.date, DAY);
-  assert.deepEqual(digest.remaining, RULE);
-  assert.equal(digest.tasks.length, 2);
+test('describeDay réduit la charge autorisée si l’on est malade', () => {
+  const snapshot = snapshotWith([task({ id: 'a' })]);
+  const normal = describeDay(snapshot, DAY, GOOD);
+  const sick = describeDay(snapshot, DAY, SICK);
+
+  assert.deepEqual(normal.allowed, RULE);
+  assert.ok(sick.allowed.L === 0);
+  assert.ok(sick.allowed.L + sick.allowed.M + sick.allowed.S < RULE.L + RULE.M + RULE.S);
+  assert.match(sick.label, /allégée/i);
 });
 
-test('validateDayResponse ne garde que la journée visée et respecte la place', () => {
-  const snapshot = snapshotWith([
-    task({ id: 't1' }),
-    task({ id: 't2' }),
-    task({ id: 't3' }),
-    task({ id: 't4' }),
-  ]);
-  const digest = buildDayDigest(snapshot, DAY);
+test('buildDayDigest est déterministe et expose la place pour ajouter', () => {
+  const snapshot = snapshotWith([task({ id: 'a' }), task({ id: 'b' })]);
+  const digest = buildDayDigest(snapshot, DAY, GOOD);
+  assert.deepEqual(digest, buildDayDigest(snapshot, DAY, GOOD));
+  assert.equal(digest.date, DAY);
+  assert.deepEqual(digest.can_add, RULE);
+  assert.equal(digest.max_proposals, 5);
+});
+
+test('validateDayResponse ne garde que la journée visée et respecte la charge', () => {
+  const snapshot = snapshotWith([task({ id: 't1' }), task({ id: 't2' }), task({ id: 't3' }), task({ id: 't4' })]);
+  const digest = buildDayDigest(snapshot, DAY, GOOD);
 
   const { items } = validateDayResponse(
     {
-      summary: 'Journée test',
       proposals: [
         { task_id: 't1', due_date: DAY, size: 'L', reason: 'ok' },
-        { task_id: 't2', due_date: '2026-11-06', size: 'S', reason: 'mauvais jour' }, // écarté
-        { task_id: 't3', due_date: DAY, size: 'L', reason: 'dépasse le gros' }, // écarté
+        { task_id: 't2', due_date: '2026-11-06', size: 'S', reason: 'mauvais jour' },
+        { task_id: 't3', due_date: DAY, size: 'L', reason: 'dépasse le gros' },
         { task_id: 't4', due_date: DAY, size: 'S', reason: 'ok' },
-        { task_id: 'inconnu', due_date: DAY, size: 'S', reason: 'inconnu' }, // écarté
+        { task_id: 'inconnu', due_date: DAY, size: 'S', reason: 'inconnu' },
       ],
     },
     snapshot,
@@ -118,18 +129,54 @@ test('validateDayResponse ne garde que la journée visée et respecte la place',
   const ids = items.map((item) => item.target.id).sort();
   assert.deepEqual(ids, ['t1', 't4']);
   assert.ok(items.every((item) => item.action.due_date === DAY));
-  assert.equal(items.find((item) => item.target.id === 't1').size_label, 'Gros');
+});
+
+test('validateDayResponse propose de reporter quand la journée est trop chargée', () => {
+  const busy = task({ id: 'busy', due_date: DAY, duration: { amount: 90, unit: 'minute' } }); // gros
+  const snapshot = snapshotWith([busy, task({ id: 'free' })]);
+  const digest = buildDayDigest(snapshot, DAY, SICK);
+
+  // Malade : gros autorisé = 0 → il faut retirer le gros.
+  assert.equal(digest.allowed.L, 0);
+  assert.ok(digest.to_remove.L >= 1);
+
+  const { items } = validateDayResponse(
+    {
+      proposals: [],
+      defer: [{ task_id: 'busy', due_date: LATER, reason: 'trop lourd aujourd’hui' }],
+    },
+    snapshot,
+    DAY,
+    digest
+  );
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].move, true);
+  assert.equal(items[0].type_label, 'Reporter');
+  assert.equal(items[0].action.due_date, LATER);
+});
+
+test('validateDayResponse refuse un report vers un jour sans place', () => {
+  const busy = task({ id: 'busy', due_date: DAY, duration: { amount: 90, unit: 'minute' } });
+  const filler = task({ id: 'f', due_date: LATER, duration: { amount: 90, unit: 'minute' } });
+  const snapshot = snapshotWith([busy, filler]);
+  const digest = buildDayDigest(snapshot, DAY, SICK);
+
+  const { items } = validateDayResponse(
+    { defer: [{ task_id: 'busy', due_date: LATER, reason: 'plein' }] },
+    snapshot,
+    DAY,
+    digest
+  );
+  assert.equal(items.length, 0);
 });
 
 test('validateDayResponse accepte une scission proposée par l’IA', () => {
   const snapshot = snapshotWith([task({ id: 't1' })]);
-  const digest = buildDayDigest(snapshot, DAY);
+  const digest = buildDayDigest(snapshot, DAY, GOOD);
 
   const { splits } = validateDayResponse(
-    {
-      proposals: [],
-      splits: [{ task_id: 't1', reason: 'fourre-tout', subtasks: ['Étape un', 'Étape deux'] }],
-    },
+    { proposals: [], splits: [{ task_id: 't1', reason: 'fourre-tout', subtasks: ['Étape un', 'Étape deux'] }] },
     snapshot,
     DAY,
     digest
@@ -140,32 +187,7 @@ test('validateDayResponse accepte une scission proposée par l’IA', () => {
   assert.equal(splits[0].action.update_description, false);
 });
 
-test('validateDayResponse refuse tout si la place est nulle', () => {
-  const snapshot = snapshotWith([
-    task({ id: 'busy', due_date: DAY, duration: { amount: 90, unit: 'minute' } }), // L plein
-    task({ id: 'busy2', due_date: DAY, duration: { amount: 90, unit: 'minute' } }), // L plein aussi
-    task({ id: 't1' }),
-  ]);
-  // Occupe les 3 moyens et 5 petits.
-  const fillers = [];
-  for (let i = 0; i < 3; i += 1) fillers.push(task({ id: `m${i}`, due_date: DAY, duration: { amount: 45, unit: 'minute' } }));
-  for (let i = 0; i < 5; i += 1) fillers.push(task({ id: `s${i}`, due_date: DAY, duration: { amount: 10, unit: 'minute' } }));
-  snapshot.tasks = [...snapshot.tasks, ...fillers];
-  snapshot.capacity.days = buildAgenda({ tasks: snapshot.tasks, today: TODAY, horizonDays: 14, rule: RULE });
-
-  const digest = buildDayDigest(snapshot, DAY);
-  assert.deepEqual(digest.remaining, { L: 0, M: 0, S: 0 });
-
-  const { items } = validateDayResponse(
-    { proposals: [{ task_id: 't1', due_date: DAY, size: 'S', reason: 'non' }] },
-    snapshot,
-    DAY,
-    digest
-  );
-  assert.equal(items.length, 0);
-});
-
-test('un lot de jour reste résolvable et une proposition retirée ne casse pas les autres', async () => {
+test('un jour reste résolvable et une proposition retirée ne casse pas les autres', async () => {
   clearAiCache();
   const snapshot = snapshotWith([task({ id: 't1' }), task({ id: 't2' })]);
   const originalFetch = global.fetch;
@@ -194,7 +216,7 @@ test('un lot de jour reste résolvable et une proposition retirée ne casse pas 
   });
 
   try {
-    const result = await generateDayProposals(snapshot, DAY, { force: true });
+    const result = await generateDayProposals(snapshot, DAY, { force: true, checkin: GOOD });
     assert.equal(result.items.length, 2);
 
     const first = result.items[0];

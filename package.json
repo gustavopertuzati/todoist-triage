@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 6 : planification jour par jour assistée par IA, règle 1-3-5).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 7 : check-in du jour qui adapte la planification à ton état).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

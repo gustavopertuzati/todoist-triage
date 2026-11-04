@@ -19,7 +19,8 @@ const { getSnapshot, clearCache } = require('./exportService');
 const { TodoistError } = require('./todoist');
 const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
-const { dayInfo, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
+const { describeDay, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
+const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { AiError } = require('./ai');
 const { isValidIsoDate } = require('./dates');
 
@@ -241,6 +242,7 @@ function createApp() {
       timezone: config.timezone,
       ai_enabled: config.aiEnabled,
       ai_model: config.aiModel,
+      checkin: { questions: QUESTIONS, defaults: DEFAULTS },
     });
   });
 
@@ -331,6 +333,7 @@ function createApp() {
 
       const date = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
       const force = req.body?.force === true;
+      const checkin = normalizeCheckin(req.body?.checkin);
 
       const { snapshot } = await getSnapshot({ force: false });
       const days = (snapshot.capacity && snapshot.capacity.days) || [];
@@ -343,38 +346,32 @@ function createApp() {
         });
       }
 
-      const info = dayInfo(snapshot, date);
-
-      if (!config.aiEnabled) {
-        return res.json({
-          ok: true,
-          date,
-          ai: false,
-          weekday: info.weekday,
-          rule: info.rule,
-          load: info.load,
-          remaining: info.remaining,
-          total: info.total,
-          planned: info.planned,
-          proposals: [],
-          splits: [],
-          strategy: null,
-          cached: false,
-        });
-      }
-
-      const plan = await generateDayProposals(snapshot, date, { force });
-
-      return res.json({
+      const day = describeDay(snapshot, date, checkin);
+      const base = {
         ok: true,
         date,
+        weekday: day.weekday,
+        rule: day.rule,
+        load: day.load,
+        allowed: day.allowed,
+        can_add: day.canAdd,
+        to_remove: day.toRemove,
+        capacity_label: day.label,
+        capacity_notes: day.notes,
+        total: day.total,
+        planned: day.planned,
+        checkin,
+      };
+
+      if (!config.aiEnabled) {
+        return res.json({ ...base, ai: false, proposals: [], splits: [], strategy: null, cached: false });
+      }
+
+      const plan = await generateDayProposals(snapshot, date, { force, checkin });
+
+      return res.json({
+        ...base,
         ai: true,
-        weekday: info.weekday,
-        rule: info.rule,
-        load: info.load,
-        remaining: info.remaining,
-        total: info.total,
-        planned: info.planned,
         proposals: plan.items,
         splits: plan.splits || [],
         strategy: plan.summary || null,

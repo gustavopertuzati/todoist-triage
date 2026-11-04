@@ -22,6 +22,9 @@
     dayPlan: null,
     dayLoading: false,
     dayError: null,
+    checkinQuestions: [],
+    checkinDefaults: {},
+    checkins: {},
   };
 
   const els = {
@@ -97,7 +100,6 @@
     split_task: 'Scinder',
     set_due_date: 'Dater',
   };
-
   const IGNORED_KEY = 'todoist-triage:ignored-proposals';
 
   function loadIgnoredProposals() {
@@ -114,6 +116,36 @@
     } catch {
       /* stockage indisponible : on continue sans persister */
     }
+  }
+
+  const CHECKIN_KEY = 'todoist-triage:checkins';
+
+  function loadCheckins() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CHECKIN_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveCheckins() {
+    try {
+      localStorage.setItem(CHECKIN_KEY, JSON.stringify(state.checkins));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function getCheckin(date) {
+    const stored = state.checkins[date];
+    if (stored && typeof stored === 'object') return stored;
+    return { ...state.checkinDefaults };
+  }
+
+  function setCheckin(date, answers) {
+    state.checkins[date] = answers;
+    saveCheckins();
   }
 
   const shortDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
@@ -658,7 +690,7 @@
       const plan = await apiJson('/api/day/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, force }),
+        body: JSON.stringify({ date, force, checkin: getCheckin(date) }),
       });
       state.dayPlan = plan;
       state.dayLoading = false;
@@ -704,6 +736,9 @@
       )
     );
 
+    const checkinForm = renderCheckinForm(date);
+    if (checkinForm) els.dayPlan.append(checkinForm);
+
     if (state.dayLoading) {
       els.dayPlan.append(
         h('p', { class: 'day-status' }, '🧠 L’IA analyse cette journée et cherche les meilleures tâches…')
@@ -729,12 +764,31 @@
       h(
         'div',
         { class: 'day-capacity' },
-        h('span', {}, 'Place restante :'),
-        h('span', { class: 'pill size-L' }, `${plan.remaining.L} gros`),
-        h('span', { class: 'pill size-M' }, `${plan.remaining.M} moyens`),
-        h('span', { class: 'pill size-S' }, `${plan.remaining.S} petits`)
+        h('span', {}, plan.ai === false ? 'Capacité :' : 'Objectif selon ton état :'),
+        h('span', { class: 'pill size-L' }, `${(plan.allowed || plan.remaining).L} gros`),
+        h('span', { class: 'pill size-M' }, `${(plan.allowed || plan.remaining).M} moyens`),
+        h('span', { class: 'pill size-S' }, `${(plan.allowed || plan.remaining).S} petits`)
       )
     );
+
+    if (Array.isArray(plan.capacity_notes) && plan.capacity_notes.length > 0) {
+      const notes = h('ul', { class: 'day-notes' });
+      for (const note of plan.capacity_notes) notes.append(h('li', {}, note));
+      els.dayPlan.append(notes);
+    }
+
+    const toRemove = plan.to_remove
+      ? plan.to_remove.L + plan.to_remove.M + plan.to_remove.S
+      : 0;
+    if (toRemove > 0) {
+      els.dayPlan.append(
+        h(
+          'p',
+          { class: 'day-status is-warn' },
+          `Cette journée dépasse ta charge autorisée : reporte environ ${toRemove} tâche(s).`
+        )
+      );
+    }
 
     if (Array.isArray(plan.planned) && plan.planned.length > 0) {
       const list = h('ul', { class: 'plain-list' });
@@ -815,8 +869,56 @@
     return `Déjà posé : ${parts.length ? parts.join(' · ') : 'rien'}`;
   }
 
+  function renderCheckinForm(date) {
+    if (!Array.isArray(state.checkinQuestions) || state.checkinQuestions.length === 0) return null;
+    const answers = getCheckin(date);
+    const details = h('details', { class: 'checkin' });
+    details.open = Boolean(state.checkins[date]);
+    details.append(
+      h(
+        'summary',
+        {},
+        state.checkins[date]
+          ? 'Ton check-in du jour (adapter la journée)'
+          : 'Comment te sens-tu ? (adapter la journée)'
+      )
+    );
+
+    const form = h('div', { class: 'checkin-form' });
+    const selects = {};
+
+    for (const question of state.checkinQuestions) {
+      const select = h('select', { class: 'checkin-select', 'aria-label': question.label });
+      for (const option of question.options) {
+        select.append(h('option', { value: option.value }, option.label));
+      }
+      select.value = answers[question.key] || (state.checkinDefaults[question.key] ?? '');
+      selects[question.key] = select;
+      form.append(h('label', { class: 'checkin-row' }, h('span', {}, question.label), select));
+    }
+
+    form.append(
+      h(
+        'button',
+        { type: 'button', class: 'btn btn-primary btn-small' },
+        'Adapter ma journée'
+      )
+    );
+    form.querySelector('button').addEventListener('click', () => {
+      const next = {};
+      for (const question of state.checkinQuestions) {
+        next[question.key] = selects[question.key].value;
+      }
+      setCheckin(date, next);
+      selectDay(date, { force: true });
+    });
+
+    details.append(form);
+    return details;
+  }
+
   function proposalCard(proposal) {
-    const typeLabel = PROPOSAL_TYPE_META[proposal.type] || proposal.type;
+    const typeLabel = proposal.type_label || PROPOSAL_TYPE_META[proposal.type] || proposal.type;
     const card = h('article', { class: `proposal tone-${proposal.tone}` });
 
     card.append(
@@ -1688,5 +1790,15 @@
 
   // Démarrage.
   state.ignored = loadIgnoredProposals();
-  load({ force: false });
+  state.checkins = loadCheckins();
+  (async () => {
+    try {
+      const session = await apiJson('/api/session');
+      state.checkinQuestions = session.checkin?.questions || [];
+      state.checkinDefaults = session.checkin?.defaults || {};
+    } catch {
+      /* le questionnaire ne s'affichera pas, le reste fonctionne */
+    }
+    load({ force: false });
+  })();
 })();
