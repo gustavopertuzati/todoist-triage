@@ -23,6 +23,7 @@ const { describeDay, generateDayProposals, findAiProposal, removeAiProposal } = 
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { AiError } = require('./ai');
 const { isValidIsoDate } = require('./dates');
+const recycleBin = require('./recycleBin');
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
@@ -308,6 +309,7 @@ function createApp() {
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         ...snapshot,
+        trash: recycleBin.list(),
         ai: {
           enabled: config.aiEnabled,
           model: config.aiModel,
@@ -315,6 +317,26 @@ function createApp() {
         },
         meta: { ...snapshot.meta, cache },
       });
+    })
+  );
+
+  /** Restaure une tâche supprimée (corbeille). */
+  app.post(
+    '/api/trash/:id/restore',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const id = String(req.params.id || '');
+      const restored = await recycleBin.restore(id);
+      if (!restored) {
+        return res.status(404).json({
+          error: { code: 'TRASH_NOT_FOUND', message: 'Cette tâche n’est plus dans la corbeille.' },
+        });
+      }
+      clearCache();
+      return res.json({ ok: true, ...restored });
     })
   );
 

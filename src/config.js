@@ -96,6 +96,12 @@ const config = {
   },
   aiAllowSplits: (process.env.AI_ALLOW_SPLITS || 'true').toLowerCase() !== 'false',
 
+  // Itération 8 : nettoyage guidé (tâches fantômes, doublons, orphelines).
+  cleanupEnabled: (process.env.CLEANUP_ENABLED || 'true').toLowerCase() !== 'false',
+  cleanupGhostDays: readInt('CLEANUP_GHOST_DAYS', 365, { min: 90, max: 3650 }),
+  cleanupMaxPerKind: readInt('CLEANUP_MAX_PER_KIND', 10, { min: 1, max: 50 }),
+  cleanupMaxTotal: readInt('CLEANUP_MAX_TOTAL', 25, { min: 1, max: 100 }),
+
   isProduction: process.env.NODE_ENV === 'production',
 };
 

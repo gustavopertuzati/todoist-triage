@@ -15,8 +15,10 @@ const {
   createTask,
   archiveProject,
   getProject,
+  deleteTask,
 } = require('./todoist');
 const { normalizeDueDate } = require('./proposals');
+const recycleBin = require('./recycleBin');
 
 class ProposalError extends Error {
   constructor(code, message) {
@@ -101,6 +103,33 @@ async function applySplit(proposal) {
   };
 }
 
+async function applyDelete(proposal) {
+  const taskId = proposal.target.id;
+  await deleteTask(taskId);
+
+  // Relecture : la tâche doit avoir disparu.
+  let verified = null;
+  try {
+    await getTask(taskId);
+    verified = false;
+  } catch (error) {
+    if (error?.code === 'TODOIST_NOT_FOUND') verified = true;
+  }
+
+  const restore = proposal.action?.restore || { content: proposal.target.name };
+  const trashId = recycleBin.add({
+    restore,
+    title: proposal.target.name,
+    project_name: proposal.target.project_name,
+  });
+
+  return {
+    verified,
+    message: 'Tâche supprimée. Récupérable dans la corbeille si besoin.',
+    effects: { trash_id: trashId },
+  };
+}
+
 /**
  * @param {{proposal: object, overrides?: {due_date?: string}}} params
  */
@@ -117,6 +146,8 @@ async function applyProposal({ proposal, overrides = null }) {
       return applyArchive(proposal);
     case 'split_task':
       return applySplit(proposal);
+    case 'delete_task':
+      return applyDelete(proposal);
     default:
       throw new ProposalError('UNKNOWN_TYPE', 'Type de proposition inconnu.');
   }

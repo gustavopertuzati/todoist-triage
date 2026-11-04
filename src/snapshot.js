@@ -162,6 +162,10 @@ function buildSnapshot({
   capacityHorizonDays = 14,
   capacityRule = { L: 1, M: 3, S: 5 },
   includeDueDateRule = true,
+  cleanupEnabled = true,
+  cleanupGhostDays = 365,
+  cleanupMaxPerKind = 10,
+  cleanupMaxTotal = 25,
   generatedAt = new Date().toISOString(),
   appVersion = null,
 }) {
@@ -368,6 +372,10 @@ function buildSnapshot({
       maxTotal: proposalsMaxTotal,
       dueOffsetDays: proposalDueOffsetDays,
       includeDueDate: includeDueDateRule,
+      includeCleanup: cleanupEnabled,
+      ghostDays: cleanupGhostDays,
+      cleanupMaxPerKind,
+      cleanupMaxTotal,
     },
   });
 

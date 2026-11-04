@@ -7,11 +7,13 @@ const {
   parseChecklist,
   descriptionWithoutChecklist,
   buildProposals,
+  buildCleanupTasks,
+  normalizeTitle,
   normalizeDueDate,
 } = require('../src/proposals');
 
 const TODAY = '2026-11-04';
-const LIMITS = { maxPerType: 15, maxTotal: 40, dueOffsetDays: 7 };
+const LIMITS = { maxPerType: 15, maxTotal: 40, dueOffsetDays: 7, includeCleanup: true, ghostDays: 365, cleanupMaxPerKind: 10, cleanupMaxTotal: 25 };
 
 function task(overrides = {}) {
   return {
@@ -122,7 +124,7 @@ test('trie par gravité et respecte les plafonds', () => {
     projects: [project()],
     tasks: [...manyOld, overdue],
     today: TODAY,
-    limits: { maxPerType: 3, maxTotal: 40, dueOffsetDays: 7 },
+    limits: { maxPerType: 3, maxTotal: 40, dueOffsetDays: 7, includeCleanup: false, includeDueDate: true },
   });
 
   // Le report des retards passe en premier.
@@ -137,10 +139,43 @@ test('les identifiants sont stables et le résumé compte par type', () => {
     projects: [project()],
     tasks: [task({ is_old: true, age_days: 200 })],
     today: TODAY,
-    limits: LIMITS,
+    limits: { ...LIMITS, includeCleanup: false },
   };
   const first = buildProposals(input);
   const second = buildProposals(input);
   assert.equal(first.items[0].id, second.items[0].id);
   assert.deepEqual(first.summary.by_type, { set_due_date: 1 });
+});
+
+test('buildCleanupTasks détecte fantômes, doublons et orphelines', () => {
+  const projects = [
+    project({ id: 'p1', name: 'Projet' }),
+    project({ id: 'p2', name: 'Autre' }),
+  ];
+  const tasks = [
+    task({ id: 'g1', content: 'Vieille tâche oubliée', display_title: 'Vieille tâche oubliée', age_days: 700, project_name: 'Projet' }), // fantôme
+    task({ id: 'd1', content: 'Faire la vaisselle', display_title: 'Faire la vaisselle', age_days: 50, project_name: 'Projet', priority: 2 }),
+    task({ id: 'd2', content: 'Faire la vaisselle', display_title: 'Faire la vaisselle', age_days: 60, project_name: 'Projet', priority: 1 }), // doublon de d1
+    task({ id: 'o1', content: 'Orpheline', display_title: 'Orpheline', project_id: 'ghostProj', project_name: null, age_days: 100 }), // orpheline
+    task({ id: 'ok', content: 'Tache saine', display_title: 'Tache saine', age_days: 30, priority: 4 }),
+  ];
+  // Les doublons sont détectés par titre normalisé dans le même projet.
+
+  const cleaners = buildCleanupTasks({ tasks, projects, limits: LIMITS })
+    .filter((p) => p.type === 'delete_task');
+  const kinds = cleaners.map((p) => p.cleanup_kind);
+
+  assert.ok(kinds.includes('ghost'));
+  assert.ok(kinds.includes('orphan'));
+  assert.ok(kinds.includes('duplicate'));
+  const dup = cleaners.find((p) => p.cleanup_kind === 'duplicate');
+  assert.equal(dup.target.id, 'd2');
+  assert.ok(dup.action.restore);
+  assert.equal(dup.target.project_name, 'Projet');
+});
+
+test('normalizeTitle ignore accents, casse et URL', () => {
+  assert.equal(normalizeTitle('  Faire la Vaisselle ! '), 'faire la vaisselle');
+  assert.equal(normalizeTitle('ÉCOLE à la maison'), 'ecole a la maison');
+  assert.equal(normalizeTitle('Lire https://x.com/a'), 'lire');
 });

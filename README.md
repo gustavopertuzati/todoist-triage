@@ -6,14 +6,15 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 7.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 8.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
-> état, en respectant une **charge 1-3-5** (1 gros · 3 moyens · 5 petits par jour) — et en
-> te proposant de **reporter** si la journée est trop chargée. Tu **valides ou ignores
-> chaque proposition individuellement**. Tant que tu n'as pas validé, **rien n'est écrit
-> dans Todoist** ; chaque écriture validée est ensuite relue depuis l'API.
+> état, en respectant une **charge 1-3-5** et en te proposant de **reporter** si nécessaire.
+> Un **nettoyage guidé** repère les projets morts, doublons, tâches fantômes et orphelines,
+> **avec corbeille réversible**. Tu **valides ou ignores chaque proposition
+> individuellement**. Tant que tu n'as pas validé, **rien n'est écrit dans Todoist** ;
+> chaque écriture validée est ensuite relue depuis l'API.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
 > (`JJ.MM.AAAA`, `auj`) restent détectées et affichées passivement, mais ne sont pas la
@@ -168,6 +169,31 @@ Seuils configurables : `CAPACITY_HORIZON_DAYS`, `CAPACITY_MAX_LARGE`,
 Les propositions IA **remplacent** l'ancienne règle « datation en vrac » (qui mettait tout
 à la même date) : la datation par règles est désactivée dès que l'IA est active.
 
+## Itération 8 — nettoyage guidé
+
+Le panneau **« Nettoyage guidé »** recense les tâches à écarter, de la plus à la moins
+importante. Quatre catégories sont détectées :
+
+| Catégorie | Déclencheur | Action proposée |
+| --- | --- | --- |
+| Projets morts | projet sans tâche active ou sans progression sur 90 j (hors Inbox) | Archiver (réversible) |
+| Doublons | titres quasi identiques (accents/casse/URL ignorés) dans un même projet | Supprimer le doublon le moins riche |
+| Tâches fantômes | tâche très ancienne (≥ 365 j), sans échéance, jamais modifiée | Supprimer (abandonner) |
+| Tâches orphelines | tâche dont le projet n'existe plus | Supprimer |
+
+Garde-fous de la suppression :
+
+- Chaque suppression part vers Todoist **uniquement après validation** individuelle.
+- La tâche est d'abord placée en **corbeille** (mémoire serveur, 24 h) : tu peux la
+  **restaurer à l'identique** à tout moment depuis l'interface (bouton **« Annuler
+  (restaurer) »**).
+- La **relecture** confirme que la tâche a bien disparu.
+- Les seuils sont configurables : `CLEANUP_GHOST_DAYS` (365), `CLEANUP_MAX_PER_KIND` (10),
+  `CLEANUP_MAX_TOTAL` (25). La détection se désactive avec `CLEANUP_ENABLED=false`.
+
+Implémentation : `src/proposals.js` (`buildCleanupTasks`) pour la détection et
+`src/recycleBin.js` pour la corbeille. La détection de doublons est pure et testée.
+
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
@@ -229,6 +255,10 @@ npm run dev
 | `CAPACITY_MAX_MEDIUM` | non | `3` | Nombre maximum de tâches moyennes par jour. |
 | `CAPACITY_MAX_SMALL` | non | `5` | Nombre maximum de petites tâches par jour. |
 | `AI_ALLOW_SPLITS` | non | `true` | Autorise l'IA à proposer de scinder une grosse tâche. |
+| `CLEANUP_ENABLED` | non | `true` | Active la détection de nettoyage (doublons, fantômes, orphelines). |
+| `CLEANUP_GHOST_DAYS` | non | `365` | Âge minimum pour déclarer une tâche « fantôme ». |
+| `CLEANUP_MAX_PER_KIND` | non | `10` | Nombre maximum de suppressions proposées par catégorie. |
+| `CLEANUP_MAX_TOTAL` | non | `25` | Nombre maximum total de suppressions proposées. |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
 Toutes les valeurs sensibles sont lues uniquement depuis l'environnement du serveur.
@@ -250,9 +280,8 @@ Les tests unitaires couvrent l'analyse des dates de titre, la construction du r�
 (filtrage des archives, cas de date invalide), le diagnostic des projets (signaux,
 verdicts, agrégation par action), le moteur de propositions (liste à puces, échéances,
 plafonds, identifiants stables), la couche IA (parsing tolérant, validation stricte des
-réponses par jour, respect de la charge autorisée, reports, scissions), le moteur de
-capacité (estimation de taille, plan de charge 1-3-5) et le check-in (réduction de charge
-selon l'état).
+réponses par jour, respect de la charge autorisée, reports, scissions), le moteur de capacité (estimation de taille, plan de charge 1-3-5), le check-in (réduction de
+charge selon l'état) et le nettoyage guidé (fantômes, doublons, orphelines).
 
 ## Déploiement sur Orkestr
 
@@ -327,6 +356,7 @@ src/snapshot.js        normalisation, statistiques, dates dérivées
 src/diagnosis.js       verdicts, signaux et propositions par projet
 src/capacity.js        estimation de taille et plan de charge 1-3-5
 src/checkin.js         questionnaire du jour et charge autorisée
+src/recycleBin.js      corbeille des tâches supprimées (restauration)
 src/proposals.js       génération des propositions (pure)
 src/applyProposal.js   exécution d'une proposition + vérification via l'API
 src/ai.js              client OpenRouter (appel au modèle)
@@ -351,9 +381,8 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 7 terminées : export, lecture, diagnostic des projets, propositions
-validables individuellement (écritures vérifiées), planification **jour par jour** assistée
-par une IA, **check-in du jour** (5 questions) qui adapte la charge et propose des reports,
-et scission des grosses tâches. Les itérations suivantes (replanification automatique de
-plusieurs jours d'un coup, propositions de suppression, déplacement entre projets) ne sont
-pas implémentées et seront abordées après retour d'usage.
+Itérations 1 à 8 terminées : export, lecture, diagnostic des projets, planification
+**jour par jour** assistée par une IA, **check-in du jour**, scission des tâches et
+**nettoyage guidé** avec corbeille. Les itérations suivantes (rituel du matin avec
+rattrapage automatique, planificateur de semaine, reformulation des titres, mémoire des
+préférences) ne sont pas implémentées et seront abordées après retour d'usage.

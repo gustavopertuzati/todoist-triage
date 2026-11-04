@@ -873,6 +873,52 @@ button:disabled {
 .pill.size-M { background: var(--warn-bg); color: var(--warn); }
 .pill.size-S { background: var(--ok-bg); color: var(--ok); }
 
+.pill.pill-delete {
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.trash {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.trash-list summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.trash-items {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.trash-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.trash-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.trash-title small {
+  color: var(--muted);
+}
+
 .proposal-subtasks {
   display: grid;
   gap: 3px;

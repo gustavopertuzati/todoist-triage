@@ -54,6 +54,136 @@ function makeId(type, targetId, actionSignature) {
   return `${type}:${targetId}:${hashId([type, targetId, actionSignature])}`;
 }
 
+/** Normalise un titre pour repérer les doublons (accents, ponctuation, casse). */
+function normalizeTitle(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Score « à garder » entre deux doublons : échéance, labels, priorité, fraîcheur. */
+function keepScore(task) {
+  let score = 0;
+  if (task.due_date) score += 4;
+  score += Math.min(3, (task.labels || []).length);
+  score += (task.priority || 1) - 1;
+  if (task.description) score += 1;
+  return score;
+}
+
+/** Construit une proposition de suppression, avec de quoi restaurer la tâche. */
+function makeDeleteProposal(task, kind, rationale) {
+  return {
+    id: makeId('delete_task', task.id, kind),
+    type: 'delete_task',
+    type_label: 'Abandonner',
+    action_label: 'Supprimer',
+    source: 'cleanup',
+    tone: 'danger',
+    score: kind === 'orphan' ? 55 : kind === 'duplicate' ? 50 : 45,
+    cleanup_kind: kind,
+    title: kind === 'duplicate' ? 'Supprimer un doublon' : 'Supprimer une tâche abandonnée',
+    rationale,
+    target: {
+      kind: 'task',
+      id: task.id,
+      name: task.display_title || task.content,
+      project_id: task.project_id || null,
+      project_name: task.project_name || null,
+      section_id: task.section_id || null,
+    },
+    action: {
+      delete: true,
+      restore: {
+        content: task.content,
+        description: task.description || '',
+        project_id: task.project_id || null,
+        section_id: task.section_id || null,
+        parent_id: task.parent_id || null,
+        labels: task.labels || [],
+        priority: task.priority || 1,
+        due_date: task.due_date || null,
+      },
+    },
+    editable: [],
+    preview: 'Supprimée — récupérable via la corbeille',
+    format: 'delete',
+  };
+}
+
+/**
+ * Détecte les tâches à nettoyer : fantômes (très anciennes sans date),
+ * doublons (même titre dans un projet) et orphelines (projet absent).
+ */
+function buildCleanupTasks({ tasks, projects, limits }) {
+  const { ghostDays = 365, cleanupMaxPerKind = 10, cleanupMaxTotal = 25 } = limits;
+  const projectIds = new Set(projects.map((project) => project.id));
+  const result = [];
+
+  // Tâches fantômes : anciennes, sans échéance, jamais retouchées, hors sous-tâches.
+  const ghosts = tasks
+    .filter(
+      (task) =>
+        !task.due_date &&
+        !task.parent_id &&
+        task.age_days !== null &&
+        task.age_days >= ghostDays
+    )
+    .sort((a, b) => (b.age_days || 0) - (a.age_days || 0))
+    .slice(0, cleanupMaxPerKind);
+
+  for (const task of ghosts) {
+    result.push(
+      makeDeleteProposal(
+        task,
+        'ghost',
+        `Créée il y a ${task.age_days} j, sans échéance : probablement abandonnée.`
+      )
+    );
+  }
+
+  // Doublons : même titre normalisé dans un même projet.
+  const groups = new Map();
+  for (const task of tasks) {
+    if (!task.project_id || !projectIds.has(task.project_id)) continue;
+    const normalized = normalizeTitle(task.display_title || task.content);
+    if (normalized.length < 4) continue;
+    const key = `${task.project_id}::${normalized}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(task);
+  }
+
+  let duplicates = 0;
+  for (const list of groups.values()) {
+    if (list.length < 2 || duplicates >= cleanupMaxPerKind) continue;
+    const sorted = [...list].sort((a, b) => keepScore(b) - keepScore(a));
+    const keep = sorted[0];
+    for (const task of sorted.slice(1)) {
+      if (duplicates >= cleanupMaxPerKind) break;
+      duplicates += 1;
+      result.push(
+        makeDeleteProposal(
+          task,
+          'duplicate',
+          `Doublon de « ${keep.display_title || keep.content} » dans le même projet.`
+        )
+      );
+    }
+  }
+
+  // Orphelines : projet absent du compte.
+  for (const task of tasks.filter((t) => !t.project_id || !projectIds.has(t.project_id)).slice(0, 5)) {
+    result.push(makeDeleteProposal(task, 'orphan', 'Tâche rattachée à un projet absent du compte.'));
+  }
+
+  return result.slice(0, cleanupMaxTotal);
+}
+
 function shortList(items, max = 4) {
   const shown = items.slice(0, max).join(' · ');
   return items.length > max ? `${shown}…` : shown;
@@ -152,7 +282,13 @@ function buildSplit(task) {
  * @returns {{items: object[], summary: {total:number, by_type:object, truncated:object}}}
  */
 function buildProposals({ projects, tasks, today, limits }) {
-  const { maxPerType, maxTotal, dueOffsetDays, includeDueDate = true } = limits;
+  const {
+    maxPerType,
+    maxTotal,
+    dueOffsetDays,
+    includeDueDate = true,
+    includeCleanup = true,
+  } = limits;
   const activeTasks = tasks.filter((task) => !task.project_archived);
   const truncated = {};
 
@@ -187,6 +323,10 @@ function buildProposals({ projects, tasks, today, limits }) {
     .filter((task) => parseChecklist(task.description).length >= 2)
     .sort((a, b) => (b.priority || 0) - (a.priority || 0))
     .map((task) => buildSplit(task));
+
+  pools.delete_task = includeCleanup
+    ? buildCleanupTasks({ tasks: activeTasks, projects, limits })
+    : [];
 
   const kept = [];
   for (const [type, pool] of Object.entries(pools)) {
@@ -279,6 +419,8 @@ module.exports = {
   parseChecklist,
   descriptionWithoutChecklist,
   buildProposals,
+  buildCleanupTasks,
+  normalizeTitle,
   findProposal,
   normalizeDueDate,
   targetFromTask,

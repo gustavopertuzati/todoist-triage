@@ -50,6 +50,7 @@
     dayPlan: document.getElementById('day-plan'),
     proposalsNote: document.getElementById('proposals-note'),
     proposalsList: document.getElementById('proposals-list'),
+    trash: document.getElementById('trash'),
     insights: document.getElementById('insights'),
     diagnosisSummary: document.getElementById('diagnosis-summary'),
     diagnosisFilters: document.getElementById('diagnosis-filters'),
@@ -100,6 +101,12 @@
     split_task: 'Scinder',
     set_due_date: 'Dater',
   };
+
+  function cleanupKindLabel(kind) {
+    return (
+      { ghost: 'Fantôme', duplicate: 'Doublon', orphan: 'Orpheline' }[kind] || 'À supprimer'
+    );
+  }
   const IGNORED_KEY = 'todoist-triage:ignored-proposals';
 
   function loadIgnoredProposals() {
@@ -360,6 +367,7 @@
     renderWidget();
     renderPlanner();
     renderProposals();
+    renderTrash();
     renderInsights();
     renderDiagnosis();
     renderProjects();
@@ -918,7 +926,8 @@
   }
 
   function proposalCard(proposal) {
-    const typeLabel = proposal.type_label || PROPOSAL_TYPE_META[proposal.type] || proposal.type;
+    const isDelete = proposal.type === 'delete_task';
+    const typeLabel = proposal.type_label || (isDelete ? 'Abandonner' : PROPOSAL_TYPE_META[proposal.type] || proposal.type);
     const card = h('article', { class: `proposal tone-${proposal.tone}` });
 
     card.append(
@@ -926,6 +935,7 @@
         'div',
         { class: 'proposal-head' },
         h('span', { class: `proposal-type tone-${proposal.tone}` }, typeLabel),
+        proposal.cleanup_kind ? h('span', { class: 'pill pill-delete' }, cleanupKindLabel(proposal.cleanup_kind)) : null,
         proposal.source === 'ai' ? h('span', { class: 'pill pill-ai' }, 'IA') : null,
         proposal.size_label ? h('span', { class: `pill size-${proposal.size}` }, proposal.size_label) : null,
         h(
@@ -959,7 +969,7 @@
       );
     }
 
-    const validateBtn = h('button', { class: 'btn btn-primary', type: 'button' }, 'Valider');
+    const validateBtn = h('button', { class: 'btn btn-primary', type: 'button' }, isDelete ? 'Supprimer' : 'Valider');
     const ignoreBtn = h('button', { class: 'btn btn-ghost', type: 'button' }, 'Ignorer');
 
     validateBtn.addEventListener('click', () =>
@@ -1063,13 +1073,65 @@
         h(
           'p',
           { class: 'empty-line' },
-          'Rien à signaler ici : pas de projet à archiver, pas de tâche à scinder, aucun retard.'
+          'Rien à signaler ici : pas de projet à archiver, pas de doublon, pas de tâche abandonnée, aucun retard.'
         )
       );
       return;
     }
 
     for (const proposal of visible) els.proposalsList.append(proposalCard(proposal));
+  }
+
+  function renderTrash() {
+    const trash = Array.isArray(state.data.trash) ? state.data.trash : [];
+    clear(els.trash);
+    if (trash.length === 0) {
+      els.trash.hidden = true;
+      return;
+    }
+    els.trash.hidden = false;
+    els.trash.append(
+      h(
+        'details',
+        { class: 'trash-list' },
+        h('summary', {}, `Corbeille (${trash.length}) — tâches supprimées, récupérables`),
+        h(
+          'div',
+          { class: 'trash-items' },
+          trash.map((entry) =>
+            h(
+              'div',
+              { class: 'trash-item' },
+              h(
+                'span',
+                { class: 'trash-title' },
+                entry.title,
+                entry.project_name ? h('small', {}, ` · ${entry.project_name}`) : null
+              ),
+              h(
+                'button',
+                { type: 'button', class: 'btn btn-ghost btn-small', onclick: () => restoreTask(entry.id) },
+                'Annuler (restaurer)'
+              )
+            )
+          )
+        )
+      )
+    );
+  }
+
+  async function restoreTask(trashId) {
+    try {
+      const result = await apiJson(`/api/trash/${encodeURIComponent(trashId)}/restore`, {
+        method: 'POST',
+        headers: { 'X-App-Request': '1' },
+      });
+      toast(result.title ? `« ${result.title} » restaurée.` : 'Tâche restaurée.', 'ok');
+      await load({ silent: true });
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Restauration impossible.', 'error');
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -55,6 +55,10 @@ async function loadSnapshot() {
     capacityHorizonDays: config.capacityHorizonDays,
     capacityRule: config.capacityRule,
     includeDueDateRule: !config.aiEnabled,
+    cleanupEnabled: config.cleanupEnabled,
+    cleanupGhostDays: config.cleanupGhostDays,
+    cleanupMaxPerKind: config.cleanupMaxPerKind,
+    cleanupMaxTotal: config.cleanupMaxTotal,
     generatedAt,
     appVersion: config.appVersion,
   });
