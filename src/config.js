@@ -64,6 +64,15 @@ const config = {
   // Tâches « anciennes » (indicateur, aucune action en lecture seule).
   oldTaskDays: readInt('OLD_TASK_DAYS', 180, { min: 30, max: 1825 }),
 
+  // Itération 3 : propositions et écritures.
+  // Les écritures Todoist ne partent QUE si une proposition est validée
+  // explicitement depuis l'interface. Ce drapeau permet de les couper.
+  writesEnabled: (process.env.WRITES_ENABLED || 'true').toLowerCase() !== 'false',
+  proposalsMaxPerType: readInt('PROPOSALS_MAX_PER_TYPE', 15, { min: 1, max: 100 }),
+  proposalsMaxTotal: readInt('PROPOSALS_MAX_TOTAL', 40, { min: 1, max: 200 }),
+  // Décalage par défaut proposé pour dater une tâche ancienne sans échéance.
+  proposalDueOffsetDays: readInt('PROPOSAL_DUE_OFFSET_DAYS', 7, { min: 0, max: 60 }),
+
   isProduction: process.env.NODE_ENV === 'production',
 };
 

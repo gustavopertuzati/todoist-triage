@@ -188,3 +188,18 @@ test('attache un diagnostic à chaque projet et l’agrège dans le résumé', (
   assert.ok(plan.actions.some((action) => action.key === 'archive' && action.count === 1));
 });
 
+test('génère des propositions et les résume', () => {
+  const snapshot = buildSnapshot(fixture());
+  assert.ok(Array.isArray(snapshot.proposals));
+  const types = new Set(snapshot.proposals.map((proposal) => proposal.type));
+  assert.ok(types.has('reschedule_overdue'));
+  assert.ok(types.has('set_due_date'));
+  assert.ok(types.has('archive_project'));
+
+  const late = snapshot.proposals.find((p) => p.type === 'reschedule_overdue');
+  assert.equal(late.target.id, 't3');
+  assert.equal(late.action.due_date, TODAY);
+
+  assert.equal(snapshot.summary.proposals.total, snapshot.proposals.length);
+});
+

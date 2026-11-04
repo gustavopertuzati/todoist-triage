@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 2 : diagnostic des projets, lecture seule).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 3 : propositions validées individuellement, avec écritures vérifiées).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

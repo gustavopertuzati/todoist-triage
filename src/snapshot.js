@@ -14,6 +14,7 @@ const {
   isValidIsoDate,
 } = require('./dates');
 const { diagnoseProject, buildProjectDiagnosis } = require('./diagnosis');
+const { buildProposals } = require('./proposals');
 
 const PRIORITY_LABELS = { 4: 'P1', 3: 'P2', 2: 'P3', 1: 'P4' };
 
@@ -154,6 +155,9 @@ function buildSnapshot({
   completedLookbackDays,
   oldTaskDays,
   noProgressMinAgeDays,
+  proposalsMaxPerType = 15,
+  proposalsMaxTotal = 40,
+  proposalDueOffsetDays = 7,
   generatedAt = new Date().toISOString(),
   appVersion = null,
 }) {
@@ -177,6 +181,12 @@ function buildSnapshot({
     .filter((label) => label && label.is_deleted !== true)
     .map(normalizeLabel)
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || a.name.localeCompare(b.name));
+
+  // Nom du projet attaché à chaque tâche (utile aux propositions et à l'UI).
+  const projectNameById = new Map(allProjects.map((project) => [project.id, project.name]));
+  for (const task of allTasks) {
+    task.project_name = task.project_id ? projectNameById.get(task.project_id) || null : null;
+  }
 
   // Regroupements par projet pour calculer les statistiques en une passe.
   const tasksByProject = new Map();
@@ -337,6 +347,17 @@ function buildSnapshot({
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, 12);
 
+  const proposals = buildProposals({
+    projects,
+    tasks: allTasks,
+    today,
+    limits: {
+      maxPerType: proposalsMaxPerType,
+      maxTotal: proposalsMaxTotal,
+      dueOffsetDays: proposalDueOffsetDays,
+    },
+  });
+
   const summary = {
     projects_total: projects.filter((project) => !project.is_archived).length,
     projects_archived: projectsArchived,
@@ -364,6 +385,7 @@ function buildSnapshot({
     },
     labels_top: labelsTop,
     project_diagnosis: buildProjectDiagnosis(projects),
+    proposals: proposals.summary,
   };
 
   const user = sync.user
@@ -392,6 +414,7 @@ function buildSnapshot({
     },
     user,
     summary,
+    proposals: proposals.items,
     projects,
     sections: allSections,
     tasks: allTasks,

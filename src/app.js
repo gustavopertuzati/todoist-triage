@@ -6,7 +6,8 @@
  * Principes :
  * - aucune donnée Todoist n'est accessible sans session ;
  * - le token Todoist reste côté serveur ;
- * - les itérations 1 et 2 sont strictement en lecture seule (aucun appel d'écriture).
+ * - les itérations 1 et 2 sont en lecture seule ; l'itération 3 n'écrit que
+ *   lorsqu'une proposition est validée individuellement par l'utilisateur.
  */
 
 const path = require('node:path');
@@ -14,8 +15,10 @@ const express = require('express');
 
 const { config, checkConfig } = require('./config');
 const auth = require('./auth');
-const { getSnapshot } = require('./exportService');
+const { getSnapshot, clearCache } = require('./exportService');
 const { TodoistError } = require('./todoist');
+const { findProposal } = require('./proposals');
+const { applyProposal, ProposalError } = require('./applyProposal');
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
@@ -26,7 +29,7 @@ const TODOIST_HINTS = {
   TODOIST_AUTH:
     'Vérifie TODOIST_API_TOKEN (intégrations Todoist) dans Orkestr, puis redéploie.',
   TODOIST_FORBIDDEN:
-    'Le token n’a peut-être pas les droits nécessaires (data:read). Vérifie-le dans Todoist.',
+    'Le token n’a peut-être pas les droits nécessaires (data:read pour lire, data:read_write pour écrire). Vérifie-le dans Todoist.',
   RATE_LIMITED: 'Todoist limite les appels : attends un peu puis réessaie.',
   NETWORK_ERROR: 'Impossible de joindre Todoist depuis le serveur. Réessaie dans un instant.',
   TODOIST_UPSTREAM: 'Todoist a renvoyé une erreur temporaire. Réessaie dans un instant.',
@@ -315,6 +318,59 @@ function createApp() {
     })
   );
 
+  /**
+   * Applique une proposition validée individuellement.
+   * Rien ne part vers Todoist sans passer par cette route, et la proposition est
+   * recalculée sur un instantané frais pour éviter d'appliquer une action périmée.
+   */
+  app.post(
+    '/api/proposals/:id/apply',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.writesEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'WRITES_DISABLED',
+            message: 'Les écritures Todoist sont désactivées sur ce serveur.',
+            hint: 'Définis WRITES_ENABLED=true puis redéploie.',
+          },
+        });
+      }
+
+      const id = String(req.params.id || '');
+      const overrides = {
+        due_date: typeof req.body?.due_date === 'string' ? req.body.due_date : null,
+      };
+
+      const { snapshot } = await getSnapshot({ force: true });
+      const proposal = findProposal(snapshot, id);
+      if (!proposal) {
+        return res.status(409).json({
+          error: {
+            code: 'PROPOSAL_STALE',
+            message: 'Cette proposition n’est plus d’actualité. Recharge la page.',
+          },
+        });
+      }
+
+      const result = await applyProposal({ proposal, overrides });
+      clearCache();
+
+      return res.json({
+        ok: true,
+        proposal_id: id,
+        type: proposal.type,
+        verified: result.verified,
+        message: result.message,
+        effects: result.effects,
+      });
+    })
+  );
+
   app.use('/api', (req, res) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route inconnue.' } });
   });
@@ -330,6 +386,12 @@ function createApp() {
     if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
       return res.status(400).json({
         error: { code: 'BAD_JSON', message: 'Corps de requête JSON invalide.' },
+      });
+    }
+
+    if (err instanceof ProposalError) {
+      return res.status(400).json({
+        error: { code: err.code, message: err.message },
       });
     }
 

@@ -49,6 +49,9 @@ async function loadSnapshot() {
     completedLookbackDays: config.completedLookbackDays,
     oldTaskDays: config.oldTaskDays,
     noProgressMinAgeDays: config.projectNoProgressMinAgeDays,
+    proposalsMaxPerType: config.proposalsMaxPerType,
+    proposalsMaxTotal: config.proposalsMaxTotal,
+    proposalDueOffsetDays: config.proposalDueOffsetDays,
     generatedAt,
     appVersion: config.appVersion,
   });

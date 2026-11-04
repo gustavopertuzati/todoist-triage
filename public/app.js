@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- * Interface des itérations 1 et 2.
+ * Interface des itérations 1 à 3.
  *
  * Règles :
  * - tous les contenus Todoist sont insérés avec textContent (jamais innerHTML) ;
@@ -16,6 +16,8 @@
     loading: false,
     toastTimer: null,
     diagnosisFilter: 'all',
+    applied: new Map(),
+    ignored: new Set(),
   };
 
   const els = {
@@ -36,6 +38,9 @@
     kpis: document.getElementById('kpis'),
     widgetSummary: document.getElementById('widget-summary'),
     widgetLists: document.getElementById('widget-lists'),
+    proposalsCount: document.getElementById('proposals-count'),
+    proposalsNote: document.getElementById('proposals-note'),
+    proposalsList: document.getElementById('proposals-list'),
     insights: document.getElementById('insights'),
     diagnosisSummary: document.getElementById('diagnosis-summary'),
     diagnosisFilters: document.getElementById('diagnosis-filters'),
@@ -78,6 +83,31 @@
 
   function bucketForVerdict(verdict) {
     return VERDICT_BUCKETS[verdict] || 'healthy';
+  }
+
+  const PROPOSAL_TYPE_META = {
+    reschedule_overdue: 'Reporter',
+    archive_project: 'Archiver',
+    split_task: 'Scinder',
+    set_due_date: 'Dater',
+  };
+
+  const IGNORED_KEY = 'todoist-triage:ignored-proposals';
+
+  function loadIgnoredProposals() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(IGNORED_KEY) || '[]'));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function saveIgnoredProposals() {
+    try {
+      localStorage.setItem(IGNORED_KEY, JSON.stringify([...state.ignored]));
+    } catch {
+      /* stockage indisponible : on continue sans persister */
+    }
   }
 
   const shortDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
@@ -250,12 +280,14 @@
     }
   }
 
-  async function load({ force = false } = {}) {
+  async function load({ force = false, silent = false } = {}) {
     if (state.loading) return;
     setLoading(true);
-    els.errorPanel.hidden = true;
-    els.content.hidden = true;
-    els.loading.hidden = false;
+    if (!silent) {
+      els.errorPanel.hidden = true;
+      els.content.hidden = true;
+      els.loading.hidden = false;
+    }
 
     try {
       const data = await apiJson(`/api/overview${force ? '?refresh=1' : ''}`);
@@ -263,9 +295,11 @@
       render();
       els.loading.hidden = true;
       els.content.hidden = false;
-      if (force) toast('Données rafraîchies depuis Todoist.', 'ok');
+      if (force && !silent) toast('Données rafraîchies depuis Todoist.', 'ok');
     } catch (error) {
-      if (error.code !== 'SESSION_REQUIRED') showError(error);
+      if (error.code === 'SESSION_REQUIRED') return;
+      if (silent) toast(error.message || 'Rechargement impossible.', 'error');
+      else showError(error);
     } finally {
       setLoading(false);
     }
@@ -285,6 +319,7 @@
     renderWarnings(warnings);
     renderKpis(summary);
     renderWidget();
+    renderProposals();
     renderInsights();
     renderDiagnosis();
     renderProjects();
@@ -526,6 +561,126 @@
       },
       '↗'
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Propositions (itération 3)
+  // ---------------------------------------------------------------------------
+
+  function proposalTargetLabel(target) {
+    if (!target) return '';
+    const prefix = target.project_name && target.project_name !== target.name ? `${target.project_name} · ` : '';
+    return `${prefix}${target.name}`;
+  }
+
+  function renderProposals() {
+    const all = Array.isArray(state.data.proposals) ? state.data.proposals : [];
+    const summary = state.data.summary.proposals || { total: all.length, truncated: {} };
+    const visible = all.filter(
+      (proposal) => !state.ignored.has(proposal.id) && !state.applied.has(proposal.id)
+    );
+
+    els.proposalsCount.textContent = String(visible.length);
+    clear(els.proposalsList);
+
+    const truncatedTotal = Number(summary.truncated?.total || 0);
+    if (truncatedTotal > 0) {
+      els.proposalsNote.textContent = `${truncatedTotal} proposition(s) supplémentaire(s) masquée(s) par le plafond d’affichage.`;
+      els.proposalsNote.hidden = false;
+    } else {
+      els.proposalsNote.hidden = true;
+    }
+
+    if (visible.length === 0) {
+      const message =
+        all.length === 0
+          ? 'Rien à proposer pour l’instant : ton Todoist est plutôt en ordre.'
+          : 'Toutes les propositions ont été traitées. Rafraîchis pour en chercher d’autres.';
+      els.proposalsList.append(h('p', { class: 'empty-line' }, message));
+      return;
+    }
+
+    for (const proposal of visible) els.proposalsList.append(proposalCard(proposal));
+  }
+
+  function proposalCard(proposal) {
+    const typeLabel = PROPOSAL_TYPE_META[proposal.type] || proposal.type;
+    const card = h('article', { class: `proposal tone-${proposal.tone}` });
+
+    card.append(
+      h(
+        'div',
+        { class: 'proposal-head' },
+        h('span', { class: `proposal-type tone-${proposal.tone}` }, typeLabel),
+        h(
+          'div',
+          { class: 'proposal-title-wrap' },
+          h('span', { class: 'proposal-title' }, proposal.title),
+          h('span', { class: 'proposal-target' }, proposalTargetLabel(proposal.target))
+        )
+      ),
+      h('p', { class: 'proposal-rationale' }, proposal.rationale),
+      h('p', { class: 'proposal-preview' }, proposal.preview)
+    );
+
+    let dateInput = null;
+    if (Array.isArray(proposal.editable) && proposal.editable.includes('due_date')) {
+      dateInput = h('input', {
+        type: 'date',
+        class: 'proposal-date',
+        value: proposal.action.due_date || '',
+        'aria-label': 'Date d’échéance à appliquer',
+      });
+      card.append(
+        h('label', { class: 'proposal-date-row' }, h('span', {}, 'Échéance'), dateInput)
+      );
+    }
+
+    const validateBtn = h('button', { class: 'btn btn-primary', type: 'button' }, 'Valider');
+    const ignoreBtn = h('button', { class: 'btn btn-ghost', type: 'button' }, 'Ignorer');
+
+    validateBtn.addEventListener('click', () =>
+      validateProposal(proposal, dateInput, validateBtn, ignoreBtn)
+    );
+    ignoreBtn.addEventListener('click', () => {
+      state.ignored.add(proposal.id);
+      saveIgnoredProposals();
+      renderProposals();
+    });
+
+    card.append(h('div', { class: 'proposal-actions' }, validateBtn, ignoreBtn));
+    return card;
+  }
+
+  async function validateProposal(proposal, dateInput, validateBtn, ignoreBtn) {
+    validateBtn.disabled = true;
+    ignoreBtn.disabled = true;
+    const original = validateBtn.textContent;
+    validateBtn.textContent = 'Application…';
+
+    try {
+      const body = {};
+      if (dateInput && dateInput.value) body.due_date = dateInput.value;
+      const result = await apiJson(`/api/proposals/${encodeURIComponent(proposal.id)}/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify(body),
+      });
+      state.applied.set(proposal.id, result);
+      toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
+      await load({ silent: true });
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      validateBtn.disabled = false;
+      ignoreBtn.disabled = false;
+      validateBtn.textContent = original;
+      if (error.code === 'PROPOSAL_STALE') {
+        toast(error.message, 'error');
+        await load({ silent: true });
+      } else {
+        toast(error.message || 'Application impossible.', 'error');
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1245,5 +1400,6 @@
   els.logoutBtn.addEventListener('click', logout);
 
   // Démarrage.
+  state.ignored = loadIgnoredProposals();
   load({ force: false });
 })();

@@ -6,10 +6,11 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 et 2 — lecture seule.** Cette version ne modifie rien dans Todoist : elle
-> affiche un résumé, explore les projets, **diagnostique chaque projet** avec une
-> proposition de nettoyage, et permet de télécharger une sauvegarde JSON. Aucune écriture
-> n'est envoyée à Todoist.
+> **Itérations 1 à 3.** L'app affiche un résumé, explore les projets, **diagnostique
+> chaque projet**, et surtout **propose des modifications concrètes** (donner une échéance,
+> reporter, scinder, archiver) que tu **valides une par une**. Tant que tu n'as pas validé
+> une proposition, **rien n'est écrit dans Todoist** ; chaque écriture validée est ensuite
+> relue depuis l'API pour vérifier qu'elle a bien pris effet.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
 > (`JJ.MM.AAAA`, `auj`) restent détectées et affichées passivement, mais ne sont pas la
@@ -29,6 +30,9 @@ Todoist surchargé et aide à y voir clair.
   récente, ou sain), une liste de signaux chiffrés et une **proposition de nettoyage**.
   Les projets sont classés du plus préoccupant au plus sain, avec des filtres par type
   d'action. Voir « Itération 2 » ci-dessous.
+- **Propositions validables une par une** : l'app génère une liste d'actions concrètes
+  ciblant des tâches ou des projets ; chaque carte se valide (ou s'ignore) individuellement,
+  puis l'écriture est vérifiée via l'API. Voir « Itération 3 » ci-dessous.
 - Détection de la convention de date en **fin de titre** :
   - `11.10.2026` → échéance `2026-10-11` ;
   - `auj` / `auj.` → aujourd'hui, dans le fuseau configuré.
@@ -59,16 +63,43 @@ et une **proposition de nettoyage** :
 | Sain | aucun signal | Rien à faire |
 
 Les seuils vivent dans `src/diagnosis.js` (`THRESHOLDS`) et sont volontairement simples.
-Le diagnostic est **indicatif** : rien n'est exécuté. L'application des propositions
-(archiver, replanifier…) viendra dans une itération ultérieure, toujours avec un aperçu et
-une confirmation avant écriture, puis une vérification via l'API.
+Le diagnostic reste **indicatif** ; les modifications concrètes passent par les
+propositions de l'itération 3.
+
+## Itération 3 — propositions validées individuellement
+
+L'app génère une liste d'actions concrètes et réversibles. Chaque carte propose une
+modification précise, avec sa raison et son aperçu, et se **valide individuellement** :
+
+| Type | Cible | Action appliquée |
+| --- | --- | --- |
+| Reporter | tâche en retard | échéance → aujourd'hui |
+| Dater | tâche ancienne sans échéance | échéance → date proposée (modifiable) |
+| Scinder | tâche dont la note contient une liste à puces | une sous-tâche par élément, note nettoyée |
+| Archiver | projet vide ou sans progression (hors Inbox) | projet archivé (réversible) |
+
+Garde-fous :
+
+- Le serveur ne fait **aucune** écriture tant qu'une proposition n'est pas validée.
+- Une proposition validée est **recalculée** sur un instantané frais : si elle n'est plus
+  d'actualité (tâche modifiée entre-temps), l'application répond `409` et ne touche à rien.
+- Après écriture, la ressource est **relue** via l'API pour confirmer l'effet (échéance,
+  archivage, sous-tâches créées).
+- Le bouton **Ignorer** masque durablement une proposition (stockage local du navigateur).
+- `WRITES_ENABLED=false` coupe toutes les écritures côté serveur.
+
+Détails d'implémentation : `src/proposals.js` (génération, pure et testée) et
+`src/applyProposal.js` (exécution + vérification). Les écritures ne sont possibles que
+pour une proposition présente dans l'instantané courant : aucune action arbitraire n'est
+acceptée.
 
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
 - Un compte Todoist personnel.
 - Un jeton API Todoist : *Paramètres → Intégrations → Développeur → Jeton API*.
-  Les droits de lecture suffisent (`data:read`).
+  - Itérations 1–2 (lecture) : `data:read` suffit.
+  - Itération 3 (écritures) : `data:read_write`. Un jeton personnel couvre déjà tout.
 
 ## Installation locale
 
@@ -106,6 +137,10 @@ npm run dev
 | `COMPLETED_LOOKBACK_DAYS` | non | `90` | Fenêtre d'analyse des tâches terminées (max. 92). |
 | `PROJECT_NO_PROGRESS_DAYS` | non | `30` | Âge minimum d'un projet « sans progression ». |
 | `OLD_TASK_DAYS` | non | `180` | Seuil d'ancienneté d'une tâche. |
+| `WRITES_ENABLED` | non | `true` | Autorise les écritures Todoist **après validation** d'une proposition. `false` = lecture seule. |
+| `PROPOSALS_MAX_PER_TYPE` | non | `15` | Nombre maximum de propositions par type. |
+| `PROPOSALS_MAX_TOTAL` | non | `40` | Nombre maximum de propositions affichées au total. |
+| `PROPOSAL_DUE_OFFSET_DAYS` | non | `7` | Décalage par défaut proposé pour dater une tâche ancienne. |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
 Toutes les valeurs sensibles sont lues uniquement depuis l'environnement du serveur.
@@ -124,8 +159,9 @@ npm test
 ```
 
 Les tests unitaires couvrent l'analyse des dates de titre, la construction du résumé
-(filtrage des archives, cas de date invalide) et le diagnostic des projets (signaux,
-verdicts, agrégation par action).
+(filtrage des archives, cas de date invalide), le diagnostic des projets (signaux,
+verdicts, agrégation par action) et le moteur de propositions (liste à puces, échéances,
+plafonds, identifiants stables).
 
 ## Déploiement sur Orkestr
 
@@ -163,23 +199,26 @@ Toute modification d'une variable d'environnement nécessite un nouveau déploie
 >   -H "Authorization: Bearer <ork_token>"
 > ```
 
-## Vérification sur téléphone (itérations 1 et 2)
+## Vérification sur téléphone (itérations 1 à 3)
 
 1. Ouvrir `https://<slug>.orkestr.run` : la page de connexion s'affiche.
 2. Entrer un mauvais mot de passe : le message « Mot de passe incorrect. » apparaît.
 3. Entrer le bon mot de passe : le tableau de bord « Ton Todoist, en clair. » s'affiche.
 4. Vérifier que le nombre de projets et de tâches correspond à ton compte Todoist.
-5. Dans **Diagnostic des projets**, vérifier le classement (le plus préoccupant en haut),
-   lire les signaux d'un projet et sa proposition. Tester les filtres (« À réviser »,
-   « À dater », « Sains », « Tous ») : la liste se met à jour.
-6. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
-7. Chercher un mot connu dans la barre de recherche : les résultats se filtrent.
-8. Repérer une tâche dont le titre finit par `JJ.MM.AAAA` ou `auj` : la date dérivée est
-   affichée passivement (aucune application).
-9. Appuyer sur **Exporter** : un fichier `todoist-export-….json` est téléchargé ; il
-   contient `summary.project_diagnosis` et le `diagnosis` de chaque projet.
-10. Vérifier que **rien n'a changé dans l'application Todoist** (aucune écriture).
+5. Dans **Propositions**, lire une carte (type, cible, raison, aperçu). Pour une carte
+   « Dater », changer la date si besoin, puis **Valider** : un message confirme
+   l'application, la carte disparaît et le compteur baisse.
+6. Vérifier dans l'app Todoist que la modification est bien là (échéance, projet archivé,
+   sous-tâches créées). Une carte **Ignorer** disparaît et ne revient pas.
+7. Dans **Diagnostic des projets**, vérifier le classement et les filtres.
+8. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
+9. Chercher un mot connu dans la barre de recherche : les résultats se filtrent.
+10. Appuyer sur **Exporter** : un fichier `todoist-export-….json` est téléchargé ; il
+    contient `summary.project_diagnosis`, `summary.proposals` et la liste `proposals`.
 11. Se déconnecter : retour à la page de connexion ; l'URL `/` redirige vers `/login`.
+
+> Astuce : pour tester sans risque, mets `WRITES_ENABLED=false` : l'app reste entièrement
+> fonctionnelle mais refuse toute écriture.
 
 ## Structure
 
@@ -188,9 +227,11 @@ server.js              démarrage HTTP
 src/app.js             routes Express, sécurité, gestion d'erreurs
 src/auth.js            mot de passe + cookie de session signé
 src/config.js          lecture des variables d'environnement
-src/todoist.js         client API Todoist (retries, erreurs typées)
+src/todoist.js         client API Todoist (lectures + écritures, retries, erreurs typées)
 src/snapshot.js        normalisation, statistiques, dates dérivées
 src/diagnosis.js       verdicts, signaux et propositions par projet
+src/proposals.js       génération des propositions (pure)
+src/applyProposal.js   exécution d'une proposition + vérification via l'API
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
@@ -205,11 +246,13 @@ test/                  tests unitaires (node:test)
 - Cookie `HttpOnly`, `SameSite=Lax`, `Secure` derrière HTTPS.
 - Vérification d'origine et en-tête `X-App-Request: 1` sur les requêtes sensibles.
 - En-têtes CSP stricts, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
-- Aucune écriture Todoist dans ces itérations ; aucun secret dans le dépôt.
+- Écritures Todoist **uniquement** après validation individuelle d'une proposition
+  présente dans l'instantané courant ; chaque écriture est relue pour vérification.
+  Aucun secret dans le dépôt.
 
 ## Périmètre
 
-Itérations 1 et 2 terminées : export, lecture seule et diagnostic des projets. Les
-itérations suivantes (application des propositions de nettoyage avec aperçu et
-confirmation + vérification via l'API, questionnaire quotidien avec sélection assistée,
-import de dates) ne sont pas implémentées et seront abordées après retour d'usage.
+Itérations 1 à 3 terminées : export, lecture, diagnostic des projets et propositions
+validables individuellement (écritures vérifiées). Les itérations suivantes (questionnaire
+quotidien avec sélection assistée, propositions générées par IA, import de dates depuis
+les titres) ne sont pas implémentées et seront abordées après retour d'usage.

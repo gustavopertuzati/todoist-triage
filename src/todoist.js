@@ -44,7 +44,7 @@ function safeErrorMessage(body) {
   return value.slice(0, 200);
 }
 
-async function requestJson(path, { method = 'GET', query, form, attempt = 1 } = {}) {
+async function requestJson(path, { method = 'GET', query, form, json, attempt = 1 } = {}) {
   if (!config.todoistToken) {
     throw new TodoistError(
       'Le token Todoist n’est pas configuré sur le serveur.',
@@ -69,6 +69,9 @@ async function requestJson(path, { method = 'GET', query, form, attempt = 1 } = 
   if (form) {
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
     body = new URLSearchParams(form).toString();
+  } else if (json !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(json);
   }
 
   let response;
@@ -83,7 +86,7 @@ async function requestJson(path, { method = 'GET', query, form, attempt = 1 } = 
     const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
     if (attempt < 3) {
       await sleep(400 * attempt);
-      return requestJson(path, { method, query, form, attempt: attempt + 1 });
+      return requestJson(path, { method, query, form, json, attempt: attempt + 1 });
     }
     throw new TodoistError(
       isTimeout
@@ -107,7 +110,7 @@ async function requestJson(path, { method = 'GET', query, form, attempt = 1 } = 
     const retryAfter = parseRetryAfter(response.headers.get('retry-after')) ?? 5;
     if (attempt < 3 && retryAfter <= 10) {
       await sleep(retryAfter * 1000);
-      return requestJson(path, { method, query, form, attempt: attempt + 1 });
+      return requestJson(path, { method, query, form, json, attempt: attempt + 1 });
     }
     throw new TodoistError(
       `Quota Todoist atteint. Réessaie dans ${retryAfter} seconde(s).`,
@@ -117,7 +120,7 @@ async function requestJson(path, { method = 'GET', query, form, attempt = 1 } = 
 
   if (response.status >= 500 && attempt < 3) {
     await sleep(600 * attempt);
-    return requestJson(path, { method, query, form, attempt: attempt + 1 });
+    return requestJson(path, { method, query, form, json, attempt: attempt + 1 });
   }
 
   if (!response.ok) {
@@ -153,7 +156,9 @@ async function requestJson(path, { method = 'GET', query, form, attempt = 1 } = 
     });
   }
 
-  if (!payload || typeof payload !== 'object') {
+  // Certaines écritures réussissent sans corps de réponse (ex. clôture d'une
+  // tâche) : on tolère un corps vide, mais pas une réponse illisible.
+  if (payload !== null && typeof payload !== 'object') {
     throw new TodoistError('Réponse Todoist illisible.', { code: 'TODOIST_BAD_RESPONSE' });
   }
   return payload;
@@ -219,4 +224,19 @@ module.exports = {
   fullSync,
   completedSince,
   parseRetryAfter,
+
+  // Écritures (utilisées uniquement après validation explicite d'une proposition).
+  createTask: (fields) => requestJson('/tasks', { method: 'POST', json: fields }),
+  updateTask: (taskId, fields) =>
+    requestJson(`/tasks/${encodeURIComponent(taskId)}`, { method: 'POST', json: fields }),
+  closeTask: (taskId) =>
+    requestJson(`/tasks/${encodeURIComponent(taskId)}/close`, { method: 'POST' }),
+  deleteTask: (taskId) =>
+    requestJson(`/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' }),
+  archiveProject: (projectId) =>
+    requestJson(`/projects/${encodeURIComponent(projectId)}/archive`, { method: 'POST' }),
+
+  // Lectures ciblées, pour vérifier qu'une écriture a bien pris effet.
+  getTask: (taskId) => requestJson(`/tasks/${encodeURIComponent(taskId)}`),
+  getProject: (projectId) => requestJson(`/projects/${encodeURIComponent(projectId)}`),
 };

@@ -751,6 +751,112 @@ button:disabled {
 }
 
 /* --------------------------------------------------------------------------
+   Propositions (itération 3)
+   -------------------------------------------------------------------------- */
+
+.proposals {
+  display: grid;
+  gap: 10px;
+}
+
+.proposal {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.proposal.tone-danger { border-left-color: var(--danger); }
+.proposal.tone-warn { border-left-color: var(--warn); }
+.proposal.tone-ok { border-left-color: var(--ok); }
+.proposal.tone-muted { border-left-color: var(--surface-3); }
+
+.proposal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.proposal-type {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.proposal-type.tone-danger { background: var(--danger-bg); color: var(--danger); }
+.proposal-type.tone-warn { background: var(--warn-bg); color: var(--warn); }
+.proposal-type.tone-ok { background: var(--ok-bg); color: var(--ok); }
+
+.proposal-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.proposal-title {
+  font-weight: 650;
+}
+
+.proposal-target {
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.proposal-rationale {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.proposal-preview {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.proposal-date-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.proposal-date-row input {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 16px; /* évite le zoom iOS */
+}
+
+.proposal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.proposal-actions .btn {
+  flex: 1;
+  min-height: 44px;
+}
+
+/* --------------------------------------------------------------------------
    Diagnostic des projets (itération 2)
    -------------------------------------------------------------------------- */
 

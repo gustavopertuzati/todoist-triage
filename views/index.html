@@ -96,10 +96,25 @@
           <div id="widget-summary" class="widget-summary"></div>
           <div id="widget-lists" class="widget-lists"></div>
           <p class="fine-print">
-            Rien n’a été modifié dans Todoist par cette page. Les dates lues dans les titres
-            ne sont pas appliquées automatiquement : ce sera proposé dans une itération
-            ultérieure, après confirmation.
+            Rien n’a été modifié dans Todoist par cette page. Les modifications passent
+            uniquement par les <strong>propositions</strong> que tu valides individuellement
+            ci-dessous.
           </p>
+        </section>
+
+        <section class="panel" aria-labelledby="proposals-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="proposals-title">Propositions</h2>
+              <p class="panel-sub">
+                Ce que je propose de modifier dans ton Todoist. Valide chaque proposition
+                individuellement — rien n’est appliqué sans ton accord explicite.
+              </p>
+            </div>
+            <span id="proposals-count" class="pill">0</span>
+          </div>
+          <div id="proposals-note" class="fine-print" hidden></div>
+          <div id="proposals-list" class="proposals"></div>
         </section>
 
         <section class="panel" aria-labelledby="insights-title">
