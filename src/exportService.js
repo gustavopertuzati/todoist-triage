@@ -54,6 +54,7 @@ async function loadSnapshot() {
     proposalDueOffsetDays: config.proposalDueOffsetDays,
     capacityHorizonDays: config.capacityHorizonDays,
     capacityRule: config.capacityRule,
+    includeDueDateRule: !config.aiEnabled,
     generatedAt,
     appVersion: config.appVersion,
   });

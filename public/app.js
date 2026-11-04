@@ -18,7 +18,10 @@
     diagnosisFilter: 'all',
     applied: new Map(),
     ignored: new Set(),
-    ai: { status: 'idle', requested: false, summary: null, error: null },
+    selectedDate: null,
+    dayPlan: null,
+    dayLoading: false,
+    dayError: null,
   };
 
   const els = {
@@ -40,8 +43,8 @@
     widgetSummary: document.getElementById('widget-summary'),
     widgetLists: document.getElementById('widget-lists'),
     proposalsCount: document.getElementById('proposals-count'),
-    proposalsAi: document.getElementById('proposals-ai'),
     capacity: document.getElementById('capacity'),
+    dayPlan: document.getElementById('day-plan'),
     proposalsNote: document.getElementById('proposals-note'),
     proposalsList: document.getElementById('proposals-list'),
     insights: document.getElementById('insights'),
@@ -283,7 +286,7 @@
     }
   }
 
-  async function load({ force = false, silent = false, keepAi = null } = {}) {
+  async function load({ force = false, silent = false } = {}) {
     if (state.loading) return;
     setLoading(true);
     if (!silent) {
@@ -293,30 +296,10 @@
     }
 
     try {
-      if (force) {
-        state.ai.requested = false;
-        state.ai.status = 'idle';
-        state.ai.summary = null;
-        state.ai.error = null;
-      }
       const data = await apiJson(`/api/overview${force ? '?refresh=1' : ''}`);
-
-      // Conserve les propositions IA du lot courant que le serveur ne renvoie
-      // plus (les données ayant changé après une validation).
-      if (Array.isArray(keepAi) && keepAi.length > 0) {
-        const existing = new Set((data.proposals || []).map((p) => p.id));
-        const extra = keepAi.filter(
-          (p) => !existing.has(p.id) && !state.ignored.has(p.id) && !state.applied.has(p.id)
-        );
-        if (extra.length > 0) {
-          data.proposals = [...(data.proposals || []), ...extra];
-          data.summary.proposals = summarizeProposals(data.proposals, data.summary?.proposals?.truncated);
-        }
-      }
-
       state.data = data;
       render();
-      maybeRequestAi();
+      ensureDefaultDay();
       els.loading.hidden = true;
       els.content.hidden = false;
       if (force && !silent) toast('Données rafraîchies depuis Todoist.', 'ok');
@@ -327,12 +310,6 @@
     } finally {
       setLoading(false);
     }
-  }
-
-  function summarizeProposals(items, truncated) {
-    const byType = {};
-    for (const item of items) byType[item.type] = (byType[item.type] || 0) + 1;
-    return { total: items.length, by_type: byType, truncated: truncated || {} };
   }
 
   // ---------------------------------------------------------------------------
@@ -349,6 +326,7 @@
     renderWarnings(warnings);
     renderKpis(summary);
     renderWidget();
+    renderPlanner();
     renderProposals();
     renderInsights();
     renderDiagnosis();
@@ -594,7 +572,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Propositions (itération 3)
+  // Planification par jour (itération 6)
   // ---------------------------------------------------------------------------
 
   function proposalTargetLabel(target) {
@@ -603,89 +581,17 @@
     return `${prefix}${target.name}`;
   }
 
-  function renderProposals() {
-    renderProposalsAi();
-    renderCapacity();
-    const all = Array.isArray(state.data.proposals) ? state.data.proposals : [];
-    const summary = state.data.summary.proposals || { total: all.length, truncated: {} };
-    const visible = all.filter(
-      (proposal) => !state.ignored.has(proposal.id) && !state.applied.has(proposal.id)
-    );
-
-    els.proposalsCount.textContent = String(visible.length);
-    clear(els.proposalsList);
-
-    const truncatedTotal = Number(summary.truncated?.total || 0);
-    if (truncatedTotal > 0) {
-      els.proposalsNote.textContent = `${truncatedTotal} proposition(s) supplémentaire(s) masquée(s) par le plafond d’affichage.`;
-      els.proposalsNote.hidden = false;
-    } else {
-      els.proposalsNote.hidden = true;
-    }
-
-    if (visible.length === 0) {
-      const message =
-        all.length === 0
-          ? 'Rien à proposer pour l’instant : ton Todoist est plutôt en ordre.'
-          : 'Toutes les propositions ont été traitées. Rafraîchis pour en chercher d’autres.';
-      els.proposalsList.append(h('p', { class: 'empty-line' }, message));
-      return;
-    }
-
-    for (const proposal of visible) els.proposalsList.append(proposalCard(proposal));
-  }
-
-  function renderProposalsAi() {
-    const ai = state.data?.ai;
-    clear(els.proposalsAi);
-    if (!ai?.enabled) {
-      els.proposalsAi.hidden = true;
-      return;
-    }
-
-    const status = state.ai.status;
-    const text = h('span', { class: 'proposals-ai-text' });
-
-    if (status === 'loading') {
-      text.textContent = '🧠 L’IA analyse tes tâches et prépare de nouvelles propositions…';
-    } else if (status === 'error') {
-      text.textContent = `🧠 IA indisponible : ${state.ai.error || 'erreur inconnue'}.`;
-    } else if (status === 'done') {
-      const aiItems = (state.data.proposals || []).filter((p) => p.source === 'ai');
-      const strategy = state.ai.summary ? `Stratégie : ${state.ai.summary} ` : '';
-      text.textContent =
-        aiItems.length > 0
-          ? `🧠 ${strategy}(${aiItems.length} proposition(s) à valider ou ignorer).`
-          : `🧠 ${strategy}Lot terminé — charge de nouvelles propositions.`;
-    } else {
-      text.textContent = '🧠 L’IA peut proposer des échéances plus fines.';
-    }
-
-    els.proposalsAi.append(text);
-
-    if (status !== 'loading') {
-      els.proposalsAi.append(
-        h(
-          'button',
-          {
-            type: 'button',
-            class: 'btn btn-ghost btn-small',
-            onclick: () => requestAiProposals(true),
-          },
-          'Nouvelles propositions'
-        )
-      );
-    }
-
-    els.proposalsAi.hidden = false;
-  }
-
   const weekdayShort = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric' });
 
   function formatDayChip(iso, today) {
     if (iso === today) return 'auj.';
     if (iso === addDaysIso(today, 1)) return 'dem.';
     return weekdayShort.format(isoToLocalDate(iso));
+  }
+
+  function renderPlanner() {
+    renderCapacity();
+    renderDayPlan();
   }
 
   function renderCapacity() {
@@ -699,7 +605,7 @@
 
     els.capacity.hidden = false;
     els.capacity.append(
-      h('span', { class: 'capacity-title' }, 'Charge par jour — 1 gros · 3 moyens · 5 petits')
+      h('span', { class: 'capacity-title' }, 'Charge par jour — clique un jour (1 gros · 3 moyens · 5 petits)')
     );
 
     const today = state.data.meta.today;
@@ -713,17 +619,18 @@
 
       strip.append(
         h(
-          'div',
+          'button',
           {
-            class: `capacity-day${day.full ? ' is-full' : day.total === 0 ? ' is-empty' : ''}`,
+            type: 'button',
+            class: `capacity-day${day.full ? ' is-full' : day.total === 0 ? ' is-empty' : ''}${
+              state.selectedDate === day.date ? ' is-selected' : ''
+            }`,
+            'aria-pressed': String(state.selectedDate === day.date),
+            onclick: () => selectDay(day.date),
           },
           h('span', { class: 'capacity-date' }, formatDayChip(day.date, today)),
           h('span', { class: 'capacity-load' }, parts.length ? parts.join(' · ') : 'libre'),
-          h(
-            'span',
-            { class: 'capacity-remaining' },
-            day.full ? 'complet' : `reste ${day.remaining.L}G ${day.remaining.M}M ${day.remaining.S}P`
-          )
+          h('span', { class: 'capacity-remaining' }, `reste ${day.remaining.L}G ${day.remaining.M}M ${day.remaining.S}P`)
         )
       );
     }
@@ -731,47 +638,181 @@
     els.capacity.append(strip);
   }
 
-  function maybeRequestAi() {
-    const ai = state.data?.ai;
-    if (!ai?.enabled || state.ai.requested) return;
-    state.ai.requested = true;
-    if (ai.generated) {
-      state.ai.status = 'done';
-      state.ai.summary = ai.summary || null;
-      renderProposalsAi();
-      return;
-    }
-    requestAiProposals(false);
+  function ensureDefaultDay() {
+    if (state.selectedDate) return;
+    const today = state.data?.meta?.today;
+    const days = state.data?.capacity?.days || [];
+    if (today && days.some((day) => day.date === today)) selectDay(today);
   }
 
-  async function requestAiProposals(force) {
-    state.ai.status = 'loading';
-    state.ai.error = null;
-    renderProposalsAi();
+  async function selectDay(date, { force = false } = {}) {
+    state.selectedDate = date;
+    state.dayLoading = true;
+    state.dayError = null;
+    renderPlanner();
+    await loadDay(date, { force });
+  }
+
+  async function loadDay(date, { force = false } = {}) {
     try {
-      const response = await apiJson('/api/proposals/ai', {
+      const plan = await apiJson('/api/day/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ force: Boolean(force) }),
+        body: JSON.stringify({ date, force }),
       });
-      state.ai.status = 'done';
-      state.ai.summary = response.ai_summary || null;
-      state.data.proposals = response.items || [];
-      if (state.data.summary) state.data.summary.proposals = response.proposals;
-      state.data.ai = {
-        ...(state.data.ai || {}),
-        enabled: true,
-        generated: true,
-        summary: response.ai_summary || null,
-        model: response.model || state.data.ai?.model,
-      };
-      renderProposals();
+      state.dayPlan = plan;
+      state.dayLoading = false;
+      state.dayError = null;
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
-      state.ai.status = 'error';
-      state.ai.error = error.message || 'Erreur inconnue';
-      renderProposalsAi();
+      state.dayLoading = false;
+      state.dayError = error.message || 'Impossible de charger cette journée.';
     }
+    renderDayPlan();
+  }
+
+  function adjustCapacity(date, size, delta) {
+    const capacity = state.data.capacity;
+    if (!capacity || !capacity.rule) return;
+    const day = (capacity.days || []).find((d) => d.date === date);
+    if (!day) return;
+    day.load[size] = Math.max(0, day.load[size] + delta);
+    day.remaining[size] = Math.max(0, capacity.rule[size] - day.load[size]);
+    day.total = day.load.L + day.load.M + day.load.S;
+    day.full = ['L', 'M', 'S'].every((key) => day.remaining[key] === 0);
+  }
+
+  function renderDayPlan() {
+    clear(els.dayPlan);
+
+    if (!state.selectedDate) {
+      els.dayPlan.append(
+        h('p', { class: 'empty-line' }, 'Choisis un jour dans la bande de charge ci-dessus.')
+      );
+      return;
+    }
+
+    const plan = state.dayPlan;
+    const date = state.selectedDate;
+
+    els.dayPlan.append(
+      h(
+        'div',
+        { class: 'day-head' },
+        h('span', { class: 'day-title' }, formatTodayLabel(date)),
+        plan ? h('span', { class: 'day-sub' }, dayCapacityText(plan.load)) : null
+      )
+    );
+
+    if (state.dayLoading) {
+      els.dayPlan.append(
+        h('p', { class: 'day-status' }, '🧠 L’IA analyse cette journée et cherche les meilleures tâches…')
+      );
+      return;
+    }
+
+    if (state.dayError) {
+      els.dayPlan.append(h('p', { class: 'day-status is-error' }, state.dayError));
+      els.dayPlan.append(
+        h(
+          'button',
+          { type: 'button', class: 'btn btn-secondary', onclick: () => selectDay(date, { force: true }) },
+          'Réessayer'
+        )
+      );
+      return;
+    }
+
+    if (!plan) return;
+
+    els.dayPlan.append(
+      h(
+        'div',
+        { class: 'day-capacity' },
+        h('span', {}, 'Place restante :'),
+        h('span', { class: 'pill size-L' }, `${plan.remaining.L} gros`),
+        h('span', { class: 'pill size-M' }, `${plan.remaining.M} moyens`),
+        h('span', { class: 'pill size-S' }, `${plan.remaining.S} petits`)
+      )
+    );
+
+    if (Array.isArray(plan.planned) && plan.planned.length > 0) {
+      const list = h('ul', { class: 'plain-list' });
+      for (const task of plan.planned) {
+        list.append(
+          h(
+            'li',
+            { class: 'plain-item' },
+            h('span', { class: `pill size-${task.size}` }, task.size_label),
+            h(
+              'span',
+              { class: 'plain-item-body' },
+              h('span', { class: 'plain-item-title' }, task.title)
+            )
+          )
+        );
+      }
+      els.dayPlan.append(
+        h(
+          'details',
+          { class: 'day-planned' },
+          h('summary', {}, `Déjà prévu ce jour : ${plan.planned.length} tâche(s)`),
+          list
+        )
+      );
+    }
+
+    if (plan.strategy) {
+      els.dayPlan.append(h('p', { class: 'day-strategy' }, `🧠 ${plan.strategy}`));
+    }
+
+    const proposals = (plan.proposals || []).filter(
+      (p) => !state.ignored.has(p.id) && !state.applied.has(p.id)
+    );
+    const splits = (plan.splits || []).filter(
+      (p) => !state.ignored.has(p.id) && !state.applied.has(p.id)
+    );
+
+    if (proposals.length === 0 && splits.length === 0) {
+      els.dayPlan.append(
+        h(
+          'p',
+          { class: 'empty-line' },
+          plan.ai === false
+            ? 'L’IA n’est pas activée : impossible de proposer des tâches.'
+            : 'Rien à proposer pour cette journée (place pleine ou aucune tâche adaptée).'
+        )
+      );
+    } else {
+      const list = h('div', { class: 'proposals' });
+      for (const proposal of proposals) list.append(proposalCard(proposal));
+      for (const proposal of splits) list.append(proposalCard(proposal));
+      els.dayPlan.append(list);
+    }
+
+    els.dayPlan.append(
+      h(
+        'div',
+        { class: 'day-actions' },
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn btn-ghost btn-small',
+            onclick: () => selectDay(date, { force: true }),
+          },
+          'Nouvelles propositions pour ce jour'
+        )
+      )
+    );
+  }
+
+  function dayCapacityText(load) {
+    const parts = [];
+    if (load.L) parts.push(`${load.L} gros`);
+    if (load.M) parts.push(`${load.M} moy`);
+    if (load.S) parts.push(`${load.S} pti`);
+    return `Déjà posé : ${parts.length ? parts.join(' · ') : 'rien'}`;
   }
 
   function proposalCard(proposal) {
@@ -825,12 +866,8 @@
     ignoreBtn.addEventListener('click', () => {
       state.ignored.add(proposal.id);
       saveIgnoredProposals();
+      renderPlanner();
       renderProposals();
-      // Lot IA épuisé (tout validé ou ignoré) : on en prépare un nouveau.
-      const leftAi = (state.data.proposals || []).filter(
-        (p) => p.source === 'ai' && !state.ignored.has(p.id) && !state.applied.has(p.id)
-      );
-      if (leftAi.length === 0 && state.ai.status === 'done') requestAiProposals(true);
     });
 
     card.append(h('div', { class: 'proposal-actions' }, validateBtn, ignoreBtn));
@@ -855,26 +892,39 @@
       state.applied.set(proposal.id, result);
       toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
 
-      // On garde les autres propositions IA du lot, et on n'en retire qu'une.
-      const remainingAi = (state.data.proposals || []).filter(
-        (p) =>
-          p.source === 'ai' &&
-          p.id !== proposal.id &&
-          !state.ignored.has(p.id) &&
-          !state.applied.has(p.id)
-      );
-      await load({ silent: true, keepAi: remainingAi });
+      // Retrait local : pas de rechargement global (les autres cartes restent).
+      if (state.dayPlan) {
+        state.dayPlan.proposals = (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id);
+        state.dayPlan.splits = (state.dayPlan.splits || []).filter((p) => p.id !== proposal.id);
+      }
+      state.data.proposals = (state.data.proposals || []).filter((p) => p.id !== proposal.id);
 
-      // Lot épuisé : on en prépare un nouveau, sur d'autres tâches si besoin.
-      if (remainingAi.length === 0) requestAiProposals(true);
+      const appliedDate = result.effects?.due_date || proposal.action?.due_date;
+      if (proposal.type === 'set_due_date' && proposal.size && appliedDate) {
+        adjustCapacity(appliedDate, proposal.size, +1);
+        if (state.dayPlan && state.dayPlan.date === appliedDate) {
+          state.dayPlan.load[proposal.size] += 1;
+          state.dayPlan.remaining[proposal.size] = Math.max(
+            0,
+            state.dayPlan.remaining[proposal.size] - 1
+          );
+          state.dayPlan.total += 1;
+        }
+      }
+
+      renderPlanner();
+      renderProposals();
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
       if (error.code === 'PROPOSAL_STALE') {
-        // La proposition a expiré (données changées) : on en charge de nouvelles
-        // au lieu d'afficher une erreur bloquante.
-        state.data.proposals = (state.data.proposals || []).filter((p) => p.id !== proposal.id);
-        toast('Cette proposition a expiré — voici de nouvelles propositions.', 'ok');
-        requestAiProposals(true);
+        toast('Cette proposition a expiré — je recharge la journée.', 'ok');
+        state.dayPlan = state.dayPlan
+          ? {
+              ...state.dayPlan,
+              proposals: (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id),
+            }
+          : null;
+        await selectDay(state.selectedDate || state.data.meta.today, { force: true });
         return;
       }
       validateBtn.disabled = false;
@@ -882,6 +932,42 @@
       validateBtn.textContent = original;
       toast(error.message || 'Application impossible.', 'error');
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Autres propositions (archivage, scission, retards)
+  // ---------------------------------------------------------------------------
+
+  function renderProposals() {
+    const all = Array.isArray(state.data.proposals) ? state.data.proposals : [];
+    const summary = state.data.summary.proposals || { total: all.length, truncated: {} };
+    const visible = all.filter(
+      (proposal) => !state.ignored.has(proposal.id) && !state.applied.has(proposal.id)
+    );
+
+    els.proposalsCount.textContent = String(visible.length);
+    clear(els.proposalsList);
+
+    const truncatedTotal = Number(summary.truncated?.total || 0);
+    if (truncatedTotal > 0) {
+      els.proposalsNote.textContent = `${truncatedTotal} proposition(s) supplémentaire(s) masquée(s) par le plafond d’affichage.`;
+      els.proposalsNote.hidden = false;
+    } else {
+      els.proposalsNote.hidden = true;
+    }
+
+    if (visible.length === 0) {
+      els.proposalsList.append(
+        h(
+          'p',
+          { class: 'empty-line' },
+          'Rien à signaler ici : pas de projet à archiver, pas de tâche à scinder, aucun retard.'
+        )
+      );
+      return;
+    }
+
+    for (const proposal of visible) els.proposalsList.append(proposalCard(proposal));
   }
 
   // ---------------------------------------------------------------------------

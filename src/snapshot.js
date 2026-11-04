@@ -161,6 +161,7 @@ function buildSnapshot({
   proposalDueOffsetDays = 7,
   capacityHorizonDays = 14,
   capacityRule = { L: 1, M: 3, S: 5 },
+  includeDueDateRule = true,
   generatedAt = new Date().toISOString(),
   appVersion = null,
 }) {
@@ -366,6 +367,7 @@ function buildSnapshot({
       maxPerType: proposalsMaxPerType,
       maxTotal: proposalsMaxTotal,
       dueOffsetDays: proposalDueOffsetDays,
+      includeDueDate: includeDueDateRule,
     },
   });
 

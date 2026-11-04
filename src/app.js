@@ -17,10 +17,11 @@ const { config, checkConfig } = require('./config');
 const auth = require('./auth');
 const { getSnapshot, clearCache } = require('./exportService');
 const { TodoistError } = require('./todoist');
-const { findProposal, mergeProposalLists } = require('./proposals');
+const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
-const { peek: peekAi, generateAiProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
+const { dayInfo, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
 const { AiError } = require('./ai');
+const { isValidIsoDate } = require('./dates');
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
@@ -302,24 +303,13 @@ function createApp() {
       const force = req.query.refresh === '1';
       const { snapshot, cache } = await getSnapshot({ force });
 
-      // Les propositions de l'IA sont fusionnées si elles ont déjà été générées
-      // (aucun appel au modèle ici : la page reste rapide).
-      const ai = peekAi(snapshot);
-      const merged = mergeProposalLists(snapshot.proposals, ai ? ai.items : [], {
-        maxTotal: config.proposalsMaxTotal,
-      });
-
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         ...snapshot,
-        proposals: merged.items,
-        summary: { ...snapshot.summary, proposals: merged.summary },
         ai: {
           enabled: config.aiEnabled,
-          generated: Boolean(ai),
-          generated_at: ai ? new Date(ai.generatedAt).toISOString() : null,
-          summary: ai ? ai.summary : null,
           model: config.aiModel,
+          horizon_days: config.capacityHorizonDays,
         },
         meta: { ...snapshot.meta, cache },
       });
@@ -327,43 +317,69 @@ function createApp() {
   );
 
   /**
-   * Demande à l'IA de proposer des échéances. Le résultat est mis en cache par
-   * empreinte des données : un rechargement sans changement ne rappelle pas le
-   * modèle. Aucune écriture Todoist n'a lieu ici.
+   * Planifie une journée précise : renvoie ce qui est déjà prévu, la place
+   * restante (règle 1-3-5) et les propositions de l'IA pour ce jour.
+   * Aucune écriture Todoist ici.
    */
   app.post(
-    '/api/proposals/ai',
+    '/api/day/plan',
     requireApiAuth,
     requireSameOrigin,
     requireAppHeader,
     asyncHandler(async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
 
-      if (!config.aiEnabled) {
-        return res.status(403).json({
+      const date = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
+      const force = req.body?.force === true;
+
+      const { snapshot } = await getSnapshot({ force: false });
+      const days = (snapshot.capacity && snapshot.capacity.days) || [];
+      if (!isValidIsoDate(date) || !days.some((day) => day.date === date)) {
+        return res.status(400).json({
           error: {
-            code: 'AI_DISABLED',
-            message: 'L’IA n’est pas configurée sur ce serveur.',
-            hint: 'Ajoute OPENROUTER_API_KEY puis redéploie.',
+            code: 'BAD_DATE',
+            message: 'Date hors du plan. Choisis un jour affiché dans la bande de charge.',
           },
         });
       }
 
-      const force = req.body?.force === true;
-      const { snapshot } = await getSnapshot({ force: false });
-      const ai = await generateAiProposals(snapshot, { force });
-      const merged = mergeProposalLists(snapshot.proposals, ai.items, {
-        maxTotal: config.proposalsMaxTotal,
-      });
+      const info = dayInfo(snapshot, date);
+
+      if (!config.aiEnabled) {
+        return res.json({
+          ok: true,
+          date,
+          ai: false,
+          weekday: info.weekday,
+          rule: info.rule,
+          load: info.load,
+          remaining: info.remaining,
+          total: info.total,
+          planned: info.planned,
+          proposals: [],
+          splits: [],
+          strategy: null,
+          cached: false,
+        });
+      }
+
+      const plan = await generateDayProposals(snapshot, date, { force });
 
       return res.json({
         ok: true,
-        cached: ai.cached,
-        ai_summary: ai.summary,
-        items: merged.items,
-        proposals: merged.summary,
-        usage: ai.usage || null,
-        model: ai.model || config.aiModel,
+        date,
+        ai: true,
+        weekday: info.weekday,
+        rule: info.rule,
+        load: info.load,
+        remaining: info.remaining,
+        total: info.total,
+        planned: info.planned,
+        proposals: plan.items,
+        splits: plan.splits || [],
+        strategy: plan.summary || null,
+        cached: Boolean(plan.cached),
+        usage: plan.usage || null,
       });
     })
   );

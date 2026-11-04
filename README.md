@@ -6,15 +6,13 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 5.** L'app affiche un résumé, explore les projets, **diagnostique
-> chaque projet**, et **propose des modifications concrètes** (donner une échéance,
-> reporter, scinder, archiver) que tu **valides une par une**. À partir de l'itération 4,
-> une **IA** (OpenRouter, `deepseek/deepseek-v4.1-flash`) réfléchit aux meilleures
-> échéances ; depuis l'itération 5 elle tient compte de la **charge déjà posée chaque
-> jour** et respecte une **capacité 1-3-5** (1 gros · 3 moyens · 5 petits par jour), et
-> peut **scinder** les grosses tâches. Tant que tu n'as pas validé une proposition,
-> **rien n'est écrit dans Todoist** ; chaque écriture validée est ensuite relue depuis
-> l'API.
+> **Itérations 1 à 6.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> projet**, et te laisse **planifier jour par jour** : tu choisis un jour, l'app te dit ce
+> qu'il reste comme place (**règle 1-3-5** : 1 gros · 3 moyens · 5 petits) et une **IA**
+> (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ce
+> jour. Tu **valides ou ignores chaque proposition individuellement**. Tant que tu n'as pas
+> validé, **rien n'est écrit dans Todoist** ; chaque écriture validée est ensuite relue
+> depuis l'API.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
 > (`JJ.MM.AAAA`, `auj`) restent détectées et affichées passivement, mais ne sont pas la
@@ -34,16 +32,12 @@ Todoist surchargé et aide à y voir clair.
   récente, ou sain), une liste de signaux chiffrés et une **proposition de nettoyage**.
   Les projets sont classés du plus préoccupant au plus sain, avec des filtres par type
   d'action. Voir « Itération 2 » ci-dessous.
-- **Propositions validables une par une** : l'app génère une liste d'actions concrètes
-  ciblant des tâches ou des projets ; chaque carte se valide (ou s'ignore) individuellement,
-  puis l'écriture est vérifiée via l'API. Voir « Itération 3 » ci-dessous.
-- **Échéances proposées par une IA** : un modèle réfléchit à la meilleure date pour chaque
-  tâche (répartition, priorités, regroupement par thème) et justifie son choix, au lieu
-  d'appliquer une règle uniforme. Voir « Itération 4 » ci-dessous.
-- **Capacité journalière 1-3-5** : l'app mesure la charge déjà posée chaque jour (à partir
-  des échéances existantes) et n'accepte de nouvelles tâches que s'il reste de la place
-  (1 grosse · 3 moyennes · 5 petites). L'IA peut aussi **scinder** une grosse tâche en
-  sous-tâches concrètes. Voir « Itération 5 » ci-dessous.
+- **Propositions validables une par une** : chaque carte se valide (ou s'ignore)
+  individuellement, puis l'écriture est vérifiée via l'API. Voir « Itération 3 ».
+- **Planification jour par jour assistée par une IA** : tu cliques un jour, l'app donne la
+  place restante (**1-3-5**) et l'IA propose les tâches les plus adaptées à ce jour, avec
+  taille et justification, et peut **scinder** une grosse tâche en sous-tâches.
+  Voir « Itération 5 ».
 - Détection de la convention de date en **fin de titre** :
   - `11.10.2026` → échéance `2026-10-11` ;
   - `auj` / `auj.` → aujourd'hui, dans le fuseau configuré.
@@ -104,76 +98,58 @@ Détails d'implémentation : `src/proposals.js` (génération, pure et testée) 
 pour une proposition présente dans l'instantané courant : aucune action arbitraire n'est
 acceptée.
 
-## Itération 4 — échéances proposées par une IA
+## Itération 5 — charge 1-3-5 et planification jour par jour
 
-Quand `OPENROUTER_API_KEY` est défini, l'app envoie au modèle un condensé des tâches à
-planifier (tâches en retard et anciennes sans échéance) et lui demande de choisir les
-meilleures échéances. Le modèle répond uniquement par un JSON :
-
-```json
-{
-  "summary": "Je regroupe maison/courses en fin de semaine et j'étale les lectures.",
-  "proposals": [
-    { "task_id": "…", "due_date": "2026-11-07", "reason": "…", "group": "Maison" }
-  ]
-}
-```
-
-Garde-fous :
-
-- L'IA ne peut produire **qu'une seule action** : fixer une échéance (`set_due_date`).
-  Rien d'autre n'est accepté — pas de suppression, pas de création.
-- Chaque proposition est **validée** contre l'instantané : tâche connue, date ISO valide
-  dans l'horizon (`today … today + AI_HORIZON_DAYS`), pas de doublon. Le reste est écarté.
-- Les échéances IA **remplacent** la règle « tout à la même date » ; les autres types
-  (reporter, scinder, archiver) restent générés par les règles.
-- Résultat **mis en cache** par empreinte des données : un rechargement sans changement ne
-  rappelle pas le modèle (et le coût reste de l'ordre du millième de dollar).
-- Aucune donnée sensible n'est envoyée : uniquement des titres, métadonnées et la date du
-  jour — jamais le token Todoist ni le mot de passe.
-- La génération est asynchrone : l'interface affiche « l'IA réfléchit… » puis les
-  propositions, sans bloquer l'affichage.
-- Sans clé (ou `AI_ENABLED=false`), l'app fonctionne exactement comme avant, en mode règles.
-
-Implémentation : `src/ai.js` (client OpenRouter) et `src/aiProposals.js` (condensé,
-invite, validation, cache).
-
-### Le lot de propositions
-
-L'IA propose un **lot** (5 par défaut, `AI_MAX_PROPOSALS`). Tu les **valides ou les
-ignores une par une** : valider une proposition **n'invalide pas les autres** du lot.
-Quand le lot est épuisé — ou via le bouton **« Nouvelles propositions »** — un **nouveau
-lot** est préparé, sur d'autres tâches si possible.
-
-Les propositions déjà présentées restent valables un moment (magasin en mémoire, 2 h,
-indépendant du cache de lecture) : tu ne verras plus de « cette proposition n'est plus
-d'actualité » parce qu'une autre a été validée.
-
-## Itération 5 — capacité journalière 1-3-5
-
-Le problème des itérations précédentes : l'IA proposait des dates sans savoir ce qui était
-**déjà prévu** ces jours-là, et pouvait donc surcharger une journée.
-
-Désormais :
+Depuis l'itération 5, l'IA ne propose plus un lot global : on planifie **un jour à la fois**.
 
 1. L'app calcule un **plan de charge** des 14 prochains jours à partir des échéances
    existantes, en estimant la taille de chaque tâche (durée renseignée, sinon nombre de
    sous-tâches et longueur de la note) : **Gros (L) / Moyen (M) / Petit (S)**.
 2. Une journée saine respecte la règle **1-3-5** : au plus **1 grosse, 3 moyennes et
-   5 petites** tâches. Le tableau de charge (et l'interface) montre la place restante.
-3. Le plan est envoyé à l'IA, qui choisit les jours **selon la place restante** et donne
-   une **taille** à chaque proposition.
-4. Le serveur **vérifie** chaque proposition : si un jour dépasserait sa capacité, la
-   proposition est **écartée** (et signalée dans la stratégie).
-5. L'IA peut en plus proposer de **scinder** une grosse tâche en 2 à 10 sous-tâches
-   concrètes ; la note d'origine est conservée.
+   5 petites** tâches. Une bande **« Charge par jour »** affiche, pour chaque jour, ce qui
+   est déjà posé et ce qu'il reste.
+3. Tu **cliques sur un jour**. L'app t'indique la **place restante** et demande à l'IA
+   quelles tâches non planifiées conviennent le mieux à **cette journée précise**, sans
+   jamais dépasser la place disponible.
+4. Tu valides ou ignores chaque carte, puis tu passes à un autre jour. Valider une carte
+   n'affecte **pas** les autres : la place restante du jour est simplement recalculée.
+5. L'IA peut aussi proposer de **scinder** une grosse tâche en 2 à 10 sous-tâches
+   concrètes (la note d'origine est conservée).
 
-Une bande « Charge par jour — 1 gros · 3 moyens · 5 petits » affiche, pour chaque jour,
-ce qui est déjà posé et ce qu'il reste.
+Chaque jour a son propre cache (empreinte des données) : revenir sur un jour déjà planifié
+ne rappelle pas le modèle. Les cartes déjà affichées restent validables même après une
+écriture (magasin en mémoire 2 h), donc plus de « cette proposition n'est plus
+d'actualité » parce qu'une autre a été validée.
+
+Le modèle répond uniquement par un JSON :
+
+```json
+{
+  "summary": "Je remplis le jeudi 5 : la revue de projet et deux courses.",
+  "proposals": [
+    { "task_id": "…", "due_date": "2026-11-05", "size": "M", "reason": "…", "group": "Admin" }
+  ],
+  "splits": [
+    { "task_id": "…", "reason": "…", "subtasks": ["…", "…"] }
+  ]
+}
+```
+
+Garde-fous : l'IA ne peut produire que des échéances (`set_due_date`, bornées au jour
+choisi) et des scissions (`split_task`) ; toute proposition hors journée, hors capacité ou
+visant une tâche inconnue est **écartée** côté serveur. Aucune donnée sensible n'est
+envoyée (titres, métadonnées, date uniquement). Sans clé (`AI_ENABLED=false`), l'app
+fonctionne en mode règles.
+
+Le panneau **« Autres propositions »** regroupe les actions non liées à une date : archiver
+un projet vide ou dormant, scinder une tâche dont la note est une liste, reporter un retard.
 
 Seuils configurables : `CAPACITY_HORIZON_DAYS`, `CAPACITY_MAX_LARGE`,
-`CAPACITY_MAX_MEDIUM`, `CAPACITY_MAX_SMALL`. La scission IA se coupe avec
-`AI_ALLOW_SPLITS=false`.
+`CAPACITY_MAX_MEDIUM`, `CAPACITY_MAX_SMALL`, `AI_ALLOW_SPLITS`, `AI_MAX_TOKENS`,
+`AI_REASONING_MAX_TOKENS` (plafond de réflexion du modèle), `AI_CACHE_TTL_MINUTES`.
+
+Les propositions IA **remplacent** l'ancienne règle « datation en vrac » (qui mettait tout
+à la même date) : la datation par règles est désactivée dès que l'IA est active.
 
 ## Prérequis
 
@@ -227,8 +203,7 @@ npm run dev
 | `AI_MODEL` | non | `deepseek/deepseek-v4.1-flash` | Modèle utilisé pour proposer les échéances. |
 | `AI_MAX_TOKENS` | non | `8000` | Budget de génération (raisonnement + JSON). |
 | `AI_REASONING_MAX_TOKENS` | non | `400` | Plafond du raisonnement du modèle. |
-| `AI_MAX_PROPOSALS` | non | `5` | Nombre maximum d'échéances proposées par l'IA (un « lot »). |
-| `AI_HORIZON_DAYS` | non | `120` | Horizon maximum pour une échéance proposée. |
+| `AI_MAX_PROPOSALS` | non | `5` | Nombre maximum de propositions pour un jour donné. |
 | `AI_TIMEOUT_MS` | non | `90000` | Délai maximal d'un appel au modèle. |
 | `AI_CACHE_TTL_MINUTES` | non | `30` | Durée de cache des propositions IA. |
 | `AI_ENABLED` | non | `true` | `false` désactive l'IA même si la clé est présente. |
@@ -258,8 +233,8 @@ Les tests unitaires couvrent l'analyse des dates de titre, la construction du r�
 (filtrage des archives, cas de date invalide), le diagnostic des projets (signaux,
 verdicts, agrégation par action), le moteur de propositions (liste à puces, échéances,
 plafonds, identifiants stables), la couche IA (parsing tolérant, validation stricte des
-réponses, respect de la capacité journalière, scissions, fusion avec les règles) et le
-moteur de capacité (estimation de taille, plan de charge 1-3-5).
+réponses par jour, respect de la capacité journalière, scissions) et le moteur de capacité
+(estimation de taille, plan de charge 1-3-5).
 
 ## Déploiement sur Orkestr
 
@@ -303,14 +278,15 @@ Toute modification d'une variable d'environnement nécessite un nouveau déploie
 2. Entrer un mauvais mot de passe : le message « Mot de passe incorrect. » apparaît.
 3. Entrer le bon mot de passe : le tableau de bord « Ton Todoist, en clair. » s'affiche.
 4. Vérifier que le nombre de projets et de tâches correspond à ton compte Todoist.
-5. Dans **Propositions**, vérifier d'abord la bande **« Charge par jour »** : chaque jour
-   affiche ce qui est déjà posé et ce qu'il reste. Puis attendre la ligne
-   « 🧠 Stratégie : … » : les échéances proposées par l'IA apparaissent, avec un badge
-   **IA**, une **taille** (Gros/Moyen/Petit), un **thème** et une justification. Vérifier
-   qu'aucun jour n'est surchargé.
-6. Valider une carte (changer la date si besoin) : un message confirme l'application, la
-   carte disparaît et le compteur baisse. Une carte **Ignorer** disparaît durablement.
-   La bande de charge se met à jour.
+5. Dans **Planifier par jour**, la bande **« Charge par jour »** s'affiche en haut :
+   chaque jour montre ce qui est déjà posé et ce qu'il reste. Le jour du jour est
+   présélectionné.
+6. Cliquer un autre jour : l'app affiche sa **place restante** (ex. « 1 gros · 2 moyens ·
+   0 petits ») et les tâches déjà prévues, puis les propositions de l'IA pour ce jour
+   (avec taille et justification). Valider une carte applique l'échéance **à ce jour** ;
+   la place restante se met à jour et **les autres cartes restent**.
+7. Passer à un autre jour et vérifier que les propositions sont différentes et adaptées.
+8. Dans **Autres propositions**, valider par exemple un archivage ou une scission.
 7. Vérifier dans l'app Todoist que la modification est bien là.
 8. Dans **Diagnostic des projets**, vérifier le classement et les filtres.
 9. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
@@ -356,9 +332,9 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 5 terminées : export, lecture, diagnostic des projets, propositions
-validables individuellement (écritures vérifiées), échéances proposées par une IA et
-planification respectant la capacité 1-3-5 des journées (avec scission des grosses
-tâches). Les itérations suivantes (questionnaire quotidien avec sélection assistée,
-rééquilibrage automatique d'une journée surchargée, propositions de suppression)
-ne sont pas implémentées et seront abordées après retour d'usage.
+Itérations 1 à 6 terminées : export, lecture, diagnostic des projets, propositions
+validables individuellement (écritures vérifiées), et **planification jour par jour
+assistée par une IA** respectant la capacité 1-3-5 (avec scission des grosses tâches).
+Les itérations suivantes (rééquilibrage automatique d'un jour surchargé, propositions de
+suppression, déplacement entre projets) ne sont pas implémentées et seront abordées après
+retour d'usage.

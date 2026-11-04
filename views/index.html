@@ -102,19 +102,33 @@
           </p>
         </section>
 
+        <section class="panel" aria-labelledby="planner-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="planner-title">Planifier par jour</h2>
+              <p class="panel-sub">
+                Choisis un jour : l’app te dit ce qu’il reste comme place (règle 1-3-5) et te
+                propose les tâches les plus adaptées. Tu valides ou tu ignores, puis tu passes
+                à un autre jour.
+              </p>
+            </div>
+            <span class="pill pill-readonly">Lecture seule</span>
+          </div>
+          <div id="capacity" class="capacity" aria-label="Charge par jour" hidden></div>
+          <div id="day-plan" class="day-plan"></div>
+        </section>
+
         <section class="panel" aria-labelledby="proposals-title">
           <div class="panel-head">
             <div>
-              <h2 id="proposals-title">Propositions</h2>
+              <h2 id="proposals-title">Autres propositions</h2>
               <p class="panel-sub">
-                Ce que je propose de modifier dans ton Todoist. Valide chaque proposition
-                individuellement — rien n’est appliqué sans ton accord explicite.
+                Projets à archiver, tâches à scinder, retards à reporter. Valide chaque
+                proposition individuellement.
               </p>
             </div>
             <span id="proposals-count" class="pill">0</span>
           </div>
-          <div id="proposals-ai" class="proposals-ai" role="status" aria-live="polite" hidden></div>
-          <div id="capacity" class="capacity" aria-label="Charge par jour" hidden></div>
           <div id="proposals-note" class="fine-print" hidden></div>
           <div id="proposals-list" class="proposals"></div>
         </section>

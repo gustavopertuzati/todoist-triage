@@ -152,7 +152,7 @@ function buildSplit(task) {
  * @returns {{items: object[], summary: {total:number, by_type:object, truncated:object}}}
  */
 function buildProposals({ projects, tasks, today, limits }) {
-  const { maxPerType, maxTotal, dueOffsetDays } = limits;
+  const { maxPerType, maxTotal, dueOffsetDays, includeDueDate = true } = limits;
   const activeTasks = tasks.filter((task) => !task.project_archived);
   const truncated = {};
 
@@ -163,10 +163,14 @@ function buildProposals({ projects, tasks, today, limits }) {
     .sort((a, b) => (b.days_overdue || 0) - (a.days_overdue || 0))
     .map((task) => buildReschedule(task, today));
 
-  pools.set_due_date = activeTasks
-    .filter((task) => !task.due_date && task.is_old)
-    .sort((a, b) => (b.age_days || 0) - (a.age_days || 0))
-    .map((task) => buildSetDueDate(task, today, dueOffsetDays));
+  // La datation par règles est désactivée quand l'IA planifie jour par jour :
+  // sinon on retombe sur « tout à la même date ».
+  pools.set_due_date = includeDueDate
+    ? activeTasks
+        .filter((task) => !task.due_date && task.is_old)
+        .sort((a, b) => (b.age_days || 0) - (a.age_days || 0))
+        .map((task) => buildSetDueDate(task, today, dueOffsetDays))
+    : [];
 
   pools.archive_project = projects
     .filter(

@@ -828,6 +828,21 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.capacity-day:hover {
+  background: var(--surface-2);
+}
+
+.capacity-day.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--surface);
 }
 
 .capacity-day.is-empty {
@@ -875,6 +890,87 @@ button:disabled {
   content: '·';
   position: absolute;
   left: 4px;
+}
+
+/* Planificateur par jour */
+.day-plan {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.day-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.day-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.day-sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.day-status {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  font-size: 13.5px;
+}
+
+.day-status.is-error {
+  background: var(--danger-bg);
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+
+.day-capacity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.day-planned {
+  font-size: 13.5px;
+}
+
+.day-planned summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.day-planned .plain-list {
+  margin-top: 4px;
+}
+
+.day-planned .plain-item {
+  padding: 5px 0;
+}
+
+.day-strategy {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  font-size: 13.5px;
+}
+
+.day-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .proposal {

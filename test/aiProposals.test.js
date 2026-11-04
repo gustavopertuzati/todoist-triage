@@ -10,18 +10,19 @@ const assert = require('node:assert/strict');
 
 const { parseJsonLoose } = require('../src/ai');
 const {
-  validateResponse,
-  buildDigest,
-  signatureFor,
-  generateAiProposals,
+  buildDayDigest,
+  validateDayResponse,
+  dayInfo,
+  generateDayProposals,
   findAiProposal,
   removeAiProposal,
   clearAiCache,
 } = require('../src/aiProposals');
-const { mergeProposalLists } = require('../src/proposals');
 const { buildAgenda } = require('../src/capacity');
 
 const TODAY = '2026-11-04';
+const DAY = '2026-11-05';
+const RULE = { L: 1, M: 3, S: 5 };
 
 function task(overrides = {}) {
   return {
@@ -39,17 +40,21 @@ function task(overrides = {}) {
     days_overdue: null,
     age_days: 200,
     is_old: true,
+    subtask_count: 0,
     project_archived: false,
     ...overrides,
   };
 }
 
 function snapshotWith(tasks) {
-  const rule = { L: 1, M: 3, S: 5 };
   return {
     meta: { today: TODAY, timezone: 'Europe/Zurich' },
     tasks,
-    capacity: { horizon_days: 14, rule, days: buildAgenda({ tasks, today: TODAY, horizonDays: 14, rule }) },
+    capacity: {
+      horizon_days: 14,
+      rule: RULE,
+      days: buildAgenda({ tasks, today: TODAY, horizonDays: 14, rule: RULE }),
+    },
     projects: [
       { id: 'p1', name: 'Projet', is_archived: false, stats: { tasks: tasks.length, overdue: 0, no_due: tasks.length, completed_lookback: 0 } },
     ],
@@ -62,140 +67,105 @@ test('parseJsonLoose tolère les balises de code et le texte autour', () => {
   assert.equal(parseJsonLoose('pas de json ici'), null);
 });
 
-test('buildDigest est déterministe et compact', () => {
-  const snapshot = snapshotWith([task({ id: 't1' }), task({ id: 't2' })]);
-  const a = buildDigest(snapshot);
-  const b = buildDigest(snapshot);
-  assert.deepEqual(a, b);
-  assert.equal(signatureFor(a), signatureFor(b));
-  assert.equal(a.tasks.length, 2);
-  assert.equal(a.tasks[0].id, 't1');
-  assert.equal(a.today, TODAY);
+test('dayInfo liste les tâches déjà prévues avec leur taille', () => {
+  const snapshot = snapshotWith([
+    task({ id: 'a', due_date: DAY, duration: { amount: 90, unit: 'minute' } }),
+    task({ id: 'b', due_date: DAY }),
+    task({ id: 'c', due_date: null }),
+  ]);
+  const info = dayInfo(snapshot, DAY);
+
+  assert.equal(info.total, 2);
+  assert.deepEqual(info.load, { L: 1, M: 0, S: 1 });
+  assert.deepEqual(info.remaining, { L: 0, M: 3, S: 4 });
+  assert.equal(info.planned[0].size_label, 'Gros');
 });
 
-test('validateResponse ne garde que des propositions sûres', () => {
-  const snapshot = snapshotWith([task({ id: 't1' })]);
-  const digest = { today: TODAY, tasks: [{ id: 't1' }] };
-
-  const { items } = validateResponse(
-    {
-      summary: 'Stratégie test',
-      proposals: [
-        { task_id: 't1', due_date: '2026-11-10', reason: 'Petite tâche, à faire vite.', group: 'Admin' },
-        { task_id: 'inconnu', due_date: '2026-11-10', reason: 'inconnue' },
-        { task_id: 't1', due_date: '2026-11-10', reason: 'doublon' },
-      ],
-    },
-    snapshot,
-    digest
-  );
-
-  assert.equal(items.length, 1);
-  assert.equal(items[0].source, 'ai');
-  assert.equal(items[0].type, 'set_due_date');
-  assert.equal(items[0].action.due_date, '2026-11-10');
-  assert.equal(items[0].ai_group, 'Admin');
-  assert.equal(items[0].target.id, 't1');
-  assert.ok(['L', 'M', 'S'].includes(items[0].size));
+test('buildDayDigest est déterministe et porte la place restante', () => {
+  const snapshot = snapshotWith([task({ id: 'a' }), task({ id: 'b' })]);
+  const digest = buildDayDigest(snapshot, DAY);
+  assert.deepEqual(digest, buildDayDigest(snapshot, DAY));
+  assert.equal(digest.date, DAY);
+  assert.deepEqual(digest.remaining, RULE);
+  assert.equal(digest.tasks.length, 2);
 });
 
-test('validateResponse rejette les dates hors bornes ou invalides', () => {
-  const snapshot = snapshotWith([task({ id: 't1', due_date: '2026-11-20' })]);
-  const digest = { today: TODAY, tasks: [{ id: 't1' }] };
-
-  const { items } = validateResponse(
-    {
-      proposals: [
-        { task_id: 't1', due_date: '2026-11-03' }, // avant aujourd'hui
-        { task_id: 't1', due_date: '2027-12-31' }, // au-delà de l'horizon
-        { task_id: 't1', due_date: 'demain' }, // invalide
-        { task_id: 't1', due_date: '2026-11-20' }, // identique à l'existant
-      ],
-    },
-    snapshot,
-    digest
-  );
-
-  assert.equal(items.length, 0);
-});
-
-test('validateResponse refuse une proposition qui dépasserait la capacité du jour', () => {
+test('validateDayResponse ne garde que la journée visée et respecte la place', () => {
   const snapshot = snapshotWith([
     task({ id: 't1' }),
     task({ id: 't2' }),
-    task({ id: 'busy', due_date: '2026-11-10', duration: { amount: 90, unit: 'minute' } }),
+    task({ id: 't3' }),
+    task({ id: 't4' }),
   ]);
-  const digest = { today: TODAY, tasks: [{ id: 't1' }, { id: 't2' }] };
+  const digest = buildDayDigest(snapshot, DAY);
 
-  const { items, dropped } = validateResponse(
+  const { items } = validateDayResponse(
     {
+      summary: 'Journée test',
       proposals: [
-        { task_id: 't1', due_date: '2026-11-10', size: 'L', reason: 'trop gros pour ce jour' },
-        { task_id: 't2', due_date: '2026-11-10', size: 'M', reason: 'tient encore' },
+        { task_id: 't1', due_date: DAY, size: 'L', reason: 'ok' },
+        { task_id: 't2', due_date: '2026-11-06', size: 'S', reason: 'mauvais jour' }, // écarté
+        { task_id: 't3', due_date: DAY, size: 'L', reason: 'dépasse le gros' }, // écarté
+        { task_id: 't4', due_date: DAY, size: 'S', reason: 'ok' },
+        { task_id: 'inconnu', due_date: DAY, size: 'S', reason: 'inconnu' }, // écarté
       ],
     },
     snapshot,
+    DAY,
     digest
   );
 
-  assert.equal(items.length, 1);
-  assert.equal(items[0].target.id, 't2');
-  assert.equal(items[0].size, 'M');
-  assert.equal(dropped, 1);
+  const ids = items.map((item) => item.target.id).sort();
+  assert.deepEqual(ids, ['t1', 't4']);
+  assert.ok(items.every((item) => item.action.due_date === DAY));
+  assert.equal(items.find((item) => item.target.id === 't1').size_label, 'Gros');
 });
 
-test('validateResponse accepte une scission proposée par l’IA sans toucher à la note', () => {
+test('validateDayResponse accepte une scission proposée par l’IA', () => {
   const snapshot = snapshotWith([task({ id: 't1' })]);
-  const digest = { today: TODAY, tasks: [{ id: 't1' }] };
+  const digest = buildDayDigest(snapshot, DAY);
 
-  const { items } = validateResponse(
+  const { splits } = validateDayResponse(
     {
-      splits: [
-        { task_id: 't1', reason: 'Fourre-tout à découper', subtasks: ['Étape un', 'Étape deux', 'Étape trois'] },
-      ],
+      proposals: [],
+      splits: [{ task_id: 't1', reason: 'fourre-tout', subtasks: ['Étape un', 'Étape deux'] }],
     },
     snapshot,
+    DAY,
     digest
   );
 
-  assert.equal(items.length, 1);
-  assert.equal(items[0].type, 'split_task');
-  assert.deepEqual(items[0].action.subtasks, ['Étape un', 'Étape deux', 'Étape trois']);
-  assert.equal(items[0].action.update_description, false);
+  assert.equal(splits.length, 1);
+  assert.equal(splits[0].type, 'split_task');
+  assert.equal(splits[0].action.update_description, false);
 });
 
-test('mergeProposalLists laisse l’IA remplacer la règle de datation', () => {
-  const rule = [
-    { id: 'r1', type: 'set_due_date', score: 30, target: { id: 't1' } },
-    { id: 'r2', type: 'set_due_date', score: 30, target: { id: 't2' } },
-    { id: 'r3', type: 'archive_project', score: 60, target: { id: 'p1' } },
-  ];
-  const ai = [
-    { id: 'a1', type: 'set_due_date', score: 55, target: { id: 't1' } },
-  ];
+test('validateDayResponse refuse tout si la place est nulle', () => {
+  const snapshot = snapshotWith([
+    task({ id: 'busy', due_date: DAY, duration: { amount: 90, unit: 'minute' } }), // L plein
+    task({ id: 'busy2', due_date: DAY, duration: { amount: 90, unit: 'minute' } }), // L plein aussi
+    task({ id: 't1' }),
+  ]);
+  // Occupe les 3 moyens et 5 petits.
+  const fillers = [];
+  for (let i = 0; i < 3; i += 1) fillers.push(task({ id: `m${i}`, due_date: DAY, duration: { amount: 45, unit: 'minute' } }));
+  for (let i = 0; i < 5; i += 1) fillers.push(task({ id: `s${i}`, due_date: DAY, duration: { amount: 10, unit: 'minute' } }));
+  snapshot.tasks = [...snapshot.tasks, ...fillers];
+  snapshot.capacity.days = buildAgenda({ tasks: snapshot.tasks, today: TODAY, horizonDays: 14, rule: RULE });
 
-  const merged = mergeProposalLists(rule, ai, { maxTotal: 40 });
-  const ids = merged.items.map((p) => p.id).sort();
-  // r1 et r2 (datation) sont retirés ; seul a1 subsiste + archive r3.
-  assert.deepEqual(ids, ['a1', 'r3']);
-  assert.equal(merged.summary.by_type.set_due_date, 1);
-  assert.equal(merged.summary.by_type.archive_project, 1);
-  assert.equal(merged.items[0].id, 'r3'); // score 60 avant 55
+  const digest = buildDayDigest(snapshot, DAY);
+  assert.deepEqual(digest.remaining, { L: 0, M: 0, S: 0 });
+
+  const { items } = validateDayResponse(
+    { proposals: [{ task_id: 't1', due_date: DAY, size: 'S', reason: 'non' }] },
+    snapshot,
+    DAY,
+    digest
+  );
+  assert.equal(items.length, 0);
 });
 
-test('mergeProposalLists respecte le plafond total', () => {
-  const rule = Array.from({ length: 5 }, (_, i) => ({
-    id: `r${i}`,
-    type: 'archive_project',
-    score: 60 - i,
-    target: { id: `p${i}` },
-  }));
-  const merged = mergeProposalLists(rule, [], { maxTotal: 3 });
-  assert.equal(merged.items.length, 3);
-  assert.equal(merged.summary.truncated.total, 2);
-});
-
-test('un lot IA reste résolvable après génération, et une appliquée se retire', async () => {
+test('un lot de jour reste résolvable et une proposition retirée ne casse pas les autres', async () => {
   clearAiCache();
   const snapshot = snapshotWith([task({ id: 't1' }), task({ id: 't2' })]);
   const originalFetch = global.fetch;
@@ -210,10 +180,10 @@ test('un lot IA reste résolvable après génération, et une appliquée se reti
           {
             message: {
               content: JSON.stringify({
-                summary: 'lot de test',
+                summary: 'journée de test',
                 proposals: [
-                  { task_id: 't1', due_date: '2026-11-10', reason: 'prioritaire', group: 'Admin' },
-                  { task_id: 't2', due_date: '2026-11-12', reason: 'plus tard', group: 'Maison' },
+                  { task_id: 't1', due_date: DAY, size: 'M', reason: 'prioritaire', group: 'Admin' },
+                  { task_id: 't2', due_date: DAY, size: 'S', reason: 'plus tard', group: 'Maison' },
                 ],
               }),
             },
@@ -224,15 +194,14 @@ test('un lot IA reste résolvable après génération, et une appliquée se reti
   });
 
   try {
-    const result = await generateAiProposals(snapshot, { force: true });
+    const result = await generateDayProposals(snapshot, DAY, { force: true });
     assert.equal(result.items.length, 2);
 
     const first = result.items[0];
     const second = result.items[1];
-    assert.ok(findAiProposal(first.id), 'la proposition doit être retrouvable');
+    assert.ok(findAiProposal(first.id));
     assert.ok(findAiProposal(second.id));
 
-    // On en retire une : l'autre reste résolvable (correctif « plus d'actualité »).
     removeAiProposal(first.id);
     assert.equal(findAiProposal(first.id), null);
     assert.ok(findAiProposal(second.id));
