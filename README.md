@@ -3,6 +3,9 @@
 Petite application web personnelle, pensée d'abord pour le téléphone, qui lit un compte
 Todoist surchargé et aide à y voir clair.
 
+**En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
+`Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
+
 > **Itération 1 — lecture seule.** Cette version ne modifie rien dans Todoist : elle
 > affiche un résumé, explore les projets et permet de télécharger une sauvegarde JSON.
 > Les dates écrites dans les titres (`JJ.MM.AAAA`, `auj`) sont détectées et affichées
