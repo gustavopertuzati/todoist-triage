@@ -282,7 +282,7 @@
     }
   }
 
-  async function load({ force = false, silent = false } = {}) {
+  async function load({ force = false, silent = false, keepAi = null } = {}) {
     if (state.loading) return;
     setLoading(true);
     if (!silent) {
@@ -299,6 +299,20 @@
         state.ai.error = null;
       }
       const data = await apiJson(`/api/overview${force ? '?refresh=1' : ''}`);
+
+      // Conserve les propositions IA du lot courant que le serveur ne renvoie
+      // plus (les données ayant changé après une validation).
+      if (Array.isArray(keepAi) && keepAi.length > 0) {
+        const existing = new Set((data.proposals || []).map((p) => p.id));
+        const extra = keepAi.filter(
+          (p) => !existing.has(p.id) && !state.ignored.has(p.id) && !state.applied.has(p.id)
+        );
+        if (extra.length > 0) {
+          data.proposals = [...(data.proposals || []), ...extra];
+          data.summary.proposals = summarizeProposals(data.proposals, data.summary?.proposals?.truncated);
+        }
+      }
+
       state.data = data;
       render();
       maybeRequestAi();
@@ -312,6 +326,12 @@
     } finally {
       setLoading(false);
     }
+  }
+
+  function summarizeProposals(items, truncated) {
+    const byType = {};
+    for (const item of items) byType[item.type] = (byType[item.type] || 0) + 1;
+    return { total: items.length, by_type: byType, truncated: truncated || {} };
   }
 
   // ---------------------------------------------------------------------------
@@ -625,22 +645,23 @@
     const text = h('span', { class: 'proposals-ai-text' });
 
     if (status === 'loading') {
-      text.textContent = '🧠 L’IA analyse tes tâches et prépare des échéances…';
+      text.textContent = '🧠 L’IA analyse tes tâches et prépare de nouvelles propositions…';
     } else if (status === 'error') {
       text.textContent = `🧠 IA indisponible : ${state.ai.error || 'erreur inconnue'}.`;
     } else if (status === 'done') {
-      const count = (state.data.proposals || []).filter((p) => p.source === 'ai').length;
+      const aiItems = (state.data.proposals || []).filter((p) => p.source === 'ai');
       const strategy = state.ai.summary ? `Stratégie : ${state.ai.summary} ` : '';
-      text.textContent = count > 0
-        ? `🧠 ${strategy}(${count} échéance(s) proposée(s) par l’IA).`
-        : `🧠 ${strategy}L’IA n’a rien proposé de mieux que les règles.`;
+      text.textContent =
+        aiItems.length > 0
+          ? `🧠 ${strategy}(${aiItems.length} proposition(s) à valider ou ignorer).`
+          : `🧠 ${strategy}Lot terminé — charge de nouvelles propositions.`;
     } else {
       text.textContent = '🧠 L’IA peut proposer des échéances plus fines.';
     }
 
     els.proposalsAi.append(text);
 
-    if (status === 'done' || status === 'error') {
+    if (status !== 'loading') {
       els.proposalsAi.append(
         h(
           'button',
@@ -649,7 +670,7 @@
             class: 'btn btn-ghost btn-small',
             onclick: () => requestAiProposals(true),
           },
-          'Relancer l’IA'
+          'Nouvelles propositions'
         )
       );
     }
@@ -745,6 +766,11 @@
       state.ignored.add(proposal.id);
       saveIgnoredProposals();
       renderProposals();
+      // Lot IA épuisé (tout validé ou ignoré) : on en prépare un nouveau.
+      const leftAi = (state.data.proposals || []).filter(
+        (p) => p.source === 'ai' && !state.ignored.has(p.id) && !state.applied.has(p.id)
+      );
+      if (leftAi.length === 0 && state.ai.status === 'done') requestAiProposals(true);
     });
 
     card.append(h('div', { class: 'proposal-actions' }, validateBtn, ignoreBtn));
@@ -765,22 +791,36 @@
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
         body: JSON.stringify(body),
       });
+
       state.applied.set(proposal.id, result);
       toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
-      // Le cache IA serveur est vidé après une écriture : on relancera l'analyse.
-      state.ai.requested = false;
-      await load({ silent: true });
+
+      // On garde les autres propositions IA du lot, et on n'en retire qu'une.
+      const remainingAi = (state.data.proposals || []).filter(
+        (p) =>
+          p.source === 'ai' &&
+          p.id !== proposal.id &&
+          !state.ignored.has(p.id) &&
+          !state.applied.has(p.id)
+      );
+      await load({ silent: true, keepAi: remainingAi });
+
+      // Lot épuisé : on en prépare un nouveau, sur d'autres tâches si besoin.
+      if (remainingAi.length === 0) requestAiProposals(true);
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
+      if (error.code === 'PROPOSAL_STALE') {
+        // La proposition a expiré (données changées) : on en charge de nouvelles
+        // au lieu d'afficher une erreur bloquante.
+        state.data.proposals = (state.data.proposals || []).filter((p) => p.id !== proposal.id);
+        toast('Cette proposition a expiré — voici de nouvelles propositions.', 'ok');
+        requestAiProposals(true);
+        return;
+      }
       validateBtn.disabled = false;
       ignoreBtn.disabled = false;
       validateBtn.textContent = original;
-      if (error.code === 'PROPOSAL_STALE') {
-        toast(error.message, 'error');
-        await load({ silent: true });
-      } else {
-        toast(error.message || 'Application impossible.', 'error');
-      }
+      toast(error.message || 'Application impossible.', 'error');
     }
   }
 

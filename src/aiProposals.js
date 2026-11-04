@@ -29,6 +29,25 @@ const SYSTEM_PROMPT = [
 
 let cache = { signature: null, items: [], summary: null, generatedAt: 0, usage: null, model: null };
 
+// Les propositions déjà présentées restent résolvables (pour la validation)
+// même si les données changent ou si le lot est régénéré : on les garde dans un
+// magasin à part, avec expiration.
+const STORE_TTL_MS = 2 * 60 * 60 * 1000;
+const STORE_MAX = 300;
+let store = new Map(); // id -> { proposal, at }
+
+function rememberItems(items) {
+  const now = Date.now();
+  for (const item of items) store.set(item.id, { proposal: item, at: now });
+  for (const [id, record] of store) {
+    if (now - record.at > STORE_TTL_MS) store.delete(id);
+  }
+  if (store.size > STORE_MAX) {
+    const oldest = [...store.entries()].sort((a, b) => a[1].at - b[1].at);
+    for (let i = 0; i < oldest.length - STORE_MAX; i += 1) store.delete(oldest[i][0]);
+  }
+}
+
 function sha1(value) {
   return crypto.createHash('sha1').update(value).digest('hex');
 }
@@ -189,14 +208,23 @@ function peek(snapshot) {
   return null;
 }
 
-function findAiProposal(snapshot, id) {
-  const cached = peek(snapshot);
-  if (!cached) return null;
-  return cached.items.find((proposal) => proposal.id === id) || null;
+function findAiProposal(id) {
+  const record = store.get(id);
+  if (!record) return null;
+  if (Date.now() - record.at > STORE_TTL_MS) {
+    store.delete(id);
+    return null;
+  }
+  return record.proposal;
+}
+
+function removeAiProposal(id) {
+  store.delete(id);
 }
 
 function clearAiCache() {
   cache = { signature: null, items: [], summary: null, generatedAt: 0, usage: null, model: null };
+  store = new Map();
 }
 
 /**
@@ -242,6 +270,7 @@ async function generateAiProposals(snapshot, { force = false } = {}) {
   const summary = typeof data?.summary === 'string' ? data.summary.trim().slice(0, 400) : null;
 
   cache = { signature, items, summary, generatedAt: Date.now(), usage, model };
+  rememberItems(items);
 
   return { items, summary, usage, model, cached: false, generatedAt: cache.generatedAt };
 }
@@ -252,6 +281,7 @@ module.exports = {
   validateResponse,
   peek,
   findAiProposal,
+  removeAiProposal,
   clearAiCache,
   generateAiProposals,
   buildUserPrompt,

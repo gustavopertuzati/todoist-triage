@@ -19,7 +19,7 @@ const { getSnapshot, clearCache } = require('./exportService');
 const { TodoistError } = require('./todoist');
 const { findProposal, mergeProposalLists } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
-const { peek: peekAi, findAiProposal, generateAiProposals, clearAiCache } = require('./aiProposals');
+const { peek: peekAi, generateAiProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
 const { AiError } = require('./ai');
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -409,8 +409,11 @@ function createApp() {
         due_date: typeof req.body?.due_date === 'string' ? req.body.due_date : null,
       };
 
-      const { snapshot } = await getSnapshot({ force: true });
-      const proposal = findProposal(snapshot, id) || findAiProposal(snapshot, id);
+      // On résout la proposition sans forcer une resynchronisation : cela
+      // n'invalide pas les autres propositions du lot en cours. Les propositions
+      // IA restent résolvables même si les données ont changé entre-temps.
+      const { snapshot } = await getSnapshot({ force: false });
+      const proposal = findProposal(snapshot, id) || findAiProposal(id);
       if (!proposal) {
         return res.status(409).json({
           error: {
@@ -420,9 +423,27 @@ function createApp() {
         });
       }
 
-      const result = await applyProposal({ proposal, overrides });
+      let result;
+      try {
+        result = await applyProposal({ proposal, overrides });
+      } catch (error) {
+        // Cible supprimée/terminée entre-temps : message clair plutôt qu'une 502.
+        if (error instanceof TodoistError && error.code === 'TODOIST_NOT_FOUND') {
+          removeAiProposal(id);
+          return res.status(409).json({
+            error: {
+              code: 'PROPOSAL_STALE',
+              message: 'La tâche ou le projet visé n’existe plus. Recharge la page.',
+            },
+          });
+        }
+        throw error;
+      }
+
+      // La donnée a changé : on vide le cache de lecture et on retire seulement
+      // la proposition appliquée, sans toucher au reste du lot.
       clearCache();
-      clearAiCache();
+      removeAiProposal(id);
 
       return res.json({
         ok: true,

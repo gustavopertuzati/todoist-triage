@@ -1,10 +1,23 @@
 'use strict';
 
+// Doit être défini avant de charger la configuration.
+process.env.OPENROUTER_API_KEY = 'test-key';
+process.env.AI_MODEL = 'deepseek/deepseek-v4.1-flash';
+process.env.AI_MAX_PROPOSALS = '5';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { parseJsonLoose } = require('../src/ai');
-const { validateResponse, buildDigest, signatureFor } = require('../src/aiProposals');
+const {
+  validateResponse,
+  buildDigest,
+  signatureFor,
+  generateAiProposals,
+  findAiProposal,
+  removeAiProposal,
+  clearAiCache,
+} = require('../src/aiProposals');
 const { mergeProposalLists } = require('../src/proposals');
 
 const TODAY = '2026-11-04';
@@ -131,4 +144,51 @@ test('mergeProposalLists respecte le plafond total', () => {
   const merged = mergeProposalLists(rule, [], { maxTotal: 3 });
   assert.equal(merged.items.length, 3);
   assert.equal(merged.summary.truncated.total, 2);
+});
+
+test('un lot IA reste résolvable après génération, et une appliquée se retire', async () => {
+  clearAiCache();
+  const snapshot = snapshotWith([task({ id: 't1' }), task({ id: 't2' })]);
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({
+        model: 'fake',
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: 'lot de test',
+                proposals: [
+                  { task_id: 't1', due_date: '2026-11-10', reason: 'prioritaire', group: 'Admin' },
+                  { task_id: 't2', due_date: '2026-11-12', reason: 'plus tard', group: 'Maison' },
+                ],
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 10 },
+      }),
+  });
+
+  try {
+    const result = await generateAiProposals(snapshot, { force: true });
+    assert.equal(result.items.length, 2);
+
+    const first = result.items[0];
+    const second = result.items[1];
+    assert.ok(findAiProposal(first.id), 'la proposition doit être retrouvable');
+    assert.ok(findAiProposal(second.id));
+
+    // On en retire une : l'autre reste résolvable (correctif « plus d'actualité »).
+    removeAiProposal(first.id);
+    assert.equal(findAiProposal(first.id), null);
+    assert.ok(findAiProposal(second.id));
+  } finally {
+    global.fetch = originalFetch;
+    clearAiCache();
+  }
 });

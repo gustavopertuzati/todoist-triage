@@ -81,7 +81,7 @@ const config = {
   aiTimeoutMs: readInt('AI_TIMEOUT_MS', 90000, { min: 5000, max: 300000 }),
   aiMaxTokens: readInt('AI_MAX_TOKENS', 8000, { min: 1000, max: 32000 }),
   aiReasoningMaxTokens: readInt('AI_REASONING_MAX_TOKENS', 400, { min: 0, max: 8000 }),
-  aiMaxProposals: readInt('AI_MAX_PROPOSALS', 8, { min: 1, max: 40 }),
+  aiMaxProposals: readInt('AI_MAX_PROPOSALS', 5, { min: 1, max: 40 }),
   aiHorizonDays: readInt('AI_HORIZON_DAYS', 120, { min: 7, max: 365 }),
   aiCacheTtlMs: readInt('AI_CACHE_TTL_MINUTES', 30, { min: 0, max: 1440 }) * 60000,
   aiEnabled:

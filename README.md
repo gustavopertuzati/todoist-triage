@@ -132,6 +132,17 @@ Garde-fous :
 Implémentation : `src/ai.js` (client OpenRouter) et `src/aiProposals.js` (condensé,
 invite, validation, cache).
 
+### Le lot de propositions
+
+L'IA propose un **lot** (5 par défaut, `AI_MAX_PROPOSALS`). Tu les **valides ou les
+ignores une par une** : valider une proposition **n'invalide pas les autres** du lot.
+Quand le lot est épuisé — ou via le bouton **« Nouvelles propositions »** — un **nouveau
+lot** est préparé, sur d'autres tâches si possible.
+
+Les propositions déjà présentées restent valables un moment (magasin en mémoire, 2 h,
+indépendant du cache de lecture) : tu ne verras plus de « cette proposition n'est plus
+d'actualité » parce qu'une autre a été validée.
+
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
@@ -184,7 +195,7 @@ npm run dev
 | `AI_MODEL` | non | `deepseek/deepseek-v4.1-flash` | Modèle utilisé pour proposer les échéances. |
 | `AI_MAX_TOKENS` | non | `8000` | Budget de génération (raisonnement + JSON). |
 | `AI_REASONING_MAX_TOKENS` | non | `400` | Plafond du raisonnement du modèle. |
-| `AI_MAX_PROPOSALS` | non | `8` | Nombre maximum d'échéances proposées par l'IA. |
+| `AI_MAX_PROPOSALS` | non | `5` | Nombre maximum d'échéances proposées par l'IA (un « lot »). |
 | `AI_HORIZON_DAYS` | non | `120` | Horizon maximum pour une échéance proposée. |
 | `AI_TIMEOUT_MS` | non | `90000` | Délai maximal d'un appel au modèle. |
 | `AI_CACHE_TTL_MINUTES` | non | `30` | Durée de cache des propositions IA. |
