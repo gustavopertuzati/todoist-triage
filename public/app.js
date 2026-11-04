@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- * Interface de l'itération 1.
+ * Interface des itérations 1 et 2.
  *
  * Règles :
  * - tous les contenus Todoist sont insérés avec textContent (jamais innerHTML) ;
@@ -15,6 +15,7 @@
     query: '',
     loading: false,
     toastTimer: null,
+    diagnosisFilter: 'all',
   };
 
   const els = {
@@ -36,6 +37,9 @@
     widgetSummary: document.getElementById('widget-summary'),
     widgetLists: document.getElementById('widget-lists'),
     insights: document.getElementById('insights'),
+    diagnosisSummary: document.getElementById('diagnosis-summary'),
+    diagnosisFilters: document.getElementById('diagnosis-filters'),
+    projectDiagnosis: document.getElementById('project-diagnosis'),
     search: document.getElementById('search'),
     searchCount: document.getElementById('search-count'),
     projects: document.getElementById('projects'),
@@ -50,6 +54,31 @@
     'mint_green', 'teal', 'sky_blue', 'light_blue', 'blue', 'grape', 'violet',
     'lavender', 'magenta', 'salmon', 'charcoal', 'grey', 'taupe',
   ]);
+
+  // Miroir côté navigateur du regroupement des verdicts (voir src/diagnosis.js).
+  const VERDICT_BUCKETS = {
+    empty: 'archive',
+    dormant: 'review',
+    stale: 'review',
+    overdue: 'catch_up',
+    undated: 'schedule',
+    congested: 'split',
+    healthy: 'healthy',
+  };
+
+  const DIAGNOSIS_FILTERS = [
+    { key: 'all', label: 'Tous' },
+    { key: 'archive', label: 'À archiver' },
+    { key: 'review', label: 'À réviser' },
+    { key: 'catch_up', label: 'En retard' },
+    { key: 'schedule', label: 'À dater' },
+    { key: 'split', label: 'Surchargés' },
+    { key: 'healthy', label: 'Sains' },
+  ];
+
+  function bucketForVerdict(verdict) {
+    return VERDICT_BUCKETS[verdict] || 'healthy';
+  }
 
   const shortDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
   const shortDateYear = new Intl.DateTimeFormat('fr-FR', {
@@ -257,6 +286,7 @@
     renderKpis(summary);
     renderWidget();
     renderInsights();
+    renderDiagnosis();
     renderProjects();
   }
 
@@ -419,7 +449,7 @@
             taskLine(task, `${formatDate(task.title_due_date)} · à appliquer`)
           ),
           'warn',
-          'Elles n’apparaîtront dans « Aujourd’hui » qu’une fois la date appliquée à l’itération 2.'
+          'Elles n’apparaîtront dans « Aujourd’hui » qu’une fois la date appliquée, dans une itération ultérieure.'
         )
       );
     }
@@ -570,7 +600,7 @@
           h(
             'span',
             {},
-            `Créées depuis plus de ${meta.old_task_days || 180} jours et sans date : de bonnes candidates au tri de l’itération 4.`
+            `Créées depuis plus de ${meta.old_task_days || 180} jours et sans date : de bonnes candidates pour une prochaine itération de tri.`
           )
         )
       );
@@ -587,6 +617,21 @@
     }
   }
 
+  function projectOpenLink(project) {
+    return h(
+      'a',
+      {
+        class: 'task-open',
+        href: `https://app.todoist.com/app/project/${encodeURIComponent(project.id)}`,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        'aria-label': `Ouvrir ${project.name} dans Todoist`,
+        title: 'Ouvrir dans Todoist',
+      },
+      '↗'
+    );
+  }
+
   function projectLine(project, meta) {
     return h(
       'li',
@@ -598,19 +643,158 @@
         h('span', { class: 'plain-item-title' }, project.name),
         h('span', { class: 'plain-item-meta' }, meta)
       ),
+      projectOpenLink(project)
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Diagnostic des projets (itération 2)
+  // ---------------------------------------------------------------------------
+
+  function renderDiagnosis() {
+    const { projects, summary } = state.data;
+    const plan = summary.project_diagnosis;
+
+    clear(els.diagnosisSummary);
+    clear(els.diagnosisFilters);
+    clear(els.projectDiagnosis);
+
+    if (!plan || plan.total === 0) {
+      els.projectDiagnosis.append(
+        h('p', { class: 'empty-line' }, 'Aucun projet actif à analyser.')
+      );
+      return;
+    }
+
+    // Bandeau : combien de projets par nettoyage proposé.
+    for (const action of plan.actions) {
+      els.diagnosisSummary.append(
+        h(
+          'div',
+          { class: `diag-action tone-${action.tone}` },
+          h('strong', {}, action.count),
+          h('span', {}, action.label)
+        )
+      );
+    }
+
+    // Filtres (on masque ceux qui ne concernent aucun projet).
+    const filters = DIAGNOSIS_FILTERS.filter(
+      (filter) => filter.key === 'all' || (plan.counts[filter.key] || 0) > 0
+    );
+    for (const filter of filters) {
+      const active = state.diagnosisFilter === filter.key;
+      els.diagnosisFilters.append(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: `chip${active ? ' is-active' : ''}`,
+            'aria-pressed': String(active),
+            onclick: () => {
+              state.diagnosisFilter = filter.key;
+              renderDiagnosis();
+            },
+          },
+          h('span', {}, filter.label),
+          h(
+            'span',
+            { class: 'chip-count' },
+            filter.key === 'all' ? plan.counts.all : plan.counts[filter.key]
+          )
+        )
+      );
+    }
+
+    // Liste triée : le plus préoccupant d'abord.
+    const visible = projects
+      .filter((project) => !project.is_archived && project.diagnosis)
+      .filter(
+        (project) =>
+          state.diagnosisFilter === 'all' ||
+          bucketForVerdict(project.diagnosis.verdict) === state.diagnosisFilter
+      )
+      .sort(
+        (a, b) =>
+          b.diagnosis.score - a.diagnosis.score ||
+          b.stats.tasks - a.stats.tasks ||
+          a.name.localeCompare(b.name, 'fr-FR')
+      );
+
+    if (visible.length === 0) {
+      els.projectDiagnosis.append(
+        h('p', { class: 'empty-line' }, 'Aucun projet dans ce filtre.')
+      );
+      return;
+    }
+
+    for (const project of visible) els.projectDiagnosis.append(diagnosisCard(project));
+  }
+
+  function diagnosisMeta(stats) {
+    const parts = [
+      `${stats.tasks} tâche(s)`,
+      `${stats.overdue} en retard`,
+      `${stats.no_due} sans échéance`,
+    ];
+    if (stats.completed_lookback > 0) {
+      parts.push(`${stats.completed_lookback} terminée(s) / 90 j`);
+    }
+    return parts.join(' · ');
+  }
+
+  function diagnosisCard(project) {
+    const diagnosis = project.diagnosis;
+    const card = h('article', { class: `diag-card tone-${diagnosis.tone}` });
+
+    card.append(
       h(
-        'a',
-        {
-          class: 'task-open',
-          href: `https://app.todoist.com/app/project/${encodeURIComponent(project.id)}`,
-          target: '_blank',
-          rel: 'noopener noreferrer',
-          'aria-label': `Ouvrir ${project.name} dans Todoist`,
-          title: 'Ouvrir dans Todoist',
-        },
-        '↗'
+        'div',
+        { class: 'diag-head' },
+        h('span', { class: `project-dot ${colorClass(project.color)}`, 'aria-hidden': 'true' }),
+        h(
+          'div',
+          { class: 'diag-title-wrap' },
+          h(
+            'div',
+            { class: 'diag-title-line' },
+            h('span', { class: 'diag-name' }, project.name),
+            project.is_inbox ? h('span', { class: 'pill pill-soft' }, 'Inbox') : null,
+            h('span', { class: `pill verdict-${diagnosis.tone}` }, diagnosis.verdict_label)
+          ),
+          h('span', { class: 'diag-meta' }, diagnosisMeta(project.stats))
+        ),
+        projectOpenLink(project)
       )
     );
+
+    if (diagnosis.signals.length > 0) {
+      const list = h('ul', { class: 'diag-signals' });
+      for (const signal of diagnosis.signals) {
+        list.append(
+          h(
+            'li',
+            { class: `diag-signal tone-${signal.tone}` },
+            h('span', { class: 'diag-signal-label' }, signal.label),
+            h('span', { class: 'diag-signal-detail' }, signal.detail)
+          )
+        );
+      }
+      card.append(list);
+    }
+
+    if (diagnosis.proposal) {
+      card.append(
+        h(
+          'div',
+          { class: `diag-proposal tone-${diagnosis.tone}` },
+          h('strong', {}, diagnosis.proposal.title),
+          h('span', {}, diagnosis.proposal.detail)
+        )
+      );
+    }
+
+    return card;
   }
 
   // ---------------------------------------------------------------------------

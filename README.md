@@ -6,10 +6,14 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itération 1 — lecture seule.** Cette version ne modifie rien dans Todoist : elle
-> affiche un résumé, explore les projets et permet de télécharger une sauvegarde JSON.
-> Les dates écrites dans les titres (`JJ.MM.AAAA`, `auj`) sont détectées et affichées
-> comme « à appliquer », mais aucune écriture n'est envoyée à Todoist.
+> **Itérations 1 et 2 — lecture seule.** Cette version ne modifie rien dans Todoist : elle
+> affiche un résumé, explore les projets, **diagnostique chaque projet** avec une
+> proposition de nettoyage, et permet de télécharger une sauvegarde JSON. Aucune écriture
+> n'est envoyée à Todoist.
+>
+> La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
+> (`JJ.MM.AAAA`, `auj`) restent détectées et affichées passivement, mais ne sont pas la
+> cible de travail retenue.
 
 ## Ce que fait l'application
 
@@ -20,6 +24,11 @@ Todoist surchargé et aide à y voir clair.
   cet appel n'empêche pas l'export).
 - Résumé : nombre de projets, tâches par projet, tâches en retard, projets vides,
   projets « sans progression », tâches sans échéance, tâches anciennes.
+- **Diagnostic des projets** : chaque projet actif reçoit un verdict (vide, sans
+  progression, retards accumulés, beaucoup sans échéance, surchargé, aucune activité
+  récente, ou sain), une liste de signaux chiffrés et une **proposition de nettoyage**.
+  Les projets sont classés du plus préoccupant au plus sain, avec des filtres par type
+  d'action. Voir « Itération 2 » ci-dessous.
 - Détection de la convention de date en **fin de titre** :
   - `11.10.2026` → échéance `2026-10-11` ;
   - `auj` / `auj.` → aujourd'hui, dans le fuseau configuré.
@@ -33,6 +42,26 @@ Todoist surchargé et aide à y voir clair.
 
 Les projets et tâches archivés sont présents dans l'export JSON mais exclus des compteurs
 et de l'explorateur.
+
+## Itération 2 — diagnostic des projets
+
+Chaque projet actif est analysé et reçoit un **verdict** unique (le signal le plus grave)
+et une **proposition de nettoyage** :
+
+| Verdict | Déclencheur | Proposition |
+| --- | --- | --- |
+| Projet vide | aucune tâche active (hors Inbox) | Archiver ou supprimer |
+| Sans progression | tâches actives, 0 terminée sur la fenêtre, projet âgé | Réviser ou archiver |
+| Retards accumulés | au moins 5 tâches en retard | Rattraper les retards |
+| Beaucoup sans échéance | ≥ 10 tâches et ≥ 60 % sans échéance | Donner des échéances |
+| Aucune activité récente | dernière activité il y a ≥ 60 jours | Décider du sort du projet |
+| Projet surchargé | au moins 50 tâches actives | Découper et prioriser |
+| Sain | aucun signal | Rien à faire |
+
+Les seuils vivent dans `src/diagnosis.js` (`THRESHOLDS`) et sont volontairement simples.
+Le diagnostic est **indicatif** : rien n'est exécuté. L'application des propositions
+(archiver, replanifier…) viendra dans une itération ultérieure, toujours avec un aperçu et
+une confirmation avant écriture, puis une vérification via l'API.
 
 ## Prérequis
 
@@ -94,8 +123,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 npm test
 ```
 
-Les tests unitaires couvrent l'analyse des dates de titre et la construction du résumé
-(dont le filtrage des archives et les cas de date invalide).
+Les tests unitaires couvrent l'analyse des dates de titre, la construction du résumé
+(filtrage des archives, cas de date invalide) et le diagnostic des projets (signaux,
+verdicts, agrégation par action).
 
 ## Déploiement sur Orkestr
 
@@ -133,19 +163,23 @@ Toute modification d'une variable d'environnement nécessite un nouveau déploie
 >   -H "Authorization: Bearer <ork_token>"
 > ```
 
-## Vérification sur téléphone (itération 1)
+## Vérification sur téléphone (itérations 1 et 2)
 
 1. Ouvrir `https://<slug>.orkestr.run` : la page de connexion s'affiche.
 2. Entrer un mauvais mot de passe : le message « Mot de passe incorrect. » apparaît.
 3. Entrer le bon mot de passe : le tableau de bord « Ton Todoist, en clair. » s'affiche.
 4. Vérifier que le nombre de projets et de tâches correspond à ton compte Todoist.
-5. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
-6. Chercher un mot connu dans la barre de recherche : les résultats se filtrent.
-7. Repérer une tâche dont le titre finit par `JJ.MM.AAAA` ou `auj` : la date doit être
-   affichée comme « à appliquer » et retirée du titre affiché.
-8. Appuyer sur **Exporter** : un fichier `todoist-export-….json` est téléchargé.
-9. Vérifier que **rien n'a changé dans l'application Todoist** (aucune date appliquée).
-10. Se déconnecter : retour à la page de connexion ; l'URL `/` redirige vers `/login`.
+5. Dans **Diagnostic des projets**, vérifier le classement (le plus préoccupant en haut),
+   lire les signaux d'un projet et sa proposition. Tester les filtres (« À réviser »,
+   « À dater », « Sains », « Tous ») : la liste se met à jour.
+6. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
+7. Chercher un mot connu dans la barre de recherche : les résultats se filtrent.
+8. Repérer une tâche dont le titre finit par `JJ.MM.AAAA` ou `auj` : la date dérivée est
+   affichée passivement (aucune application).
+9. Appuyer sur **Exporter** : un fichier `todoist-export-….json` est téléchargé ; il
+   contient `summary.project_diagnosis` et le `diagnosis` de chaque projet.
+10. Vérifier que **rien n'a changé dans l'application Todoist** (aucune écriture).
+11. Se déconnecter : retour à la page de connexion ; l'URL `/` redirige vers `/login`.
 
 ## Structure
 
@@ -156,6 +190,7 @@ src/auth.js            mot de passe + cookie de session signé
 src/config.js          lecture des variables d'environnement
 src/todoist.js         client API Todoist (retries, erreurs typées)
 src/snapshot.js        normalisation, statistiques, dates dérivées
+src/diagnosis.js       verdicts, signaux et propositions par projet
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
@@ -170,10 +205,11 @@ test/                  tests unitaires (node:test)
 - Cookie `HttpOnly`, `SameSite=Lax`, `Secure` derrière HTTPS.
 - Vérification d'origine et en-tête `X-App-Request: 1` sur les requêtes sensibles.
 - En-têtes CSP stricts, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
-- Aucune écriture Todoist dans cette itération ; aucun secret dans le dépôt.
+- Aucune écriture Todoist dans ces itérations ; aucun secret dans le dépôt.
 
 ## Périmètre
 
-Itération 1 terminée : export et lecture seule. Les itérations suivantes (import avec
-aperçu, questionnaire quotidien avec sélection assistée, analyse des projets jamais
-terminés) ne sont pas implémentées et seront abordées après retour d'usage.
+Itérations 1 et 2 terminées : export, lecture seule et diagnostic des projets. Les
+itérations suivantes (application des propositions de nettoyage avec aperçu et
+confirmation + vérification via l'API, questionnaire quotidien avec sélection assistée,
+import de dates) ne sont pas implémentées et seront abordées après retour d'usage.

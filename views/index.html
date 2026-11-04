@@ -97,7 +97,8 @@
           <div id="widget-lists" class="widget-lists"></div>
           <p class="fine-print">
             Rien n’a été modifié dans Todoist par cette page. Les dates lues dans les titres
-            seront appliquées à l’itération 2, après confirmation.
+            ne sont pas appliquées automatiquement : ce sera proposé dans une itération
+            ultérieure, après confirmation.
           </p>
         </section>
 
@@ -109,6 +110,27 @@
             </div>
           </div>
           <div id="insights" class="insights"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="diagnosis-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="diagnosis-title">Diagnostic des projets</h2>
+              <p class="panel-sub">
+                Chaque projet reçoit un verdict et une proposition de nettoyage, du plus
+                préoccupant au plus sain. Rien n’est modifié dans Todoist.
+              </p>
+            </div>
+            <span class="pill pill-readonly">Lecture seule</span>
+          </div>
+          <div id="diagnosis-summary" class="diagnosis-summary" aria-label="Actions proposées"></div>
+          <div
+            id="diagnosis-filters"
+            class="chips"
+            role="group"
+            aria-label="Filtrer les projets par diagnostic"
+          ></div>
+          <div id="project-diagnosis" class="diagnosis-list"></div>
         </section>
 
         <section class="panel" aria-labelledby="explorer-title">

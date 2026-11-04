@@ -170,3 +170,21 @@ test('signale l’absence d’historique sans faire échouer l’instantané', (
   assert.equal(snapshot.projects.find((project) => project.id === 'p1').stats.no_progress, false);
   assert.ok(snapshot.meta.warnings.some((warning) => /terminées/i.test(warning)));
 });
+
+test('attache un diagnostic à chaque projet et l’agrège dans le résumé', () => {
+  const snapshot = buildSnapshot(fixture());
+  const byId = Object.fromEntries(snapshot.projects.map((project) => [project.id, project]));
+
+  assert.equal(byId.p4.diagnosis.verdict, 'empty');
+  assert.equal(byId.p4.diagnosis.proposal.code, 'archive');
+  assert.equal(byId.p1.diagnosis.verdict, 'dormant');
+  assert.equal(byId.p2.diagnosis.verdict, 'healthy');
+
+  const plan = snapshot.summary.project_diagnosis;
+  assert.equal(plan.total, 3);
+  assert.equal(plan.counts.archive, 1);
+  assert.equal(plan.counts.review, 1);
+  assert.equal(plan.counts.healthy, 1);
+  assert.ok(plan.actions.some((action) => action.key === 'archive' && action.count === 1));
+});
+

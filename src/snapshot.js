@@ -13,6 +13,7 @@ const {
   daysBetweenIso,
   isValidIsoDate,
 } = require('./dates');
+const { diagnoseProject, buildProjectDiagnosis } = require('./diagnosis');
 
 const PRIORITY_LABELS = { 4: 'P1', 3: 'P2', 2: 'P3', 1: 'P4' };
 
@@ -273,6 +274,8 @@ function buildSnapshot({
       stats.project_age_days = ageDays;
       stats.empty = empty;
       stats.no_progress = noProgress;
+      stats.undated_old = projectTasks.filter((task) => task.is_old && !task.due_date).length;
+      stats.no_due_ratio = stats.tasks > 0 ? stats.no_due / stats.tasks : 0;
 
       const updateDates = projectTasks
         .map((task) => task.updated_at)
@@ -285,6 +288,11 @@ function buildSnapshot({
           .sort()
           .pop() || null;
 
+      const lastActivityDate = isoDateOnly(stats.last_activity_at);
+      stats.days_since_activity = lastActivityDate
+        ? daysBetweenIso(lastActivityDate, today)
+        : null;
+
       if (project.is_archived) projectsArchived += 1;
       if (!project.is_archived) {
         sectionsTotal += stats.sections;
@@ -292,7 +300,12 @@ function buildSnapshot({
         if (noProgress) projectsNoProgress += 1;
       }
 
-      return { ...project, stats };
+      const diagnosis = diagnoseProject(project, stats, {
+        completedLookbackDays,
+        noProgressMinAgeDays,
+      });
+
+      return { ...project, stats, diagnosis };
     })
     .sort((a, b) => {
       if (a.is_archived !== b.is_archived) return a.is_archived ? 1 : -1;
@@ -350,6 +363,7 @@ function buildSnapshot({
       p4: priorityCounts[1],
     },
     labels_top: labelsTop,
+    project_diagnosis: buildProjectDiagnosis(projects),
   };
 
   const user = sync.user

@@ -6,7 +6,7 @@
  * Principes :
  * - aucune donnée Todoist n'est accessible sans session ;
  * - le token Todoist reste côté serveur ;
- * - l'itération 1 est strictement en lecture seule (aucun appel d'écriture).
+ * - les itérations 1 et 2 sont strictement en lecture seule (aucun appel d'écriture).
  */
 
 const path = require('node:path');
