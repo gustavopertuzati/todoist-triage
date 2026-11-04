@@ -6,15 +6,18 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 8.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 12.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
 > état, en respectant une **charge 1-3-5** et en te proposant de **reporter** si nécessaire.
-> le **nettoyage guidé** repère les projets morts, doublons, tâches fantômes et orphelines,
+> Le **nettoyage guidé** repère les projets morts, doublons, tâches fantômes et orphelines,
 > **avec corbeille réversible**, et un **retour sur les propositions ignorées** apprend à
-> l'IA (ne plus reproposer, reporter, corriger la taille, reformuler). Tu **valides ou
-> ignores chaque proposition individuellement**. Tant que tu n'as pas validé, **rien n'est écrit dans Todoist** ;
+> l'IA (ne plus reproposer, reporter, corriger la taille, reformuler). Une tâche peut aussi
+> être **préparée** : l'IA propose des petites étapes datées avant (ou le jour même de) la
+> tâche. Un **carnet de notes** en bas à droite garde tes idées d'amélioration pour la
+> prochaine demande sur le projet. Tu **valides ou ignores chaque proposition
+> individuellement**. Tant que tu n'as pas validé, **rien n'est écrit dans Todoist** ;
 > chaque écriture validée est ensuite relue depuis l'API.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
@@ -284,6 +287,50 @@ Ce que l'app en fait :
 Les réponses sont **mémorisées sur ton appareil** (localStorage) et transmises à chaque
 analyse. Implémentation : `src/feedback.js` (pur et testé) + `src/aiProposals.js`.
 
+## Itération 12 — préparer une tâche
+
+Une grosse tâche (« Ranger la cave ») est souvent repoussée parce qu'elle paraît
+infaisable d'un bloc. Depuis l'explorateur, le bouton **« ✨ Préparer »** demande à l'IA
+des **tâches de préparation** courtes et concrètes :
+
+- « Sortir les cartons à descendre »
+- « Faire la liste de ce qu'il faut trier »
+- « Préparer les sacs et la lampe »
+
+L'IA **réfléchit** et place chaque préparation **avant** la tâche (ou **le jour même** si
+elle est aujourd'hui), en respectant la place restante des jours (règle 1-3-5). Chaque
+préparation devient une **sous-tâche datée** du parent — jamais créée sans validation.
+
+Ce que fait le moteur :
+
+- filtre les doublons avec les sous-tâches existantes et les titres trop courts ;
+- refuse une date hors de la fenêtre *aujourd'hui → échéance de la tâche* ;
+- refuse un jour dont la place « petit » est déjà pleine ;
+- plafonne le nombre de préparations (`PREP_MAX_ITEMS`, 3 par défaut) ;
+- ne propose rien pour une tâche qui a déjà des sous-tâches ;
+- répond **« trop tôt »** pour une tâche dont l'échéance dépasse 30 jours : la
+  préparation sera proposée dans le mois qui précède, pas neuf mois à l'avance.
+
+Routes : `POST /api/prepare` (génération), puis la validation habituelle
+`POST /api/proposals/:id/apply` (création des sous-tâches, relue via l'API).
+Implémentation : `src/prepare.js` (pur et testé) + `src/applyProposal.js`.
+
+## Carnet « Notes & idées » pour OpenCode
+
+En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
+**amélioration**, un **bug**, une **note** ou une **idée**. Les notes sont **stockées
+côté serveur** dans `data/assistant-notes.json` (chemin surchargeable avec
+`ASSISTANT_NOTES_FILE`) :
+
+- elles **survivent** aux rechargements et aux redémarrages du serveur local ;
+- elles restent **lisibles par l'agent OpenCode** à la prochaine demande sur le projet ;
+- le bouton **« Copier pour OpenCode »** produit un prompt prêt à coller (liste des
+  notes en attente + consigne de tout implémenter puis de lister ce qui a été fait) ;
+- `GET /api/notes/export` renvoie la liste en Markdown.
+
+Routes : `GET/POST /api/notes`, `PATCH/DELETE /api/notes/:id`,
+`POST /api/notes/clear-done`.
+
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
@@ -349,6 +396,8 @@ npm run dev
 | `CLEANUP_GHOST_DAYS` | non | `365` | Âge minimum pour déclarer une tâche « fantôme ». |
 | `CLEANUP_MAX_PER_KIND` | non | `10` | Nombre maximum de suppressions proposées par catégorie. |
 | `CLEANUP_MAX_TOTAL` | non | `25` | Nombre maximum total de suppressions proposées. |
+| `PREP_MAX_ITEMS` | non | `3` | Nombre maximum de tâches de préparation proposées pour une tâche. |
+| `ASSISTANT_NOTES_FILE` | non | `data/assistant-notes.json` | Fichier JSON du carnet de notes. |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
 Toutes les valeurs sensibles sont lues uniquement depuis l'environnement du serveur.
@@ -452,6 +501,8 @@ src/proposals.js       génération des propositions (pure)
 src/applyProposal.js   exécution d'une proposition + vérification via l'API
 src/ai.js              client OpenRouter (appel au modèle)
 src/aiProposals.js     condensé, invite, validation et cache des propositions IA
+src/prepare.js         tâches de préparation proposées par l'IA (itération 12)
+src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
@@ -472,10 +523,11 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 11 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 12 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour**, scission des tâches,
-**nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA, récap hebdo) et
-**retour adaptatif sur les propositions ignorées** (par type de proposition) pour que l'IA
-s'améliore. Les itérations suivantes (rituel du matin avec rattrapage automatique,
+**nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA, récap hebdo),
+**retour adaptatif sur les propositions ignorées** (par type de proposition),
+**préparation des tâches** en sous-étapes datées et **carnet de notes** persistant pour
+OpenCode. Les itérations suivantes (rituel du matin avec rattrapage automatique,
 planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées et
 seront abordées après retour d'usage.

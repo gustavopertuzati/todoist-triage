@@ -27,6 +27,16 @@
     checkins: {},
     ignoreFeedback: null,
     feedback: {},
+    assistant: { notes: [], stats: { pending: 0, total: 0 }, open: false, loading: false },
+    prepare: {
+      open: false,
+      loading: false,
+      taskId: null,
+      title: '',
+      proposals: [],
+      strategy: null,
+      error: null,
+    },
   };
 
   const els = {
@@ -65,6 +75,22 @@
     footerTz: document.getElementById('footer-tz'),
     footerVersion: document.getElementById('footer-version'),
     toast: document.getElementById('toast'),
+    // Assistant « Notes & idées ».
+    assistantFab: document.getElementById('assistant-fab'),
+    assistantBadge: document.getElementById('assistant-badge'),
+    assistantPanel: document.getElementById('assistant-panel'),
+    assistantClose: document.getElementById('assistant-close'),
+    assistantSub: document.getElementById('assistant-sub'),
+    assistantForm: document.getElementById('assistant-form'),
+    assistantKind: document.getElementById('assistant-kind'),
+    assistantText: document.getElementById('assistant-text'),
+    assistantCopy: document.getElementById('assistant-copy'),
+    assistantClearDone: document.getElementById('assistant-clear-done'),
+    assistantList: document.getElementById('assistant-list'),
+    // Préparation d'une tâche.
+    prepare: document.getElementById('prepare'),
+    prepareSub: document.getElementById('prepare-sub'),
+    prepareBody: document.getElementById('prepare-body'),
   };
 
   const TODOIST_COLORS = new Set([
@@ -103,6 +129,7 @@
     archive_project: 'Archiver',
     split_task: 'Scinder',
     set_due_date: 'Dater',
+    prepare_task: 'Préparer',
   };
 
   function cleanupKindLabel(kind) {
@@ -1136,6 +1163,23 @@
       card.append(list);
     }
 
+    // Préparation : chaque sous-tâche proposée est datée (avance ou jour même).
+    if (proposal.format === 'prepare' && Array.isArray(proposal.prep_items)) {
+      const list = h('ul', { class: 'proposal-prep' });
+      for (const item of proposal.prep_items) {
+        list.append(
+          h(
+            'li',
+            {},
+            h('span', { class: 'proposal-prep-date' }, formatDate(item.date)),
+            h('span', { class: 'proposal-prep-title' }, item.title),
+            item.reason ? h('span', { class: 'proposal-prep-reason' }, item.reason) : null
+          )
+        );
+      }
+      card.append(list);
+    }
+
     let dateInput = null;
     if (Array.isArray(proposal.editable) && proposal.editable.includes('due_date')) {
       dateInput = h('input', {
@@ -1149,7 +1193,12 @@
       );
     }
 
-    const validateBtn = h('button', { class: 'btn btn-primary', type: 'button' }, isDelete ? 'Supprimer' : 'Valider');
+    const isPrepare = proposal.type === 'prepare_task';
+    const validateBtn = h(
+      'button',
+      { class: 'btn btn-primary', type: 'button' },
+      isDelete ? 'Supprimer' : isPrepare ? proposal.action_label || 'Créer la préparation' : 'Valider'
+    );
     const ignoreBtn = h('button', { class: 'btn btn-ghost', type: 'button' }, 'Ignorer');
 
     validateBtn.addEventListener('click', () =>
@@ -1157,7 +1206,12 @@
     );
     ignoreBtn.addEventListener('click', () => openIgnorePanel(card, proposal));
 
-    const actions = h('div', { class: 'proposal-actions' }, validateBtn, ignoreBtn);
+    const actions = h(
+      'div',
+      { class: 'proposal-actions' },
+      validateBtn,
+      isPrepare ? null : ignoreBtn
+    );
     card.append(actions);
     return card;
   }
@@ -1364,6 +1418,14 @@
       const result = await sendApply(proposal, dateInput ? dateInput.value : undefined);
       consumeApplied(proposal, result);
       toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
+
+      // La préparation crée des sous-tâches : on referme et on relit Todoist.
+      if (proposal.type === 'prepare_task') {
+        closePrepare();
+        await load({ force: true, silent: true });
+        return;
+      }
+
       renderPlanner();
       renderProposals();
     } catch (error) {
@@ -2045,6 +2107,18 @@
       }
       if (badges.childElementCount > 0) content.append(badges);
 
+      // Préparation : uniquement pour une tâche sans sous-tâches (l'IA propose
+      // alors des petites étapes datées, avant ou le jour même).
+      if (state.data?.ai?.enabled && !task.subtask_count && task.type !== 'note') {
+        const prepareBtn = h(
+          'button',
+          { type: 'button', class: 'btn btn-ghost btn-small task-prepare' },
+          '✨ Préparer'
+        );
+        prepareBtn.addEventListener('click', () => openPrepare(task));
+        content.append(h('div', { class: 'task-tools' }, prepareBtn));
+      }
+
       if (task.description) {
         content.append(
           h(
@@ -2102,6 +2176,300 @@
   function formatDateOnly(value) {
     const iso = String(value).slice(0, 10);
     return formatDate(iso);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Préparation d'une tâche (itération 12)
+  // ---------------------------------------------------------------------------
+
+  function closePrepare() {
+    state.prepare.open = false;
+    els.prepare.hidden = true;
+  }
+
+  function renderPrepare() {
+    clear(els.prepareBody);
+    els.prepareSub.textContent = state.prepare.title || '';
+
+    if (state.prepare.loading) {
+      els.prepareBody.append(
+        h('p', { class: 'day-status' }, '🧠 L’IA cherche des tâches de préparation…')
+      );
+      return;
+    }
+
+    if (state.prepare.error) {
+      els.prepareBody.append(h('p', { class: 'day-status is-error' }, state.prepare.error));
+      return;
+    }
+
+    if (state.prepare.strategy) {
+      els.prepareBody.append(h('p', { class: 'day-strategy' }, `🧠 ${state.prepare.strategy}`));
+    }
+
+    if (state.prepare.proposals.length === 0) {
+      els.prepareBody.append(
+        h(
+          'p',
+          { class: 'empty-line' },
+          'Rien à préparer : cette tâche peut se faire telle quelle (ou elle a déjà des sous-tâches).'
+        )
+      );
+      return;
+    }
+
+    const list = h('div', { class: 'proposals' });
+    for (const proposal of state.prepare.proposals) list.append(proposalCard(proposal));
+    els.prepareBody.append(list);
+  }
+
+  async function openPrepare(task) {
+    state.prepare = {
+      open: true,
+      loading: true,
+      taskId: task.id,
+      title: task.display_title || task.content,
+      proposals: [],
+      strategy: null,
+      error: null,
+    };
+    els.prepare.hidden = false;
+    renderPrepare();
+
+    try {
+      const result = await apiJson('/api/prepare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ taskId: task.id }),
+      });
+      state.prepare.loading = false;
+      state.prepare.proposals = Array.isArray(result.proposals) ? result.proposals : [];
+      state.prepare.strategy = result.strategy || null;
+      renderPrepare();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.prepare.loading = false;
+      state.prepare.error = error.message || 'Impossible de préparer cette tâche.';
+      renderPrepare();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Assistant « Notes & idées »
+  // ---------------------------------------------------------------------------
+
+  function assistantDate(note) {
+    const iso = String(note.created_at || '');
+    if (!iso) return '';
+    const date = iso.slice(0, 10);
+    const time = iso.slice(11, 16);
+    return time ? `${formatDate(date)} · ${time}` : formatDate(date);
+  }
+
+  function renderAssistant() {
+    const stats = state.assistant.stats || { pending: 0, total: 0 };
+    els.assistantBadge.textContent = String(stats.pending);
+    els.assistantBadge.hidden = stats.pending === 0;
+    els.assistantSub.textContent =
+      stats.pending === 0 ? 'rien en attente' : `${stats.pending} en attente`;
+
+    clear(els.assistantList);
+    const notes = state.assistant.notes || [];
+    if (notes.length === 0) {
+      els.assistantList.append(
+        h('li', { class: 'assistant-empty' }, 'Aucune note pour l’instant.')
+      );
+      return;
+    }
+
+    const labels = { amelioration: 'Amélioration', bug: 'Bug', note: 'Note', idee: 'Idée' };
+    for (const note of notes) {
+      const toggle = h(
+        'button',
+        {
+          type: 'button',
+          class: `assistant-check${note.done ? ' is-done' : ''}`,
+          'aria-label': note.done ? 'Remettre à faire' : 'Marquer comme fait',
+          title: note.done ? 'Remettre à faire' : 'Marquer comme fait',
+        },
+        note.done ? '✓' : '○'
+      );
+      toggle.addEventListener('click', () => toggleNote(note));
+
+      const remove = h(
+        'button',
+        { type: 'button', class: 'icon-btn assistant-remove', 'aria-label': 'Supprimer la note', title: 'Supprimer' },
+        '×'
+      );
+      remove.addEventListener('click', () => deleteNote(note));
+
+      els.assistantList.append(
+        h(
+          'li',
+          { class: `assistant-item kind-${note.kind}${note.done ? ' is-done' : ''}` },
+          toggle,
+          h(
+            'div',
+            { class: 'assistant-item-body' },
+            h(
+              'div',
+              { class: 'assistant-item-head' },
+              h('span', { class: 'assistant-kind-pill' }, labels[note.kind] || note.kind),
+              h('span', { class: 'assistant-item-date' }, assistantDate(note))
+            ),
+            h('p', { class: 'assistant-item-text' }, note.text),
+            note.context
+              ? h('p', { class: 'assistant-item-context' }, `Contexte : ${note.context}`)
+              : null
+          ),
+          remove
+        )
+      );
+    }
+  }
+
+  async function loadAssistantNotes() {
+    try {
+      const result = await apiJson('/api/notes');
+      state.assistant.notes = Array.isArray(result.notes) ? result.notes : [];
+      state.assistant.stats = result.stats || { pending: 0, total: 0 };
+      renderAssistant();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      /* le carnet reste vide si le serveur ne répond pas */
+    }
+  }
+
+  function setAssistantOpen(open) {
+    state.assistant.open = open;
+    els.assistantPanel.hidden = !open;
+    els.assistantFab.setAttribute('aria-expanded', String(open));
+    if (open) {
+      renderAssistant();
+      els.assistantText.focus();
+    }
+  }
+
+  async function addAssistantNote(event) {
+    event.preventDefault();
+    const text = els.assistantText.value.trim();
+    if (!text) return;
+    const submit = els.assistantForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await apiJson('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({
+          text,
+          kind: els.assistantKind.value,
+          page: 'triage',
+          context: state.selectedDate ? `jour ${state.selectedDate}` : null,
+        }),
+      });
+      els.assistantText.value = '';
+      await loadAssistantNotes();
+      toast('Note ajoutée. Elle sera relue à la prochaine demande OpenCode.', 'ok');
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Impossible d’ajouter la note.', 'error');
+    } finally {
+      submit.disabled = false;
+    }
+  }
+
+  async function toggleNote(note) {
+    try {
+      await apiJson(`/api/notes/${encodeURIComponent(note.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ done: !note.done }),
+      });
+      await loadAssistantNotes();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Impossible de modifier la note.', 'error');
+    }
+  }
+
+  async function deleteNote(note) {
+    try {
+      await apiJson(`/api/notes/${encodeURIComponent(note.id)}`, {
+        method: 'DELETE',
+        headers: { 'X-App-Request': '1' },
+      });
+      await loadAssistantNotes();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Impossible de supprimer la note.', 'error');
+    }
+  }
+
+  async function clearDoneNotes() {
+    try {
+      const result = await apiJson('/api/notes/clear-done', {
+        method: 'POST',
+        headers: { 'X-App-Request': '1' },
+      });
+      await loadAssistantNotes();
+      toast(
+        result.removed > 0 ? `${result.removed} note(s) faite(s) supprimée(s).` : 'Aucune note faite à vider.',
+        'ok'
+      );
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Impossible de vider les notes faites.', 'error');
+    }
+  }
+
+  function buildOpencodePrompt() {
+    const labels = { amelioration: 'Amélioration', bug: 'Bug', note: 'Note', idee: 'Idée' };
+    const pending = (state.assistant.notes || []).filter((note) => !note.done);
+    if (pending.length === 0) return null;
+    const lines = [
+      'Voici mes demandes en attente pour le projet opencode (Triage Todoist) :',
+      'Implémente-les toutes, puis liste précisément ce qui a été fait pour que je vérifie.',
+      '',
+    ];
+    for (const note of pending) {
+      lines.push(
+        `- [${labels[note.kind] || note.kind}] ${note.text}${
+          note.context ? ` (${note.context})` : ''
+        }`
+      );
+    }
+    return lines.join('\n');
+  }
+
+  async function copyForOpencode() {
+    const prompt = buildOpencodePrompt();
+    if (!prompt) {
+      toast('Aucune note en attente à copier.', 'ok');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast('Notes copiées : colle-les dans ta prochaine demande OpenCode.', 'ok');
+      return;
+    } catch {
+      /* clipboard indisponible : on propose le fichier Markdown */
+    }
+    try {
+      const response = await fetch('/api/notes/export');
+      if (!response.ok) throw new Error('Export impossible.');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'notes-opencode.md';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      toast('Copie impossible : notes téléchargées en Markdown.', 'ok');
+    } catch (error) {
+      toast(error.message || 'Impossible de copier les notes.', 'error');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2188,6 +2556,23 @@
   els.exportBtn.addEventListener('click', exportJson);
   els.logoutBtn.addEventListener('click', logout);
 
+  // Assistant « Notes & idées ».
+  els.assistantFab.addEventListener('click', () => setAssistantOpen(!state.assistant.open));
+  els.assistantClose.addEventListener('click', () => setAssistantOpen(false));
+  els.assistantForm.addEventListener('submit', addAssistantNote);
+  els.assistantCopy.addEventListener('click', copyForOpencode);
+  els.assistantClearDone.addEventListener('click', clearDoneNotes);
+
+  // Fenêtre de préparation.
+  for (const el of document.querySelectorAll('[data-close="prepare"]')) {
+    el.addEventListener('click', closePrepare);
+  }
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (state.prepare.open) closePrepare();
+    if (state.assistant.open) setAssistantOpen(false);
+  });
+
   // Démarrage.
   state.ignored = loadIgnoredProposals();
   state.checkins = loadCheckins();
@@ -2204,6 +2589,7 @@
     } catch {
       /* le questionnaire ne s'affichera pas, le reste fonctionne */
     }
+    loadAssistantNotes();
     load({ force: false });
   })();
 })();

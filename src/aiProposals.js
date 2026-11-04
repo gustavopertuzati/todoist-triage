@@ -684,4 +684,5 @@ module.exports = {
   findAiProposal,
   removeAiProposal,
   clearAiCache,
+  rememberItems,
 };

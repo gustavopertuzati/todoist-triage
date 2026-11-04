@@ -16,3 +16,6 @@ Thumbs.db
 
 # Exports téléchargés localement (par sécurité)
 todoist-export-*.json
+
+# Carnet de notes local (privé, propre à chaque installation)
+data/

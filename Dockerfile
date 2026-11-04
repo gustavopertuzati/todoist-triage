@@ -18,6 +18,10 @@ COPY src ./src
 COPY views ./views
 COPY public ./public
 
+# Carnet de notes persistant : le processus tourne en « node », il lui faut un
+# dossier inscriptible (le système de fichiers du conteneur reste éphémère).
+RUN mkdir -p /app/data && chown -R node:node /app/data
+
 # L'utilisateur « node » existe déjà dans l'image officielle : pas de root.
 USER node
 

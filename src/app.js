@@ -20,6 +20,8 @@ const { TodoistError } = require('./todoist');
 const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
 const { describeDay, peekDayPlan, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
+const { generatePreparation } = require('./prepare');
+const assistantNotes = require('./assistantNotes');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
 const { AiError } = require('./ai');
@@ -434,6 +436,140 @@ function createApp() {
     })
   );
 
+  /** Prépare une tâche : l'IA propose des sous-tâches de préparation datées. */
+  app.post(
+    '/api/prepare',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.aiEnabled) {
+        return res.status(403).json({
+          error: { code: 'AI_DISABLED', message: 'L’IA n’est pas configurée sur ce serveur.' },
+        });
+      }
+
+      const taskId = String(req.body?.taskId || '');
+      const force = req.body?.force === true;
+      if (!taskId) {
+        return res.status(400).json({ error: { code: 'BAD_TASK', message: 'Tâche manquante.' } });
+      }
+
+      const { snapshot } = await getSnapshot({ force: false });
+      const result = await generatePreparation(snapshot, taskId, { force });
+
+      return res.json({
+        ok: true,
+        task_id: taskId,
+        proposals: result.items,
+        strategy: result.summary || null,
+        cached: Boolean(result.cached),
+        usage: result.usage || null,
+      });
+    })
+  );
+
+  /**
+   * Carnet « Notes & idées » (assistant en bas à droite).
+   * Persisté dans data/assistant-notes.json : l'agent OpenCode peut le relire
+   * à la prochaine demande pour appliquer toute la liste.
+   */
+  app.get('/api/notes', requireApiAuth, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      notes: assistantNotes.store.list(),
+      stats: assistantNotes.store.stats(),
+      kinds: assistantNotes.KINDS,
+      kind_labels: assistantNotes.KIND_LABELS,
+    });
+  });
+
+  app.post(
+    '/api/notes',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      try {
+        const note = assistantNotes.store.add({
+          text: req.body?.text,
+          kind: req.body?.kind,
+          page: req.body?.page,
+          context: req.body?.context,
+        });
+        return res.status(201).json({ ok: true, note, stats: assistantNotes.store.stats() });
+      } catch (error) {
+        if (error.code === 'NOTE_EMPTY') {
+          return res.status(400).json({
+            error: { code: 'NOTE_EMPTY', message: 'Écris d’abord ta note.' },
+          });
+        }
+        throw error;
+      }
+    }
+  );
+
+  app.patch(
+    '/api/notes/:id',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const note = assistantNotes.store.update(req.params.id, {
+        done: req.body?.done,
+        text: req.body?.text,
+        kind: req.body?.kind,
+      });
+      if (!note) {
+        return res.status(404).json({
+          error: { code: 'NOTE_NOT_FOUND', message: 'Cette note n’existe plus.' },
+        });
+      }
+      return res.json({ ok: true, note, stats: assistantNotes.store.stats() });
+    }
+  );
+
+  app.delete(
+    '/api/notes/:id',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const removed = assistantNotes.store.remove(req.params.id);
+      if (!removed) {
+        return res.status(404).json({
+          error: { code: 'NOTE_NOT_FOUND', message: 'Cette note n’existe plus.' },
+        });
+      }
+      return res.json({ ok: true, stats: assistantNotes.store.stats() });
+    }
+  );
+
+  app.post(
+    '/api/notes/clear-done',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const removed = assistantNotes.store.clearDone();
+      return res.json({ ok: true, removed, stats: assistantNotes.store.stats() });
+    }
+  );
+
+  app.get('/api/notes/export', requireApiAuth, (req, res) => {
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="notes-opencode.md"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(assistantNotes.store.toMarkdown());
+  });
+
   app.get(
     '/api/export',
     requireApiAuth,
@@ -547,7 +683,14 @@ function createApp() {
     }
 
     if (err instanceof AiError) {
-      const status = err.code === 'AI_TIMEOUT' ? 504 : err.code === 'AI_DISABLED' ? 403 : 502;
+      const status =
+        err.code === 'AI_TIMEOUT'
+          ? 504
+          : err.code === 'AI_DISABLED'
+            ? 403
+            : err.code === 'TASK_NOT_FOUND'
+              ? 404
+              : 502;
       console.error(`[ia] ${err.code}`);
       return res.status(status).json({
         error: {

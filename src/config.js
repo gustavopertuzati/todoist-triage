@@ -102,6 +102,9 @@ const config = {
   cleanupMaxPerKind: readInt('CLEANUP_MAX_PER_KIND', 10, { min: 1, max: 50 }),
   cleanupMaxTotal: readInt('CLEANUP_MAX_TOTAL', 25, { min: 1, max: 100 }),
 
+  // Itération 12 : tâches de préparation proposées par l'IA.
+  prepMaxItems: readInt('PREP_MAX_ITEMS', 3, { min: 1, max: 6 }),
+
   isProduction: process.env.NODE_ENV === 'production',
 };
 

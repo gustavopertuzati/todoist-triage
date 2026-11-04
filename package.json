@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 11 : questionnaire d'ignorance adapté au type de proposition).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 12 : préparation des tâches + carnet de notes pour OpenCode).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

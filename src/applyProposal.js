@@ -146,6 +146,31 @@ async function applyRename(proposal) {
   };
 }
 
+async function applyPrepare(proposal) {
+  const items = Array.isArray(proposal.action?.subtasks) ? proposal.action.subtasks : [];
+  if (items.length === 0) throw new ProposalError('PREP_EMPTY', 'Aucune préparation à créer.');
+
+  const created = [];
+  for (const item of items) {
+    const payload = {
+      content: item.title,
+      parent_id: proposal.target.id,
+    };
+    if (proposal.target.project_id) payload.project_id = proposal.target.project_id;
+    if (proposal.target.section_id) payload.section_id = proposal.target.section_id;
+    if (item.date) payload.due_date = item.date;
+    const child = await createTask(payload);
+    created.push(child?.id || null);
+  }
+
+  const createdCount = created.filter(Boolean).length;
+  return {
+    verified: createdCount === items.length,
+    message: `${createdCount} tâche(s) de préparation créée(s) sous « ${proposal.target.name} ».`,
+    effects: { created },
+  };
+}
+
 /**
  * @param {{proposal: object, overrides?: {due_date?: string}}} params
  */
@@ -162,6 +187,8 @@ async function applyProposal({ proposal, overrides = null }) {
       return applyArchive(proposal);
     case 'split_task':
       return applySplit(proposal);
+    case 'prepare_task':
+      return applyPrepare(proposal);
     case 'delete_task':
       return applyDelete(proposal);
     case 'rename_task':
