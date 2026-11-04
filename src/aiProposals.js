@@ -501,6 +501,39 @@ function describeDay(snapshot, date, checkin) {
   return { ...info, allowed, canAdd, toRemove, label, notes };
 }
 
+/**
+ * Consultation (lecture seule) : renvoie les propositions déjà calculées pour une
+ * journée si l'empreinte (données + check-in) correspond, SINON rien — sans jamais
+ * appeler le modèle. C'est ce quasi-lecture sur rechargement qui conserve les
+ * propositions existantes sans en recréer de nouvelles.
+ */
+function peekDayPlan(snapshot, date, checkin) {
+  if (!snapshot) return null;
+  const answers = normalizeCheckin(checkin);
+  const digest = buildDayDigest(snapshot, date, answers);
+  const signature = signatureOf(digest);
+  const entry = dayCache.get(date);
+
+  const fresh =
+    entry &&
+    entry.signature === signature &&
+    (config.aiCacheTtlMs === 0 || Date.now() - entry.generatedAt < config.aiCacheTtlMs);
+
+  if (fresh) {
+    return {
+      items: entry.items || [],
+      splits: entry.splits || [],
+      summary: entry.summary || null,
+      strategy: entry.summary || null,
+      checkin: entry.checkin || null,
+      allowed: entry.allowed || null,
+      cached: true,
+      generatedAt: entry.generatedAt || null,
+    };
+  }
+  return null;
+}
+
 module.exports = {
   SYSTEM_PROMPT,
   buildDayDigest,
@@ -508,6 +541,7 @@ module.exports = {
   validateDayResponse,
   dayInfo,
   describeDay,
+  peekDayPlan,
   generateDayProposals,
   findAiProposal,
   removeAiProposal,

@@ -204,6 +204,14 @@ propositions en attente de ce jour (ajouts, reports, scissions). Chacune passe p
 garde-fou que d'habitude (validation + relecture + corbeille si suppression) ; si l'une
 expire, l'application s'arrête et recharge proprement.
 
+### Analyse à la demande
+L'IA ne se déclenche **que** quand tu appuies sur **« Analyser »** (ou « Adapter ma
+journée » / « Nouvelles propositions »). À l'ouverture ou au **rechargement de la page**,
+l'app se contente d'afficher l'état du jour et, s'ils existent déjà, les propositions mises
+en cache — elle n'en **crée pas de nouvelles** toute seule. Le cache est validé par
+empreinte des données **et du check-in** : il reste valable tant que rien n'a changé
+(`AI_CACHE_TTL_MINUTES`, défaut 30 min).
+
 ### PWA / appli installable
 L'app est une **PWA** : sur ton téléphone, « Ajouter à l'écran d'accueil » l'installe comme
 une vraie app en plein écran. Un service worker met en cache le « shell » (pages, CSS, JS)

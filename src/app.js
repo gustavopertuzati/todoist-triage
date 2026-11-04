@@ -19,7 +19,7 @@ const { getSnapshot, clearCache } = require('./exportService');
 const { TodoistError } = require('./todoist');
 const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
-const { describeDay, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
+const { describeDay, peekDayPlan, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { AiError } = require('./ai');
 const { isValidIsoDate } = require('./dates');
@@ -356,6 +356,10 @@ function createApp() {
       const date = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
       const force = req.body?.force === true;
       const checkin = normalizeCheckin(req.body?.checkin);
+      // L'analyse IA ne part QUE si `analyze` est explicitement demandé
+      // (bouton « Analyser »). Sinon, on se contente de renvoyer l'état du jour
+      // et, s'ils existent déjà, les propositions mises en cache.
+      const analyze = req.body?.analyze === true;
 
       const { snapshot } = await getSnapshot({ force: false });
       const days = (snapshot.capacity && snapshot.capacity.days) || [];
@@ -389,11 +393,31 @@ function createApp() {
         return res.json({ ...base, ai: false, proposals: [], splits: [], strategy: null, cached: false });
       }
 
+      // Lecture seule : pas de nouvel appel au modèle.
+      if (!analyze) {
+        const cached = peekDayPlan(snapshot, date, checkin);
+        if (cached) {
+          return res.json({
+            ...base,
+            ai: true,
+            analyzed: true,
+            proposals: cached.items,
+            splits: cached.splits || [],
+            strategy: cached.strategy || null,
+            cached: true,
+            usage: null,
+          });
+        }
+        // Rien en cache : on ne montre que l'état du jour, sans générer.
+        return res.json({ ...base, ai: true, analyzed: false, proposals: [], splits: [], strategy: null, cached: false });
+      }
+
       const plan = await generateDayProposals(snapshot, date, { force, checkin });
 
       return res.json({
         ...base,
         ai: true,
+        analyzed: true,
         proposals: plan.items,
         splits: plan.splits || [],
         strategy: plan.summary || null,

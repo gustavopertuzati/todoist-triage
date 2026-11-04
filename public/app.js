@@ -687,20 +687,22 @@
     if (today && days.some((day) => day.date === today)) selectDay(today);
   }
 
-  async function selectDay(date, { force = false } = {}) {
+  async function selectDay(date, { analyze = false, force = false } = {}) {
     state.selectedDate = date;
     state.dayLoading = true;
     state.dayError = null;
     renderPlanner();
-    await loadDay(date, { force });
+    await loadDay(date, { analyze, force });
   }
 
-  async function loadDay(date, { force = false } = {}) {
+  async function loadDay(date, { analyze = false, force = false } = {}) {
     try {
+      // `analyze:true` (bouton « Analyser ») déclenche l'appel IA.
+      // Sans lui, le serveur ne renvoie que l'état du jour + éventuel cache.
       const plan = await apiJson('/api/day/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, force, checkin: getCheckin(date) }),
+        body: JSON.stringify({ date, force, analyze, checkin: getCheckin(date) }),
       });
       state.dayPlan = plan;
       state.dayLoading = false;
@@ -770,6 +772,24 @@
 
     if (!plan) return;
 
+    const isAnalyzed = plan.analyzed === true && !state.dayLoading;
+
+    // Bouton « Analyser » : seule action qui déclenche l'IA pour cette journée.
+    if (plan.ai !== false && isAnalyzed === false) {
+      els.dayPlan.append(
+        h(
+          'div',
+          { class: 'day-analyze' },
+          h(
+            'button',
+            { type: 'button', id: 'analyze-btn', class: 'btn btn-primary', onclick: () => selectDay(date, { analyze: true, force: true }) },
+            '🧠 Analyser avec l’IA'
+          ),
+          h('p', { class: 'fine-print' }, 'L’IA proposera les tâches les plus adaptées à cette journée, en tenant compte de ton check-in.')
+        )
+      );
+    }
+
     els.dayPlan.append(
       h(
         'div',
@@ -838,15 +858,22 @@
     );
 
     if (proposals.length === 0 && splits.length === 0) {
-      els.dayPlan.append(
-        h(
-          'p',
-          { class: 'empty-line' },
-          plan.ai === false
-            ? 'L’IA n’est pas activée : impossible de proposer des tâches.'
-            : 'Rien à proposer pour cette journée (place pleine ou aucune tâche adaptée).'
-        )
-      );
+      if (isAnalyzed === false) {
+        // Rien d'analysé : le bloc supérieur affiche déjà le bouton « Analyser ».
+        els.dayPlan.append(
+          h('p', { class: 'empty-line' }, 'Planifie ce jour pour voir les tâches proposées.')
+        );
+      } else {
+        els.dayPlan.append(
+          h(
+            'p',
+            { class: 'empty-line' },
+            plan.ai === false
+              ? 'L’IA n’est pas activée : impossible de proposer des tâches.'
+              : 'Rien à proposer pour cette journée (place pleine ou aucune tâche adaptée).'
+          )
+        );
+      }
     } else {
       const list = h('div', { class: 'proposals' });
       for (const proposal of proposals) list.append(proposalCard(proposal));
@@ -855,27 +882,29 @@
     }
 
     const reviews = h('div', { class: 'day-actions' });
-    const pending = pendingDayItems();
-    if (pending.length > 1) {
+    if (isAnalyzed) {
+      const pending = pendingDayItems();
+      if (pending.length > 1) {
+        reviews.append(
+          h(
+            'button',
+            { type: 'button', id: 'validate-all-btn', class: 'btn btn-primary', onclick: validateAllDay },
+            `Tout valider (${pending.length})`
+          )
+        );
+      }
       reviews.append(
         h(
           'button',
-          { type: 'button', id: 'validate-all-btn', class: 'btn btn-primary', onclick: validateAllDay },
-          `Tout valider (${pending.length})`
+          {
+            type: 'button',
+            class: 'btn btn-ghost btn-small',
+            onclick: () => selectDay(date, { analyze: true, force: true }),
+          },
+          'Nouvelles propositions'
         )
       );
     }
-    reviews.append(
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'btn btn-ghost btn-small',
-          onclick: () => selectDay(date, { force: true }),
-        },
-        'Nouvelles propositions pour ce jour'
-      )
-    );
     els.dayPlan.append(reviews);
   }
 
@@ -912,19 +941,27 @@
 
     els.weekRecap.hidden = false;
     els.weekRecap.append(
-      h('h3', { class: 'week-title' }, 'Récap de la semaine'),
+      h('h3', { class: 'week-title' }, 'Récap de la semaine')
+    );
+
+    const lines = [
       h(
         'p',
         { class: 'week-line' },
         `${week.length} journée(s) · ${totalPlanned} tâche(s) planifiée(s) · ${freeDays} jour(s) libre(s) · ${fullDays} jour(s) complet(s).`
       ),
-      biggest.total > 0
-        ? h('p', { class: 'week-line' }, `Le jour le plus chargé : ${formatDate(biggest.date)} (${biggest.total} tâche(s)).`)
-        : null,
-      biggest.total > 0 && biggest.full
-        ? h('p', { class: 'week-note' }, 'La semaine est dense : pense au check-in ou au report des journées pleines.')
-        : null
-    );
+    ];
+    if (biggest.total > 0) {
+      lines.push(
+        h('p', { class: 'week-line' }, `Le jour le plus chargé : ${formatDate(biggest.date)} (${biggest.total} tâche(s)).`)
+      );
+    }
+    if (biggest.total > 0 && biggest.full) {
+      lines.push(
+        h('p', { class: 'week-note' }, 'La semaine est dense : pense au check-in ou au report des journées pleines.')
+      );
+    }
+    for (const line of lines) els.weekRecap.append(line);
   }
 
   function renderCheckinForm(date) {
@@ -968,7 +1005,7 @@
         next[question.key] = selects[question.key].value;
       }
       setCheckin(date, next);
-      selectDay(date, { force: true });
+      selectDay(date, { analyze: true, force: true });
     });
 
     details.append(form);

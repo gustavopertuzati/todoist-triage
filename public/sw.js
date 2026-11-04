@@ -3,7 +3,7 @@
 /* Service worker minimal : cache du « shell » de l'app et repli réseau.
    Les données Todoist ne sont jamais mises en cache (ni le cookie de session). */
 
-const CACHE = 'tri-v1';
+const CACHE = 'tri-v2';
 const SHELL = ['/', '/login', '/styles.css', '/app.js', '/login.js', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
