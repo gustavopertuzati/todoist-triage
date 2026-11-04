@@ -88,6 +88,15 @@ const config = {
     Boolean((process.env.OPENROUTER_API_KEY || '').trim()) &&
     (process.env.AI_ENABLED || 'true').toLowerCase() !== 'false',
 
+  // Itération 5 : capacité journalière « 1-3-5 » (1 gros, 3 moyens, 5 petits).
+  capacityHorizonDays: readInt('CAPACITY_HORIZON_DAYS', 14, { min: 3, max: 60 }),
+  capacityRule: {
+    L: readInt('CAPACITY_MAX_LARGE', 1, { min: 0, max: 20 }),
+    M: readInt('CAPACITY_MAX_MEDIUM', 3, { min: 0, max: 40 }),
+    S: readInt('CAPACITY_MAX_SMALL', 5, { min: 0, max: 60 }),
+  },
+  aiAllowSplits: (process.env.AI_ALLOW_SPLITS || 'true').toLowerCase() !== 'false',
+
   isProduction: process.env.NODE_ENV === 'production',
 };
 

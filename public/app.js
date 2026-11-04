@@ -41,6 +41,7 @@
     widgetLists: document.getElementById('widget-lists'),
     proposalsCount: document.getElementById('proposals-count'),
     proposalsAi: document.getElementById('proposals-ai'),
+    capacity: document.getElementById('capacity'),
     proposalsNote: document.getElementById('proposals-note'),
     proposalsList: document.getElementById('proposals-list'),
     insights: document.getElementById('insights'),
@@ -604,6 +605,7 @@
 
   function renderProposals() {
     renderProposalsAi();
+    renderCapacity();
     const all = Array.isArray(state.data.proposals) ? state.data.proposals : [];
     const summary = state.data.summary.proposals || { total: all.length, truncated: {} };
     const visible = all.filter(
@@ -678,6 +680,57 @@
     els.proposalsAi.hidden = false;
   }
 
+  const weekdayShort = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric' });
+
+  function formatDayChip(iso, today) {
+    if (iso === today) return 'auj.';
+    if (iso === addDaysIso(today, 1)) return 'dem.';
+    return weekdayShort.format(isoToLocalDate(iso));
+  }
+
+  function renderCapacity() {
+    const capacity = state.data.capacity;
+    clear(els.capacity);
+    const days = capacity && Array.isArray(capacity.days) ? capacity.days : [];
+    if (days.length === 0) {
+      els.capacity.hidden = true;
+      return;
+    }
+
+    els.capacity.hidden = false;
+    els.capacity.append(
+      h('span', { class: 'capacity-title' }, 'Charge par jour — 1 gros · 3 moyens · 5 petits')
+    );
+
+    const today = state.data.meta.today;
+    const strip = h('div', { class: 'capacity-strip' });
+
+    for (const day of days) {
+      const parts = [];
+      if (day.load.L) parts.push(`${day.load.L} gros`);
+      if (day.load.M) parts.push(`${day.load.M} moy`);
+      if (day.load.S) parts.push(`${day.load.S} pti`);
+
+      strip.append(
+        h(
+          'div',
+          {
+            class: `capacity-day${day.full ? ' is-full' : day.total === 0 ? ' is-empty' : ''}`,
+          },
+          h('span', { class: 'capacity-date' }, formatDayChip(day.date, today)),
+          h('span', { class: 'capacity-load' }, parts.length ? parts.join(' · ') : 'libre'),
+          h(
+            'span',
+            { class: 'capacity-remaining' },
+            day.full ? 'complet' : `reste ${day.remaining.L}G ${day.remaining.M}M ${day.remaining.S}P`
+          )
+        )
+      );
+    }
+
+    els.capacity.append(strip);
+  }
+
   function maybeRequestAi() {
     const ai = state.data?.ai;
     if (!ai?.enabled || state.ai.requested) return;
@@ -731,6 +784,7 @@
         { class: 'proposal-head' },
         h('span', { class: `proposal-type tone-${proposal.tone}` }, typeLabel),
         proposal.source === 'ai' ? h('span', { class: 'pill pill-ai' }, 'IA') : null,
+        proposal.size_label ? h('span', { class: `pill size-${proposal.size}` }, proposal.size_label) : null,
         h(
           'div',
           { class: 'proposal-title-wrap' },
@@ -742,6 +796,12 @@
       h('p', { class: 'proposal-rationale' }, proposal.rationale),
       h('p', { class: 'proposal-preview' }, proposal.preview)
     );
+
+    if (Array.isArray(proposal.subtasks) && proposal.subtasks.length > 0) {
+      const list = h('ul', { class: 'proposal-subtasks' });
+      for (const subtask of proposal.subtasks) list.append(h('li', {}, subtask));
+      card.append(list);
+    }
 
     let dateInput = null;
     if (Array.isArray(proposal.editable) && proposal.editable.includes('due_date')) {

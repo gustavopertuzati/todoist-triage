@@ -19,6 +19,7 @@ const {
   clearAiCache,
 } = require('../src/aiProposals');
 const { mergeProposalLists } = require('../src/proposals');
+const { buildAgenda } = require('../src/capacity');
 
 const TODAY = '2026-11-04';
 
@@ -44,9 +45,11 @@ function task(overrides = {}) {
 }
 
 function snapshotWith(tasks) {
+  const rule = { L: 1, M: 3, S: 5 };
   return {
     meta: { today: TODAY, timezone: 'Europe/Zurich' },
     tasks,
+    capacity: { horizon_days: 14, rule, days: buildAgenda({ tasks, today: TODAY, horizonDays: 14, rule }) },
     projects: [
       { id: 'p1', name: 'Projet', is_archived: false, stats: { tasks: tasks.length, overdue: 0, no_due: tasks.length, completed_lookback: 0 } },
     ],
@@ -74,7 +77,7 @@ test('validateResponse ne garde que des propositions sûres', () => {
   const snapshot = snapshotWith([task({ id: 't1' })]);
   const digest = { today: TODAY, tasks: [{ id: 't1' }] };
 
-  const items = validateResponse(
+  const { items } = validateResponse(
     {
       summary: 'Stratégie test',
       proposals: [
@@ -93,13 +96,14 @@ test('validateResponse ne garde que des propositions sûres', () => {
   assert.equal(items[0].action.due_date, '2026-11-10');
   assert.equal(items[0].ai_group, 'Admin');
   assert.equal(items[0].target.id, 't1');
+  assert.ok(['L', 'M', 'S'].includes(items[0].size));
 });
 
 test('validateResponse rejette les dates hors bornes ou invalides', () => {
   const snapshot = snapshotWith([task({ id: 't1', due_date: '2026-11-20' })]);
   const digest = { today: TODAY, tasks: [{ id: 't1' }] };
 
-  const items = validateResponse(
+  const { items } = validateResponse(
     {
       proposals: [
         { task_id: 't1', due_date: '2026-11-03' }, // avant aujourd'hui
@@ -113,6 +117,51 @@ test('validateResponse rejette les dates hors bornes ou invalides', () => {
   );
 
   assert.equal(items.length, 0);
+});
+
+test('validateResponse refuse une proposition qui dépasserait la capacité du jour', () => {
+  const snapshot = snapshotWith([
+    task({ id: 't1' }),
+    task({ id: 't2' }),
+    task({ id: 'busy', due_date: '2026-11-10', duration: { amount: 90, unit: 'minute' } }),
+  ]);
+  const digest = { today: TODAY, tasks: [{ id: 't1' }, { id: 't2' }] };
+
+  const { items, dropped } = validateResponse(
+    {
+      proposals: [
+        { task_id: 't1', due_date: '2026-11-10', size: 'L', reason: 'trop gros pour ce jour' },
+        { task_id: 't2', due_date: '2026-11-10', size: 'M', reason: 'tient encore' },
+      ],
+    },
+    snapshot,
+    digest
+  );
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].target.id, 't2');
+  assert.equal(items[0].size, 'M');
+  assert.equal(dropped, 1);
+});
+
+test('validateResponse accepte une scission proposée par l’IA sans toucher à la note', () => {
+  const snapshot = snapshotWith([task({ id: 't1' })]);
+  const digest = { today: TODAY, tasks: [{ id: 't1' }] };
+
+  const { items } = validateResponse(
+    {
+      splits: [
+        { task_id: 't1', reason: 'Fourre-tout à découper', subtasks: ['Étape un', 'Étape deux', 'Étape trois'] },
+      ],
+    },
+    snapshot,
+    digest
+  );
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].type, 'split_task');
+  assert.deepEqual(items[0].action.subtasks, ['Étape un', 'Étape deux', 'Étape trois']);
+  assert.equal(items[0].action.update_description, false);
 });
 
 test('mergeProposalLists laisse l’IA remplacer la règle de datation', () => {

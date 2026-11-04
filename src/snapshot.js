@@ -15,6 +15,7 @@ const {
 } = require('./dates');
 const { diagnoseProject, buildProjectDiagnosis } = require('./diagnosis');
 const { buildProposals } = require('./proposals');
+const { buildAgenda } = require('./capacity');
 
 const PRIORITY_LABELS = { 4: 'P1', 3: 'P2', 2: 'P3', 1: 'P4' };
 
@@ -158,6 +159,8 @@ function buildSnapshot({
   proposalsMaxPerType = 15,
   proposalsMaxTotal = 40,
   proposalDueOffsetDays = 7,
+  capacityHorizonDays = 14,
+  capacityRule = { L: 1, M: 3, S: 5 },
   generatedAt = new Date().toISOString(),
   appVersion = null,
 }) {
@@ -182,10 +185,18 @@ function buildSnapshot({
     .map(normalizeLabel)
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || a.name.localeCompare(b.name));
 
-  // Nom du projet attaché à chaque tâche (utile aux propositions et à l'UI).
+  // Nom du projet et nombre de sous-tâches attachés à chaque tâche (utile aux
+  // propositions, à la capacité journalière et à l'UI).
   const projectNameById = new Map(allProjects.map((project) => [project.id, project.name]));
+  const subtaskCountByParent = new Map();
+  for (const task of allTasks) {
+    if (task.parent_id) {
+      subtaskCountByParent.set(task.parent_id, (subtaskCountByParent.get(task.parent_id) || 0) + 1);
+    }
+  }
   for (const task of allTasks) {
     task.project_name = task.project_id ? projectNameById.get(task.project_id) || null : null;
+    task.subtask_count = subtaskCountByParent.get(task.id) || 0;
   }
 
   // Regroupements par projet pour calculer les statistiques en une passe.
@@ -358,6 +369,19 @@ function buildSnapshot({
     },
   });
 
+  // Plan de charge des jours à venir (règle 1-3-5), à partir de ce qui est
+  // déjà planifié dans Todoist.
+  const capacity = {
+    horizon_days: capacityHorizonDays,
+    rule: capacityRule,
+    days: buildAgenda({
+      tasks: allTasks,
+      today,
+      horizonDays: capacityHorizonDays,
+      rule: capacityRule,
+    }),
+  };
+
   const summary = {
     projects_total: projects.filter((project) => !project.is_archived).length,
     projects_archived: projectsArchived,
@@ -407,6 +431,8 @@ function buildSnapshot({
       timezone,
       old_task_days: oldTaskDays,
       no_progress_min_age_days: noProgressMinAgeDays,
+      capacity_horizon_days: capacityHorizonDays,
+      capacity_rule: capacityRule,
       source: 'Todoist API v1 (full sync + tâches terminées)',
       completed_lookback_days: completedLookbackDays,
       completed_available: completedAvailable,
@@ -415,6 +441,7 @@ function buildSnapshot({
     user,
     summary,
     proposals: proposals.items,
+    capacity,
     projects,
     sections: allSections,
     tasks: allTasks,

@@ -203,3 +203,19 @@ test('génère des propositions et les résume', () => {
   assert.equal(snapshot.summary.proposals.total, snapshot.proposals.length);
 });
 
+test('expose un plan de charge journalière (règle 1-3-5)', () => {
+  const snapshot = buildSnapshot(fixture());
+  assert.ok(Array.isArray(snapshot.capacity.days));
+  assert.equal(snapshot.capacity.days.length, 14);
+  assert.deepEqual(snapshot.capacity.rule, { L: 1, M: 3, S: 5 });
+  assert.deepEqual(snapshot.meta.capacity_rule, { L: 1, M: 3, S: 5 });
+
+  // Le 4 novembre porte une tâche (t4, échéance aujourd'hui).
+  const today = snapshot.capacity.days[0];
+  assert.equal(today.date, TODAY);
+  assert.equal(today.total, 1);
+
+  // Chaque tâche expose sa taille estimée.
+  assert.ok(snapshot.tasks.every((task) => typeof task.subtask_count === 'number'));
+});
+

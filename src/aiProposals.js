@@ -19,6 +19,7 @@ const { config } = require('./config');
 const { chatJson, AiError } = require('./ai');
 const { addDaysIso } = require('./dates');
 const { targetFromTask, normalizeDueDate } = require('./proposals');
+const { estimateTaskSize, enforceCapacity, SIZE_LABELS } = require('./capacity');
 
 const SYSTEM_PROMPT = [
   'Tu es un assistant d’organisation personnelle, spécialisé dans la replanification',
@@ -88,10 +89,28 @@ function buildDigest(snapshot) {
       age_days: task.age_days,
       labels: (task.labels || []).slice(0, 3),
       has_note: Boolean(task.description && task.description.trim()),
+      size_hint: estimateTaskSize(task, task.subtask_count || 0),
     });
   }
 
   const tasks = candidates.slice(0, 25);
+
+  // Charge déjà posée, jour par jour : le modèle doit respecter la place restante.
+  const plannedByDate = new Map();
+  for (const task of active) {
+    if (!task.due_date || task.due_date < snapshot.meta.today) continue;
+    if (!plannedByDate.has(task.due_date)) plannedByDate.set(task.due_date, []);
+    const list = plannedByDate.get(task.due_date);
+    if (list.length < 3) list.push(String(task.display_title || task.content || '').slice(0, 40));
+  }
+
+  const capacity = snapshot.capacity || { rule: config.capacityRule, days: [] };
+  const agenda = (capacity.days || []).map((day) => ({
+    date: day.date,
+    weekday: day.weekday,
+    remaining: day.remaining,
+    planned: plannedByDate.get(day.date) || [],
+  }));
 
   const projects = snapshot.projects
     .filter((project) => !project.is_archived)
@@ -109,6 +128,8 @@ function buildDigest(snapshot) {
     timezone: snapshot.meta.timezone,
     horizon_days: config.aiHorizonDays,
     max_proposals: config.aiMaxProposals,
+    capacity_rule: capacity.rule || config.capacityRule,
+    agenda,
     projects,
     tasks,
   };
@@ -121,23 +142,33 @@ function signatureFor(digest) {
 function buildUserPrompt(digest) {
   return [
     'Voici l’état d’un compte Todoist. Choisis les tâches à planifier et donne à chacune',
-    'une échéance pertinente.',
+    'une échéance, en respectant impérativement la charge des journées.',
+    '',
+    'Charge (règle « 1-3-5 ») : par jour, au plus 1 grosse tâche (L), 3 moyennes (M) et',
+    '5 petites (S). Le tableau "agenda" donne pour chaque jour la place RESTANTE',
+    '("remaining") : ne place une tâche un jour donné que s’il reste de la place pour sa',
+    'taille. Étale la charge, ne remplis pas un jour au-delà de sa capacité.',
     '',
     'Règles :',
     '- Traite en priorité les tâches en retard (days_overdue non nul).',
-    '- Répartis la charge : au plus ~2 à 3 tâches par jour, sauf justification.',
-    '- Regroupe les tâches d’un même projet ou thème sur un jour cohérent (ex. « jour maison »).',
-    '- Priorise : P1 tôt, P4 plus tard ; tiens compte de age_days (une tâche très ancienne',
-    '  mérite d’être planifiée ou abandonnée, pas reportée indéfiniment).',
-    '- due_date doit être au format AAAA-MM-JJ, entre today et today + horizon_days.',
-    '- Ne propose rien pour une tâche déjà à jour (mêmes date et contexte).',
-    '- reason : une phrase courte, concrète et en français, qui explique le choix.',
-    '- group : un thème court et optionnel (ex. « Maison », « Lectures », « Admin »).',
-    `- Propose au maximum ${digest.max_proposals} tâches, uniquement parmi celles listées.`,
+    '- Donne pour chaque proposition une taille : "L", "M" ou "S" (indice fourni dans',
+    '  "size_hint", ajuste-le selon l’ampleur réelle du travail).',
+    '- Regroupe les tâches d’un même thème sur un jour cohérent, SI la place le permet.',
+    '- Priorise : P1 plus tôt, P4 plus tard ; tiens compte de age_days.',
+    '- due_date au format AAAA-MM-JJ, entre today et today + horizon_days.',
+    '- Ne propose rien pour une tâche déjà à jour.',
+    '- reason : une phrase courte, concrète et en français.',
+    '- group : un thème court et optionnel (ex. « Maison », « Admin »).',
+    `- Au maximum ${digest.max_proposals} propositions, uniquement parmi les tâches listées.`,
+    '',
+    'Scission : si une tâche est un « fourre-tout » trop gros, tu peux proposer de la',
+    'scinder en 2 à 10 sous-tâches concrètes dans "splits". N’utilise pas "splits" pour une',
+    'tâche déjà présente dans "proposals".',
     '',
     'Réponds EXACTEMENT par ce JSON :',
-    '{"summary":"phrase décrivant ta stratégie de planification",',
-    ' "proposals":[{"task_id":"...","due_date":"AAAA-MM-JJ","reason":"...","group":"..."}]}',
+    '{"summary":"phrase décrivant ta stratégie",',
+    ' "proposals":[{"task_id":"...","due_date":"AAAA-MM-JJ","size":"L|M|S","reason":"...","group":"..."}],',
+    ' "splits":[{"task_id":"...","reason":"...","subtasks":["...","..."]}]}',
     '',
     'Données :',
     JSON.stringify(digest),
@@ -146,22 +177,22 @@ function buildUserPrompt(digest) {
 
 /**
  * Valide la réponse de l'IA et la transforme en propositions sûres.
- * Tout ce qui n'est pas une tâche connue, une date valide dans l'horizon, est
- * écarté silencieusement.
+ * Tout ce qui n'est pas une tâche connue, une date valide dans l'horizon, ou qui
+ * dépasserait la capacité d'une journée, est écarté.
+ * @returns {{items: object[], dropped: number}}
  */
 function validateResponse(parsed, snapshot, digest) {
   const allowed = new Map(digest.tasks.map((task) => [task.id, task]));
   const tasksById = new Map(snapshot.tasks.map((task) => [task.id, task]));
   const today = snapshot.meta.today;
   const maxDate = addDaysIso(today, config.aiHorizonDays);
+  const capacity = snapshot.capacity || { days: [], rule: config.capacityRule };
 
   const rawProposals = Array.isArray(parsed?.proposals) ? parsed.proposals : [];
   const seen = new Set();
-  const items = [];
+  const dateItems = [];
 
   for (const raw of rawProposals) {
-    if (items.length >= config.aiMaxProposals) break;
-
     const taskId = String(raw?.task_id || '');
     if (!allowed.has(taskId) || seen.has(taskId)) continue;
 
@@ -170,20 +201,24 @@ function validateResponse(parsed, snapshot, digest) {
 
     const task = tasksById.get(taskId);
     if (!task || task.project_archived) continue;
-    // Inutile de reproposer l'échéance déjà en place.
     if (task.due_date === due) continue;
 
+    const size = ['L', 'M', 'S'].includes(raw?.size)
+      ? raw.size
+      : estimateTaskSize(task, task.subtask_count || 0);
     const reason = String(raw?.reason || '').trim().slice(0, 300);
     const group = raw?.group ? String(raw.group).trim().slice(0, 40) : null;
 
     seen.add(taskId);
-    items.push({
-      id: `ai:set_due_date:${taskId}:${hashId([due, reason, group || ''])}`,
+    dateItems.push({
+      id: `ai:set_due_date:${taskId}:${hashId([due, reason, group || '', size])}`,
       type: 'set_due_date',
       type_label: 'Dater',
       source: 'ai',
       tone: 'warn',
       score: 55,
+      size,
+      size_label: SIZE_LABELS[size],
       title: 'Échéance proposée par l’IA',
       rationale: reason || 'Échéance proposée par l’IA.',
       ai_group: group,
@@ -195,7 +230,56 @@ function validateResponse(parsed, snapshot, digest) {
     });
   }
 
-  return items;
+  // Capacité : on garde l'ordre proposé par l'IA et on refuse le surplus.
+  const capped = dateItems.slice(0, config.aiMaxProposals);
+  const { accepted, rejected } = enforceCapacity(capped, capacity.days || [], capacity.rule);
+  const dropped = rejected.length + (dateItems.length - capped.length);
+
+  // Scissions proposées par l'IA.
+  const splitItems = [];
+  const rawSplits = config.aiAllowSplits && Array.isArray(parsed?.splits) ? parsed.splits : [];
+
+  for (const raw of rawSplits) {
+    if (splitItems.length >= 5) break;
+    const taskId = String(raw?.task_id || '');
+    if (!allowed.has(taskId) || seen.has(taskId)) continue;
+
+    const task = tasksById.get(taskId);
+    if (!task || task.project_archived) continue;
+
+    const titles = (Array.isArray(raw?.subtasks) ? raw.subtasks : [])
+      .map((sub) => (typeof sub === 'string' ? sub : sub?.title))
+      .map((title) => String(title || '').trim().slice(0, 200))
+      .filter(Boolean)
+      .slice(0, 10);
+    if (titles.length < 2) continue;
+
+    seen.add(taskId);
+    const reason = String(raw?.reason || '').trim().slice(0, 300);
+    splitItems.push({
+      id: `ai:split_task:${taskId}:${hashId([taskId, titles.join('|')])}`,
+      type: 'split_task',
+      type_label: 'Scinder',
+      source: 'ai',
+      tone: 'ok',
+      score: 40,
+      size: null,
+      size_label: null,
+      title: 'Scinder en sous-tâches',
+      rationale: reason || `Tâche trop grosse : ${titles.length} étapes identifiées.`,
+      ai_group: null,
+      target: targetFromTask(task),
+      action: { subtasks: titles, update_description: false },
+      editable: [],
+      preview: `Créer ${titles.length} sous-tâche(s) : ${titles.slice(0, 4).join(' · ')}${
+        titles.length > 4 ? '…' : ''
+      }`,
+      format: 'split',
+      subtasks: titles,
+    });
+  }
+
+  return { items: [...accepted, ...splitItems], dropped };
 }
 
 /** État du cache (sans générer). */
@@ -266,8 +350,11 @@ async function generateAiProposals(snapshot, { force = false } = {}) {
     user: buildUserPrompt(digest),
   });
 
-  const items = validateResponse(data, snapshot, digest);
-  const summary = typeof data?.summary === 'string' ? data.summary.trim().slice(0, 400) : null;
+  const { items, dropped } = validateResponse(data, snapshot, digest);
+  let summary = typeof data?.summary === 'string' ? data.summary.trim().slice(0, 400) : null;
+  if (dropped > 0) {
+    summary = `${summary ? `${summary} ` : ''}(${dropped} proposition(s) écartée(s) pour respecter la capacité des journées.)`;
+  }
 
   cache = { signature, items, summary, generatedAt: Date.now(), usage, model };
   rememberItems(items);

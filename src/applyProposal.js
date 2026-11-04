@@ -87,8 +87,11 @@ async function applySplit(proposal) {
     created.push(child?.id || null);
   }
 
-  // La description d'origine est remplacée par ce qui restait hors liste.
-  await updateTask(proposal.target.id, { description: proposal.action.remaining_description || '' });
+  // La description d'origine n'est nettoyée que pour une scission issue des
+  // règles (liste à puces). Une scission proposée par l'IA la laisse intacte.
+  if (proposal.action.update_description) {
+    await updateTask(proposal.target.id, { description: proposal.action.remaining_description || '' });
+  }
 
   const createdCount = created.filter(Boolean).length;
   return {

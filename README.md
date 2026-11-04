@@ -6,13 +6,15 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 4.** L'app affiche un résumé, explore les projets, **diagnostique
+> **Itérations 1 à 5.** L'app affiche un résumé, explore les projets, **diagnostique
 > chaque projet**, et **propose des modifications concrètes** (donner une échéance,
 > reporter, scinder, archiver) que tu **valides une par une**. À partir de l'itération 4,
 > une **IA** (OpenRouter, `deepseek/deepseek-v4.1-flash`) réfléchit aux meilleures
-> échéances : dates variées, regroupées par thème, justifiées — au lieu de tout dater
-> le même jour. Tant que tu n'as pas validé une proposition, **rien n'est écrit dans
-> Todoist** ; chaque écriture validée est ensuite relue depuis l'API.
+> échéances ; depuis l'itération 5 elle tient compte de la **charge déjà posée chaque
+> jour** et respecte une **capacité 1-3-5** (1 gros · 3 moyens · 5 petits par jour), et
+> peut **scinder** les grosses tâches. Tant que tu n'as pas validé une proposition,
+> **rien n'est écrit dans Todoist** ; chaque écriture validée est ensuite relue depuis
+> l'API.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
 > (`JJ.MM.AAAA`, `auj`) restent détectées et affichées passivement, mais ne sont pas la
@@ -38,6 +40,10 @@ Todoist surchargé et aide à y voir clair.
 - **Échéances proposées par une IA** : un modèle réfléchit à la meilleure date pour chaque
   tâche (répartition, priorités, regroupement par thème) et justifie son choix, au lieu
   d'appliquer une règle uniforme. Voir « Itération 4 » ci-dessous.
+- **Capacité journalière 1-3-5** : l'app mesure la charge déjà posée chaque jour (à partir
+  des échéances existantes) et n'accepte de nouvelles tâches que s'il reste de la place
+  (1 grosse · 3 moyennes · 5 petites). L'IA peut aussi **scinder** une grosse tâche en
+  sous-tâches concrètes. Voir « Itération 5 » ci-dessous.
 - Détection de la convention de date en **fin de titre** :
   - `11.10.2026` → échéance `2026-10-11` ;
   - `auj` / `auj.` → aujourd'hui, dans le fuseau configuré.
@@ -143,6 +149,32 @@ Les propositions déjà présentées restent valables un moment (magasin en mém
 indépendant du cache de lecture) : tu ne verras plus de « cette proposition n'est plus
 d'actualité » parce qu'une autre a été validée.
 
+## Itération 5 — capacité journalière 1-3-5
+
+Le problème des itérations précédentes : l'IA proposait des dates sans savoir ce qui était
+**déjà prévu** ces jours-là, et pouvait donc surcharger une journée.
+
+Désormais :
+
+1. L'app calcule un **plan de charge** des 14 prochains jours à partir des échéances
+   existantes, en estimant la taille de chaque tâche (durée renseignée, sinon nombre de
+   sous-tâches et longueur de la note) : **Gros (L) / Moyen (M) / Petit (S)**.
+2. Une journée saine respecte la règle **1-3-5** : au plus **1 grosse, 3 moyennes et
+   5 petites** tâches. Le tableau de charge (et l'interface) montre la place restante.
+3. Le plan est envoyé à l'IA, qui choisit les jours **selon la place restante** et donne
+   une **taille** à chaque proposition.
+4. Le serveur **vérifie** chaque proposition : si un jour dépasserait sa capacité, la
+   proposition est **écartée** (et signalée dans la stratégie).
+5. L'IA peut en plus proposer de **scinder** une grosse tâche en 2 à 10 sous-tâches
+   concrètes ; la note d'origine est conservée.
+
+Une bande « Charge par jour — 1 gros · 3 moyens · 5 petits » affiche, pour chaque jour,
+ce qui est déjà posé et ce qu'il reste.
+
+Seuils configurables : `CAPACITY_HORIZON_DAYS`, `CAPACITY_MAX_LARGE`,
+`CAPACITY_MAX_MEDIUM`, `CAPACITY_MAX_SMALL`. La scission IA se coupe avec
+`AI_ALLOW_SPLITS=false`.
+
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
@@ -200,6 +232,11 @@ npm run dev
 | `AI_TIMEOUT_MS` | non | `90000` | Délai maximal d'un appel au modèle. |
 | `AI_CACHE_TTL_MINUTES` | non | `30` | Durée de cache des propositions IA. |
 | `AI_ENABLED` | non | `true` | `false` désactive l'IA même si la clé est présente. |
+| `CAPACITY_HORIZON_DAYS` | non | `14` | Nombre de jours couverts par le plan de charge. |
+| `CAPACITY_MAX_LARGE` | non | `1` | Nombre maximum de grosses tâches par jour. |
+| `CAPACITY_MAX_MEDIUM` | non | `3` | Nombre maximum de tâches moyennes par jour. |
+| `CAPACITY_MAX_SMALL` | non | `5` | Nombre maximum de petites tâches par jour. |
+| `AI_ALLOW_SPLITS` | non | `true` | Autorise l'IA à proposer de scinder une grosse tâche. |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
 Toutes les valeurs sensibles sont lues uniquement depuis l'environnement du serveur.
@@ -220,8 +257,9 @@ npm test
 Les tests unitaires couvrent l'analyse des dates de titre, la construction du résumé
 (filtrage des archives, cas de date invalide), le diagnostic des projets (signaux,
 verdicts, agrégation par action), le moteur de propositions (liste à puces, échéances,
-plafonds, identifiants stables) et la couche IA (parsing tolérant, validation stricte des
-réponses, fusion avec les règles).
+plafonds, identifiants stables), la couche IA (parsing tolérant, validation stricte des
+réponses, respect de la capacité journalière, scissions, fusion avec les règles) et le
+moteur de capacité (estimation de taille, plan de charge 1-3-5).
 
 ## Déploiement sur Orkestr
 
@@ -265,11 +303,14 @@ Toute modification d'une variable d'environnement nécessite un nouveau déploie
 2. Entrer un mauvais mot de passe : le message « Mot de passe incorrect. » apparaît.
 3. Entrer le bon mot de passe : le tableau de bord « Ton Todoist, en clair. » s'affiche.
 4. Vérifier que le nombre de projets et de tâches correspond à ton compte Todoist.
-5. Dans **Propositions**, attendre la ligne « 🧠 Stratégie : … » : les échéances proposées
-   par l'IA apparaissent, avec un badge **IA**, un **thème** et une justification. Vérifier
-   que les dates sont **variées** (pas toutes le même jour).
+5. Dans **Propositions**, vérifier d'abord la bande **« Charge par jour »** : chaque jour
+   affiche ce qui est déjà posé et ce qu'il reste. Puis attendre la ligne
+   « 🧠 Stratégie : … » : les échéances proposées par l'IA apparaissent, avec un badge
+   **IA**, une **taille** (Gros/Moyen/Petit), un **thème** et une justification. Vérifier
+   qu'aucun jour n'est surchargé.
 6. Valider une carte (changer la date si besoin) : un message confirme l'application, la
    carte disparaît et le compteur baisse. Une carte **Ignorer** disparaît durablement.
+   La bande de charge se met à jour.
 7. Vérifier dans l'app Todoist que la modification est bien là.
 8. Dans **Diagnostic des projets**, vérifier le classement et les filtres.
 9. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
@@ -290,6 +331,7 @@ src/config.js          lecture des variables d'environnement
 src/todoist.js         client API Todoist (lectures + écritures, retries, erreurs typées)
 src/snapshot.js        normalisation, statistiques, dates dérivées
 src/diagnosis.js       verdicts, signaux et propositions par projet
+src/capacity.js        estimation de taille et plan de charge 1-3-5
 src/proposals.js       génération des propositions (pure)
 src/applyProposal.js   exécution d'une proposition + vérification via l'API
 src/ai.js              client OpenRouter (appel au modèle)
@@ -314,8 +356,9 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 4 terminées : export, lecture, diagnostic des projets, propositions
-validables individuellement (écritures vérifiées) et échéances proposées par une IA. Les
-itérations suivantes (questionnaire quotidien avec sélection assistée, autres actions
-générées par l'IA : reformuler un titre, déplacer vers un projet, scinder un fourre-tout)
+Itérations 1 à 5 terminées : export, lecture, diagnostic des projets, propositions
+validables individuellement (écritures vérifiées), échéances proposées par une IA et
+planification respectant la capacité 1-3-5 des journées (avec scission des grosses
+tâches). Les itérations suivantes (questionnaire quotidien avec sélection assistée,
+rééquilibrage automatique d'une journée surchargée, propositions de suppression)
 ne sont pas implémentées et seront abordées après retour d'usage.

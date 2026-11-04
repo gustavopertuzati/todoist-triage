@@ -135,7 +135,7 @@ function buildSplit(task) {
     title: 'Scinder en sous-tâches',
     rationale: `La description contient ${items.length} élément(s) de liste.`,
     target: targetFromTask(task),
-    action: { subtasks: items, remaining_description: remaining },
+    action: { subtasks: items, remaining_description: remaining, update_description: true },
     editable: [],
     preview: `Créer ${items.length} sous-tâche(s) : ${shortList(items)}`,
     format: 'split',

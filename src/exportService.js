@@ -52,6 +52,8 @@ async function loadSnapshot() {
     proposalsMaxPerType: config.proposalsMaxPerType,
     proposalsMaxTotal: config.proposalsMaxTotal,
     proposalDueOffsetDays: config.proposalDueOffsetDays,
+    capacityHorizonDays: config.capacityHorizonDays,
+    capacityRule: config.capacityRule,
     generatedAt,
     appVersion: config.appVersion,
   });
