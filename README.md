@@ -102,8 +102,10 @@ Les tests unitaires couvrent l'analyse des dates de titre et la construction du 
 Orkestr construit une image Docker à partir du dépôt. Le `Dockerfile` fourni est utilisé
 tel quel ; l'application écoute sur `0.0.0.0:$PORT`.
 
-1. **Pousser le code** sur GitHub, GitLab, Bitbucket ou Codeberg (le dépôt peut être privé).
-2. Dans Orkestr, **Settings → Connected Providers** : connecter le fournisseur Git.
+1. **Pousser le code** sur GitHub, GitLab, Bitbucket ou Codeberg. Un dépôt **public** est
+   cloné directement ; un dépôt privé nécessite une connexion au fournisseur Git.
+2. (Dépôt privé uniquement) Dans Orkestr, **Settings → Connected Providers** : connecter
+   le fournisseur Git.
 3. **Projects → New Project** : choisir le dépôt et la branche (`main`).
    Orkestr détecte Node/Express et le port. Le plan gratuit suffit (1 projet,
    1 environnement).
@@ -111,13 +113,25 @@ tel quel ; l'application écoute sur `0.0.0.0:$PORT`.
    - `TODOIST_API_TOKEN`
    - `APP_PASSWORD`
    - `SESSION_SECRET`
-   - `APP_TIMEZONE` = `Europe/Paris`
+   - `APP_TIMEZONE` = `Europe/Zurich` (l'instance en ligne utilise `Europe/Zurich` ; le
+     défaut du code reste `Europe/Paris`)
    Ne pas définir `TODOIST_BASE_URL`.
 5. Cliquer **Deploy** et suivre les logs jusqu'au statut **Live**.
 6. L'application est disponible sur `https://<slug>.orkestr.run`.
    L'URL `/healthz` doit répondre `{"ok":true,...}`.
 
 Toute modification d'une variable d'environnement nécessite un nouveau déploiement.
+
+> **Auto-déploiement.** Le redéploiement automatique à chaque `git push` n'est actif que
+> si le dépôt est relié à Orkestr via l'application GitHub (qui installe aussi le webhook
+> signé). Sinon, après un `git push`, lancer un déploiement depuis la console Orkestr
+> (**Deploy**) ou via l'API :
+>
+> ```bash
+> curl -X POST \
+>   "https://api.orkestr.eu/api/v1/projects/<project_id>/deployments?environment_id=<env_id>" \
+>   -H "Authorization: Bearer <ork_token>"
+> ```
 
 ## Vérification sur téléphone (itération 1)
 
