@@ -196,6 +196,9 @@ function buildDayDigest(snapshot, date, checkin, profile) {
     selected_day_tasks: selectedDayTasks,
     agenda: otherDays,
     feedback: describeForPrompt(profile) || null,
+    todoist_filters: (snapshot.filters || [])
+      .slice(0, 20)
+      .map((filter) => ({ name: filter.name, query: filter.query })),
     projects: snapshot.projects
       .filter((project) => !project.is_archived)
       .map((project) => ({ id: project.id, name: project.name })),
@@ -217,6 +220,16 @@ function buildUserPrompt(digest) {
 
   if (digest.checkin.notes.length > 0) {
     lines.push('Consignes liées au check-in :', ...digest.checkin.notes.map((n) => `- ${n}`));
+  }
+
+  if (Array.isArray(digest.todoist_filters) && digest.todoist_filters.length > 0) {
+    lines.push(
+      '',
+      'Filtres Todoist de la personne (indices de contextes, ne les invente pas) :',
+      ...digest.todoist_filters.map(
+        (filter) => `- ${filter.name}${filter.query ? ` : ${filter.query}` : ''}`
+      )
+    );
   }
 
   if (digest.feedback) {

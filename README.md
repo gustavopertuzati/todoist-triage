@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 14.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 15.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -398,6 +398,44 @@ Route : `POST /api/tasks/:id/order` — implémentation `src/subtaskOrder.js`.
   sous-tâches ne le polluent plus. Elles restent visibles via **🗂 Voir** sur la tâche
   parente (avec leur numéro et leur ordre).
 
+## Itération 15 — renumérotation, notes éditables, découpage sélectif, contexte
+
+### Les numéros se recollent après une suppression
+
+- Quand une sous-tâche **numérotée** est supprimée via l'app, les frères et sœurs encore
+  présents sont **renumérotés** (`1.`, `2.`, `3.`…) dans l'ordre courant.
+- L'ajout manuel d'une sous-tâche dans un groupe numéroté reçoit le **numéro suivant**,
+  puis tout est recalé.
+- Un bouton **« 🔄 Renuméroter »** dans le détail permet de recoller les numéros après une
+  suppression faite directement dans Todoist.
+- Les titres affichés retirent l'ancien préfixe : le numéro visible est toujours le numéro
+  dynamique d'exécution, jamais un « 1. 3. … ».
+- Route : `POST /api/tasks/:id/renumber` — logique pure dans `src/renumber.js`.
+
+### Carnet : modifier une note
+
+Chaque note du carnet a maintenant un bouton **« ✎ »** : on peut changer son **texte** et
+son **type** (amélioration, bug, note, idée), puis enregistrer. La suppression et l'ajout
+restent disponibles.
+
+### Découpage : ignorer des morceaux
+
+Sur une proposition de **découpage** (`split_task`), chaque morceau a une **case à cocher**.
+Décoche ce que tu ne veux pas créer : seuls les morceaux cochés deviennent des
+sous-tâches. Le serveur applique la sélection envoyée (`subtasks`), et refuse une
+sélection vide.
+
+### Check-in : contexte et filtres Todoist
+
+- Nouvelle question **« Contexte »** à choix multiples : **ordinateur**, **téléphone /
+  appels**, **maison**, **extérieur / courses**, **bureau**, **peu importe**.
+- L'IA reçoit ces choix et évite les tâches qui exigent un contexte absent (pas
+  d'ordinateur, pas d'appels, pas de sorties).
+- Les **filtres sauvegardés Todoist** sont désormais lus (`filters` dans le full sync),
+  affichés dans le check-in et transmis à l'IA comme indices de contextes.
+- Réglages inchangés : les questions énergie / forme / temps / envie / humeur continuent
+  de moduler la charge 1-3-5.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -587,6 +625,7 @@ src/ai.js              client OpenRouter (appel au modèle)
 src/aiProposals.js     condensé, invite, validation et cache des propositions IA
 src/prepare.js         préparation et découpage assisté d'une tâche (IA)
 src/subtaskOrder.js    ordre logique récursif des sous-tâches (IA)
+src/renumber.js        renumérotation des sous-tâches après ajout/suppression
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
@@ -608,13 +647,14 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 14 terminées : export, lecture, diagnostic des projets, planification
-**jour par jour** assistée par une IA, **check-in du jour**, scission des tâches,
-**nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA, récap hebdo),
-**retour adaptatif sur les propositions ignorées** (par type de proposition),
-**préparation des tâches** en sous-étapes datées et **numérotées**, **exploration des
-sous-tâches** avec ajout manuel et **découpage assisté**, **ordre logique récursif** des
-sous-tâches, **nettoyage approfondi progressif** et **carnet de notes** persistant pour
-OpenCode. Les itérations suivantes (rituel du matin avec rattrapage automatique,
+Itérations 1 à 15 terminées : export, lecture, diagnostic des projets, planification
+**jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
+et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
+morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
+récap hebdo), **retour adaptatif sur les propositions ignorées**, **préparation des tâches**
+en sous-étapes datées, **numérotées** et **renumérotées** après suppression, **exploration
+des sous-tâches** avec ajout manuel et **découpage assisté**, **ordre logique récursif** des
+sous-tâches, **nettoyage approfondi progressif** et **carnet de notes éditable** persistant
+pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage automatique,
 planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées et
 seront abordées après retour d'usage.

@@ -64,6 +64,20 @@ const QUESTIONS = [
       { value: 'great', label: 'Très bien' },
     ],
   },
+  {
+    key: 'context',
+    label: 'Contexte',
+    multiple: true,
+    hint: 'Plusieurs choix possibles',
+    options: [
+      { value: 'computer', label: 'Ordinateur' },
+      { value: 'phone', label: 'Téléphone / appels' },
+      { value: 'home', label: 'Maison' },
+      { value: 'outside', label: 'Extérieur / courses' },
+      { value: 'office', label: 'Bureau' },
+      { value: 'any', label: 'Peu importe' },
+    ],
+  },
 ];
 
 const DEFAULTS = {
@@ -72,6 +86,7 @@ const DEFAULTS = {
   time: 'h2to4',
   want: 'mix',
   mood: 'neutral',
+  context: ['any'],
 };
 
 const ENERGY = {
@@ -107,6 +122,12 @@ function optionValues(key) {
 
 function optionLabel(key, value) {
   const question = QUESTIONS.find((q) => q.key === key);
+  if (question && Array.isArray(value)) {
+    return value
+      .map((item) => optionLabel(key, item))
+      .filter(Boolean)
+      .join(', ');
+  }
   const option = question ? question.options.find((o) => o.value === value) : null;
   return option ? option.label : null;
 }
@@ -116,10 +137,19 @@ function normalizeCheckin(input) {
   const source = input && typeof input === 'object' ? input : {};
   const result = {};
   for (const question of QUESTIONS) {
+    const allowed = optionValues(question.key);
     const value = source[question.key];
-    result[question.key] = optionValues(question.key).includes(value)
-      ? value
-      : DEFAULTS[question.key];
+
+    if (question.multiple) {
+      const raw = Array.isArray(value) ? value : value ? [value] : [];
+      let kept = [...new Set(raw.map(String).filter((item) => allowed.includes(item)))];
+      // « Peu importe » annule les autres choix.
+      if (kept.includes('any')) kept = ['any'];
+      result[question.key] = kept.length > 0 ? kept : [...DEFAULTS[question.key]];
+      continue;
+    }
+
+    result[question.key] = allowed.includes(value) ? value : DEFAULTS[question.key];
   }
   return result;
 }
@@ -179,6 +209,22 @@ function computeAllowed(checkin, rule) {
   }
   if (answers.time === 'lt1h') {
     notes.push('Très peu de temps : une ou deux tâches maximum.');
+  }
+
+  const context = Array.isArray(answers.context) ? answers.context : ['any'];
+  if (!context.includes('any') && context.length > 0) {
+    notes.push(
+      `Contexte disponible : ${optionLabel('context', context)}. Privilégie les tâches faisables dans ce contexte.`
+    );
+    if (!context.includes('computer')) {
+      notes.push('Évite les tâches qui demandent un ordinateur.');
+    }
+    if (!context.includes('phone')) {
+      notes.push('Évite les appels et les tâches qui demandent le téléphone.');
+    }
+    if (!context.includes('outside')) {
+      notes.push('Évite les courses et les démarches extérieures.');
+    }
   }
 
   const full = { L: rule.L, M: rule.M, S: rule.S };

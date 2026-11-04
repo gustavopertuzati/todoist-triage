@@ -3,7 +3,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { computeAllowed, normalizeCheckin, QUESTIONS, DEFAULTS } = require('../src/checkin');
+const {
+  computeAllowed,
+  normalizeCheckin,
+  describeCheckin,
+  QUESTIONS,
+  DEFAULTS,
+} = require('../src/checkin');
 
 const RULE = { L: 1, M: 3, S: 5 };
 
@@ -11,13 +17,54 @@ function total(load) {
   return load.L + load.M + load.S;
 }
 
-test('cinq questions sont définies avec des valeurs par défaut valides', () => {
-  assert.equal(QUESTIONS.length, 5);
+test('six questions sont définies avec des valeurs par défaut valides', () => {
+  assert.equal(QUESTIONS.length, 6);
   for (const question of QUESTIONS) {
     assert.ok(question.key && question.label);
     assert.ok(question.options.length >= 4);
-    assert.ok(question.options.some((option) => option.value === DEFAULTS[question.key]));
+    if (question.multiple) {
+      const defaults = Array.isArray(DEFAULTS[question.key])
+        ? DEFAULTS[question.key]
+        : [DEFAULTS[question.key]];
+      for (const value of defaults) {
+        assert.ok(question.options.some((option) => option.value === value));
+      }
+    } else {
+      assert.ok(question.options.some((option) => option.value === DEFAULTS[question.key]));
+    }
   }
+});
+
+test('le contexte accepte plusieurs choix et « peu importe » annule les autres', () => {
+  const answers = normalizeCheckin({ context: ['computer', 'phone', 'computer', 'inconnu'] });
+  assert.deepEqual(answers.context, ['computer', 'phone']);
+
+  assert.deepEqual(normalizeCheckin({ context: ['any', 'computer'] }).context, ['any']);
+  assert.deepEqual(normalizeCheckin({ context: [] }).context, ['any']);
+});
+
+test('le contexte choisi guide les consignes de l’IA', () => {
+  const { notes } = computeAllowed(
+    {
+      energy: 'high',
+      health: 'great',
+      time: 'allday',
+      want: 'mix',
+      mood: 'great',
+      context: ['computer'],
+    },
+    RULE
+  );
+  assert.ok(notes.some((n) => /Contexte disponible.*Ordinateur/i.test(n)));
+  assert.ok(notes.some((n) => /appels/i.test(n)));
+  assert.ok(notes.some((n) => /courses/i.test(n)));
+});
+
+test('describeCheckin résume les choix multiples', () => {
+  const description = describeCheckin({ context: ['computer', 'phone'] });
+  const context = description.find((item) => item.key === 'context');
+  assert.deepEqual(context.value, ['computer', 'phone']);
+  assert.equal(context.option, 'Ordinateur, Téléphone / appels');
 });
 
 test('normalizeCheckin retombe sur les défauts pour des valeurs inconnues', () => {

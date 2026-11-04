@@ -29,6 +29,11 @@ const {
 } = require('./aiProposals');
 const { generatePreparation, generateDecomposition } = require('./prepare');
 const { generateSubtaskOrder } = require('./subtaskOrder');
+const {
+  renumberNumberedChildren,
+  nextNumberedTitle,
+  hasOrderPrefix,
+} = require('./renumber');
 const assistantNotes = require('./assistantNotes');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
@@ -555,7 +560,16 @@ function createApp() {
         });
       }
 
-      const payload = { content, parent_id: parent.id };
+      // Si le parent a déjà des sous-tâches numérotées (préparation/découpe),
+      // la nouvelle reçoit le numéro suivant, puis tout est renuméroté.
+      const siblings = snapshot.tasks.filter(
+        (item) => item.parent_id === parent.id && !item.project_archived
+      );
+      const shouldNumber =
+        req.body?.numbered === true || siblings.some((item) => hasOrderPrefix(item.display_title || item.content));
+      const finalContent = shouldNumber ? nextNumberedTitle(siblings, content) : content;
+
+      const payload = { content: finalContent, parent_id: parent.id };
       if (parent.project_id) payload.project_id = parent.project_id;
       if (parent.section_id) payload.section_id = parent.section_id;
       if (dueDate) payload.due_date = dueDate;
@@ -566,9 +580,19 @@ function createApp() {
       let verified = false;
       try {
         const fresh = await getTask(created?.id);
-        verified = Boolean(fresh?.id) && String(fresh.content || '') === content;
+        verified = Boolean(fresh?.id) && String(fresh.content || '') === finalContent;
       } catch {
         verified = Boolean(created?.id);
+      }
+
+      // Recale les numéros (le nouveau est en fin de liste Todoist).
+      if (shouldNumber) {
+        try {
+          const { snapshot: after } = await getSnapshot({ force: true });
+          await renumberNumberedChildren(after, parent.id);
+        } catch (error) {
+          console.error('[renumber] après ajout :', error?.code || error?.message);
+        }
       }
 
       clearCache();
@@ -576,8 +600,52 @@ function createApp() {
         ok: true,
         task_id: created?.id || null,
         parent_id: parent.id,
-        content,
+        content: finalContent,
         verified,
+        numbered: shouldNumber,
+      });
+    })
+  );
+
+  /**
+   * Renumérote les sous-tâches numérotées d'un parent (après une suppression
+   * faite dans Todoist ou pour recaler un ordre). Écriture explicite.
+   */
+  app.post(
+    '/api/tasks/:id/renumber',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.writesEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'WRITES_DISABLED',
+            message: 'Les écritures Todoist sont désactivées sur ce serveur.',
+          },
+        });
+      }
+
+      const parentId = String(req.params.id || '');
+      const { snapshot } = await getSnapshot({ force: true });
+      const parent = snapshot.tasks.find(
+        (item) => item.id === parentId && !item.project_archived
+      );
+      if (!parent) {
+        return res.status(404).json({
+          error: { code: 'TASK_NOT_FOUND', message: 'Tâche parente introuvable.' },
+        });
+      }
+
+      const result = await renumberNumberedChildren(snapshot, parentId);
+      clearCache();
+      return res.json({
+        ok: true,
+        parent_id: parentId,
+        updated: result.updated,
+        numbered: result.numbered,
       });
     })
   );
@@ -789,6 +857,9 @@ function createApp() {
       const id = String(req.params.id || '');
       const overrides = {
         due_date: typeof req.body?.due_date === 'string' ? req.body.due_date : null,
+        subtasks: Array.isArray(req.body?.subtasks)
+          ? req.body.subtasks.map((item) => String(item))
+          : null,
       };
 
       // On résout la proposition sans forcer une resynchronisation : cela
@@ -820,6 +891,18 @@ function createApp() {
           });
         }
         throw error;
+      }
+
+      // Une sous-tâche supprimée laisse un trou dans la numérotation : on
+      // recale les numéros des frères et sœurs restants.
+      const deletedParentId = proposal.action?.restore?.parent_id || null;
+      if (proposal.type === 'delete_task' && deletedParentId) {
+        try {
+          const { snapshot: after } = await getSnapshot({ force: true });
+          await renumberNumberedChildren(after, deletedParentId);
+        } catch (error) {
+          console.error('[renumber] après suppression :', error?.code || error?.message);
+        }
       }
 
       // La donnée a changé : on vide le cache de lecture et on retire seulement

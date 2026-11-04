@@ -23,6 +23,10 @@ function fixture() {
         { id: 's3', project_id: 'p3', name: 'Archivée', section_order: 1 },
       ],
       labels: [{ id: 'l1', name: 'maison', color: 'red', order: 1 }],
+      filters: [
+        { id: 'f1', name: 'Ordi', query: '@ordi', color: 'blue', order: 1 },
+        { id: 'f2', name: 'Téléphone', query: '@tel', color: 'red', order: 2 },
+      ],
       items: [
         {
           id: 't1', project_id: 'p1', section_id: 's1', parent_id: null,
@@ -111,6 +115,11 @@ test('calcule les compteurs principaux sans compter les projets archivés', () =
   assert.equal(summary.completed_lookback_total, 1);
   assert.deepEqual(summary.priority, { p1: 1, p2: 1, p3: 1, p4: 4 });
   assert.deepEqual(summary.labels_top, [{ name: 'maison', count: 1 }]);
+  assert.equal(summary.filters_total, 2);
+  assert.deepEqual(
+    snapshot.filters.map((filter) => filter.name),
+    ['Ordi', 'Téléphone']
+  );
 });
 
 test('dérive correctement les champs de la convention de date', () => {

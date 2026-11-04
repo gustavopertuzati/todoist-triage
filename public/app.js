@@ -1189,15 +1189,52 @@
     );
 
     const form = h('div', { class: 'checkin-form' });
-    const selects = {};
+    const controls = {};
 
     for (const question of state.checkinQuestions) {
+      if (question.multiple) {
+        const raw = answers[question.key] ?? state.checkinDefaults[question.key];
+        const current = Array.isArray(raw) ? raw : raw ? [raw] : [];
+        const group = h('div', { class: 'checkin-choices' });
+        const boxes = [];
+        for (const option of question.options) {
+          const input = h('input', {
+            type: 'checkbox',
+            value: option.value,
+            checked: current.includes(option.value),
+          });
+          boxes.push(input);
+          group.append(
+            h('label', { class: 'checkin-choice' }, input, h('span', {}, option.label))
+          );
+        }
+        controls[question.key] = () => {
+          let values = boxes.filter((box) => box.checked).map((box) => box.value);
+          if (values.includes('any')) values = ['any'];
+          return values.length ? values : ['any'];
+        };
+        form.append(
+          h(
+            'div',
+            { class: 'checkin-row checkin-row-multi' },
+            h(
+              'span',
+              {},
+              question.label,
+              question.hint ? h('small', { class: 'checkin-hint' }, question.hint) : null
+            ),
+            group
+          )
+        );
+        continue;
+      }
+
       const select = h('select', { class: 'checkin-select', 'aria-label': question.label });
       for (const option of question.options) {
         select.append(h('option', { value: option.value }, option.label));
       }
       select.value = answers[question.key] || (state.checkinDefaults[question.key] ?? '');
-      selects[question.key] = select;
+      controls[question.key] = () => select.value;
       form.append(h('label', { class: 'checkin-row' }, h('span', {}, question.label), select));
     }
 
@@ -1211,13 +1248,36 @@
     form.querySelector('button').addEventListener('click', () => {
       const next = {};
       for (const question of state.checkinQuestions) {
-        next[question.key] = selects[question.key].value;
+        next[question.key] = controls[question.key]();
       }
       setCheckin(date, next);
       selectDay(date, { analyze: true, force: true });
     });
 
     details.append(form);
+
+    const filters = Array.isArray(state.data?.filters) ? state.data.filters : [];
+    if (filters.length > 0) {
+      details.append(
+        h(
+          'details',
+          { class: 'checkin-filters' },
+          h('summary', {}, `Filtres Todoist détectés (${filters.length})`),
+          h(
+            'ul',
+            { class: 'checkin-filter-list' },
+            filters.map((filter) =>
+              h(
+                'li',
+                {},
+                h('strong', {}, filter.name),
+                filter.query ? h('span', {}, ` · ${filter.query}`) : null
+              )
+            )
+          )
+        )
+      );
+    }
     return details;
   }
 
@@ -1246,10 +1306,46 @@
       h('p', { class: 'proposal-preview' }, proposal.preview)
     );
 
+    let splitChoices = [];
     if (Array.isArray(proposal.subtasks) && proposal.subtasks.length > 0) {
-      const list = h('ul', { class: 'proposal-subtasks' });
-      for (const subtask of proposal.subtasks) list.append(h('li', {}, subtask));
+      const selectable = proposal.type === 'split_task';
+      const list = h('ul', {
+        class: `proposal-subtasks${selectable ? ' is-selectable' : ''}`,
+      });
+      for (const [index, subtask] of proposal.subtasks.entries()) {
+        if (selectable) {
+          const input = h('input', {
+            type: 'checkbox',
+            checked: true,
+            'aria-label': `Créer « ${subtask} »`,
+          });
+          splitChoices.push({ input, index });
+          list.append(
+            h(
+              'li',
+              {},
+              h(
+                'label',
+                { class: 'proposal-subtask-choice' },
+                input,
+                h('span', {}, subtask)
+              )
+            )
+          );
+        } else {
+          list.append(h('li', {}, subtask));
+        }
+      }
       card.append(list);
+      if (selectable) {
+        card.append(
+          h(
+            'p',
+            { class: 'fine-print' },
+            'Décoche ce que tu ne veux pas créer ; le reste sera ajouté en sous-tâches.'
+          )
+        );
+      }
     }
 
     // Préparation : chaque sous-tâche proposée est datée (avance ou jour même).
@@ -1290,9 +1386,22 @@
     );
     const ignoreBtn = h('button', { class: 'btn btn-ghost', type: 'button' }, 'Ignorer');
 
-    validateBtn.addEventListener('click', () =>
-      validateProposal(proposal, dateInput, validateBtn, ignoreBtn)
-    );
+    validateBtn.addEventListener('click', () => {
+      const selected = splitChoices
+        .filter((choice) => choice.input.checked)
+        .map((choice) => proposal.subtasks[choice.index]);
+      if (proposal.type === 'split_task' && selected.length === 0) {
+        toast('Sélectionne au moins une sous-tâche.', 'error');
+        return;
+      }
+      validateProposal(
+        proposal,
+        dateInput,
+        validateBtn,
+        ignoreBtn,
+        proposal.type === 'split_task' ? selected : undefined
+      );
+    });
     ignoreBtn.addEventListener('click', () => openIgnorePanel(card, proposal));
 
     const actions = h(
@@ -1418,9 +1527,10 @@
   }
 
   /** Applique une proposition (réutilisé par la carte et « Tout valider »). */
-  async function sendApply(proposal, dueDateValue) {
+  async function sendApply(proposal, dueDateValue, subtasks) {
     const body = {};
     if (dueDateValue) body.due_date = dueDateValue;
+    if (Array.isArray(subtasks)) body.subtasks = subtasks;
     return apiJson(`/api/proposals/${encodeURIComponent(proposal.id)}/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
@@ -1497,14 +1607,18 @@
     if (btn) btn.disabled = false;
   }
 
-  async function validateProposal(proposal, dateInput, validateBtn, ignoreBtn) {
+  async function validateProposal(proposal, dateInput, validateBtn, ignoreBtn, subtasks) {
     validateBtn.disabled = true;
     ignoreBtn.disabled = true;
     const original = validateBtn.textContent;
     validateBtn.textContent = 'Application…';
 
     try {
-      const result = await sendApply(proposal, dateInput ? dateInput.value : undefined);
+      const result = await sendApply(
+        proposal,
+        dateInput ? dateInput.value : undefined,
+        subtasks
+      );
       consumeApplied(proposal, result);
       toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
 
@@ -2212,7 +2326,11 @@
           'div',
           { class: 'task-head' },
           depth > 0 ? h('span', { class: 'task-order' }, `${index + 1}.`) : null,
-          h('span', { class: 'task-title' }, task.display_title || task.content)
+          h(
+            'span',
+            { class: 'task-title' },
+            depth > 0 ? cleanTaskTitle(task) : task.display_title || task.content
+          )
         )
       );
 
@@ -2439,6 +2557,15 @@
     return (state.data?.tasks || []).find((task) => task.id === id) || null;
   }
 
+  /** Titre sans le préfixe « 2. » : les numéros affichés sont dynamiques. */
+  function cleanTaskTitle(task) {
+    return String(task?.display_title || task?.content || '').replace(/^\s*\d+[.)]\s+/, '');
+  }
+
+  function hasNumberedTitle(task) {
+    return /^\s*\d+[.)]\s+/.test(String(task?.display_title || task?.content || ''));
+  }
+
   function childTasksOf(id) {
     return (state.data?.tasks || []).filter((task) => task.parent_id === id);
   }
@@ -2493,7 +2620,7 @@
     const link = h(
       'button',
       { type: 'button', class: 'task-detail-link' },
-      task.display_title || task.content
+      cleanTaskTitle(task)
     );
     link.addEventListener('click', () => openTaskDetail(task));
     head.append(link);
@@ -2517,6 +2644,27 @@
       }
     }
     return node;
+  }
+
+  async function renumberSubtasks(task) {
+    try {
+      const result = await apiJson(`/api/tasks/${encodeURIComponent(task.id)}/renumber`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({}),
+      });
+      toast(
+        result.updated > 0
+          ? `${result.updated} numéro(s) recollé(s).`
+          : 'Les numéros sont déjà à jour.',
+        'ok'
+      );
+      await load({ force: true, silent: true });
+      renderTaskDetail();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Impossible de renuméroter.', 'error');
+    }
   }
 
   async function loadSubtaskOrder(task, { force = false } = {}) {
@@ -2558,7 +2706,7 @@
       return;
     }
 
-    els.taskDetailTitle.textContent = task.display_title || task.content;
+    els.taskDetailTitle.textContent = cleanTaskTitle(task);
     els.taskDetailSub.textContent = [task.project_name, task.due_date ? `échéance ${formatDate(task.due_date)}` : null]
       .filter(Boolean)
       .join(' · ');
@@ -2581,12 +2729,23 @@
       reorderBtn.addEventListener('click', () => loadSubtaskOrder(task, { force: true }));
     }
 
+    const renumberBtn = children.some(hasNumberedTitle)
+      ? h(
+          'button',
+          { type: 'button', class: 'btn btn-ghost btn-small' },
+          '🔄 Renuméroter'
+        )
+      : null;
+    if (renumberBtn) {
+      renumberBtn.addEventListener('click', () => renumberSubtasks(task));
+    }
+
     els.taskDetailBody.append(
       h(
         'div',
         { class: 'task-detail-heading-row' },
         h('h3', { class: 'task-detail-heading' }, `Sous-tâches (${children.length})`),
-        reorderBtn
+        h('div', { class: 'task-detail-heading-actions' }, renumberBtn, reorderBtn)
       )
     );
 
@@ -2766,6 +2925,17 @@
       );
       toggle.addEventListener('click', () => toggleNote(note));
 
+      const edit = h(
+        'button',
+        {
+          type: 'button',
+          class: 'icon-btn assistant-edit',
+          'aria-label': 'Modifier la note',
+          title: 'Modifier',
+        },
+        '✎'
+      );
+
       const remove = h(
         'button',
         { type: 'button', class: 'icon-btn assistant-remove', 'aria-label': 'Supprimer la note', title: 'Supprimer' },
@@ -2773,29 +2943,85 @@
       );
       remove.addEventListener('click', () => deleteNote(note));
 
-      els.assistantList.append(
+      const item = h(
+        'li',
+        { class: `assistant-item kind-${note.kind}${note.done ? ' is-done' : ''}` },
+        toggle,
         h(
-          'li',
-          { class: `assistant-item kind-${note.kind}${note.done ? ' is-done' : ''}` },
-          toggle,
+          'div',
+          { class: 'assistant-item-body' },
           h(
             'div',
-            { class: 'assistant-item-body' },
-            h(
-              'div',
-              { class: 'assistant-item-head' },
-              h('span', { class: 'assistant-kind-pill' }, labels[note.kind] || note.kind),
-              h('span', { class: 'assistant-item-date' }, assistantDate(note))
-            ),
-            h('p', { class: 'assistant-item-text' }, note.text),
-            note.context
-              ? h('p', { class: 'assistant-item-context' }, `Contexte : ${note.context}`)
-              : null
+            { class: 'assistant-item-head' },
+            h('span', { class: 'assistant-kind-pill' }, labels[note.kind] || note.kind),
+            h('span', { class: 'assistant-item-date' }, assistantDate(note))
           ),
-          remove
-        )
+          h('p', { class: 'assistant-item-text' }, note.text),
+          note.context
+            ? h('p', { class: 'assistant-item-context' }, `Contexte : ${note.context}`)
+            : null
+        ),
+        h('div', { class: 'assistant-item-tools' }, edit, remove)
       );
+      edit.addEventListener('click', () => renderNoteEditor(item, note));
+      els.assistantList.append(item);
     }
+  }
+
+  /** Édition en place d'une note : texte + type, sans la supprimer. */
+  function renderNoteEditor(item, note) {
+    clear(item);
+    const labels = { amelioration: 'Amélioration', bug: 'Bug', note: 'Note', idee: 'Idée' };
+    const kind = h('select', { class: 'assistant-kind', 'aria-label': 'Type de note' });
+    for (const [value, label] of Object.entries(labels)) {
+      kind.append(h('option', { value }, label));
+    }
+    kind.value = note.kind;
+
+    const text = h('textarea', {
+      class: 'assistant-text',
+      rows: '4',
+      maxlength: '4000',
+      'aria-label': 'Texte de la note',
+    });
+    text.value = note.text;
+
+    const save = h('button', { type: 'submit', class: 'btn btn-primary btn-small' }, 'Enregistrer');
+    const cancel = h('button', { type: 'button', class: 'btn btn-ghost btn-small' }, 'Annuler');
+    cancel.addEventListener('click', () => renderAssistant());
+
+    const form = h(
+      'form',
+      { class: 'assistant-edit-form' },
+      kind,
+      text,
+      h('div', { class: 'assistant-edit-actions' }, save, cancel)
+    );
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const value = text.value.trim();
+      if (!value) {
+        toast('La note ne peut pas être vide.', 'error');
+        return;
+      }
+      save.disabled = true;
+      try {
+        await apiJson(`/api/notes/${encodeURIComponent(note.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+          body: JSON.stringify({ text: value, kind: kind.value }),
+        });
+        toast('Note modifiée.', 'ok');
+        await loadAssistantNotes();
+      } catch (error) {
+        if (error.code === 'SESSION_REQUIRED') return;
+        toast(error.message || 'Impossible de modifier la note.', 'error');
+        save.disabled = false;
+      }
+    });
+
+    item.append(form);
+    text.focus();
   }
 
   async function loadAssistantNotes() {

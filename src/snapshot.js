@@ -193,6 +193,20 @@ function buildSnapshot({
     .map(normalizeLabel)
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || a.name.localeCompare(b.name));
 
+  // Filtres sauvegardés Todoist : lus pour comprendre les contextes de la
+  // personne (ex. « Ordi », « Téléphone », « Courses »).
+  const filters = asArray(sync.filters)
+    .filter((filter) => filter && filter.is_deleted !== true && filter.name)
+    .map((filter) => ({
+      id: String(filter.id),
+      name: String(filter.name).slice(0, 120),
+      query: typeof filter.query === 'string' ? filter.query.slice(0, 300) : '',
+      color: filter.color || null,
+      order: Number(filter.order) || 0,
+      is_favorite: filter.is_favorite === true,
+    }))
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+
   // Nom du projet et nombre de sous-tâches attachés à chaque tâche (utile aux
   // propositions, à la capacité journalière et à l'UI).
   const projectNameById = new Map(allProjects.map((project) => [project.id, project.name]));
@@ -423,6 +437,7 @@ function buildSnapshot({
       p4: priorityCounts[1],
     },
     labels_top: labelsTop,
+    filters_total: filters.length,
     project_diagnosis: buildProjectDiagnosis(projects),
     proposals: proposals.summary,
   };
@@ -472,6 +487,7 @@ function buildSnapshot({
     sections: allSections,
     tasks: allTasks,
     labels,
+    filters,
     completed: {
       available: completedAvailable,
       lookback_days: completedLookbackDays,

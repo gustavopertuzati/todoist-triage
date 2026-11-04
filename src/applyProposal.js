@@ -74,9 +74,33 @@ async function applyArchive(proposal) {
   };
 }
 
-async function applySplit(proposal) {
-  const items = Array.isArray(proposal.action.subtasks) ? proposal.action.subtasks : [];
-  if (items.length < 2) throw new ProposalError('SPLIT_EMPTY', 'Aucun élément à scinder.');
+/**
+ * Sous-tâches retenues pour une scission : la sélection envoyée par le client
+ * (cases décochées) prime sur la liste complète de la proposition.
+ */
+function selectedSplitSubtasks(proposal, overrides) {
+  const raw = Array.isArray(overrides?.subtasks)
+    ? overrides.subtasks
+    : Array.isArray(proposal?.action?.subtasks)
+      ? proposal.action.subtasks
+      : [];
+
+  const items = [];
+  for (const entry of raw) {
+    const value = typeof entry === 'string' ? entry : entry?.title;
+    const title = String(value || '').trim().slice(0, 200);
+    if (title.length < 2) continue;
+    items.push(title);
+    if (items.length >= 50) break;
+  }
+  return items;
+}
+
+async function applySplit(proposal, overrides) {
+  const items = selectedSplitSubtasks(proposal, overrides);
+  if (items.length < 1) {
+    throw new ProposalError('SPLIT_EMPTY', 'Aucune sous-tâche sélectionnée.');
+  }
 
   const created = [];
   for (const content of items) {
@@ -189,7 +213,7 @@ async function applyProposal({ proposal, overrides = null }) {
     case 'archive_project':
       return applyArchive(proposal);
     case 'split_task':
-      return applySplit(proposal);
+      return applySplit(proposal, overrides);
     case 'prepare_task':
       return applyPrepare(proposal);
     case 'delete_task':
@@ -201,4 +225,4 @@ async function applyProposal({ proposal, overrides = null }) {
   }
 }
 
-module.exports = { ProposalError, applyProposal };
+module.exports = { ProposalError, applyProposal, selectedSplitSubtasks };

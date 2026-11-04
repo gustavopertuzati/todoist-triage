@@ -173,7 +173,14 @@ async function fullSync() {
     method: 'POST',
     form: {
       sync_token: '*',
-      resource_types: JSON.stringify(['projects', 'sections', 'items', 'labels', 'user']),
+      resource_types: JSON.stringify([
+        'projects',
+        'sections',
+        'items',
+        'labels',
+        'filters',
+        'user',
+      ]),
     },
   });
 }
