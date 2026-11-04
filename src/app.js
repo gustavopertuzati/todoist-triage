@@ -21,7 +21,7 @@ const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
 const { describeDay, peekDayPlan, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
-const { QUESTIONNAIRE } = require('./feedback');
+const { QUESTIONNAIRES, KINDS } = require('./feedback');
 const { AiError } = require('./ai');
 const { isValidIsoDate } = require('./dates');
 const recycleBin = require('./recycleBin');
@@ -245,7 +245,7 @@ function createApp() {
       ai_enabled: config.aiEnabled,
       ai_model: config.aiModel,
       checkin: { questions: QUESTIONS, defaults: DEFAULTS },
-      ignore_feedback: QUESTIONNAIRE,
+      ignore_feedback: { kinds: KINDS, questionnaires: QUESTIONNAIRES },
     });
   });
 

@@ -252,6 +252,20 @@ function buildUserPrompt(digest) {
           '. Tu peux proposer un titre plus clair dans "renames" ou une scission dans "splits".'
       );
     }
+    if (fb.garder_aujourdhui && fb.garder_aujourdhui.length) {
+      lines.push(
+        '- À GARDER AUJOURD’HUI (ne PAS reporter) : ' +
+          fb.garder_aujourdhui.map((g) => `${g.tache} (adapter : ${g.adapter})`).join(' ; ') +
+          '. Ces tâches restent ce jour : ne les reporte jamais. Propose plutôt une ADAPTATION ' +
+          '(les découper dans "splits", ou une version plus courte) ou garde-les telles quelles.'
+      );
+    }
+    if (fb.ne_pas_decouper && fb.ne_pas_decouper.length) {
+      lines.push('- NE PAS DÉCOUPER : ' + fb.ne_pas_decouper.join(' ; ') + '.');
+    }
+    if (fb.ne_pas_renommer && fb.ne_pas_renommer.length) {
+      lines.push('- NE PAS REFORMULER LE TITRE DE : ' + fb.ne_pas_renommer.join(' ; ') + '.');
+    }
   }
 
   lines.push(
@@ -332,6 +346,9 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
   const never = new Set(profile ? profile.never : []);
   const postpone = new Map((profile ? profile.postpone : []).map((p) => [p.taskId, p.until]));
   const sizeCorrections = new Map((profile ? profile.sizes : []).map((s) => [s.taskId, s.size]));
+  const keepToday = new Set(profile && profile.keepToday ? profile.keepToday : []);
+  const noSplit = new Set(profile && profile.noSplit ? profile.noSplit : []);
+  const noRename = new Set(profile && profile.noRename ? profile.noRename : []);
 
   const dayRemaining = new Map(
     ((snapshot.capacity && snapshot.capacity.days) || []).map((day) => [
@@ -400,6 +417,8 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
     if (deferBudget <= 0) break;
     const taskId = String(raw?.task_id || '');
     if (!dayTaskIds.has(taskId) || seen.has(taskId)) continue;
+    // La personne a dit qu'elle GARDE cette tâche aujourd'hui : pas de report.
+    if (keepToday.has(taskId)) continue;
 
     const due = String(raw?.due_date || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || due === date) continue;
@@ -450,8 +469,9 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
     if (seen.has(taskId) || (!allowedIds.has(taskId) && !dayTaskIds.has(taskId))) continue;
     const task = tasksById.get(taskId);
     if (!task || task.project_archived) continue;
-    // On ne scinde jamais une tâche qui a déjà des sous-tâches, ni une tâche « jamais ».
-    if ((task.subtask_count || 0) > 0 || never.has(taskId)) continue;
+    // On ne scinde jamais une tâche qui a déjà des sous-tâches, ni une tâche « jamais »
+    // ni une tâche que la personne ne veut pas voir découpée.
+    if ((task.subtask_count || 0) > 0 || never.has(taskId) || noSplit.has(taskId)) continue;
 
     const titles = (Array.isArray(raw?.subtasks) ? raw.subtasks : [])
       .map((sub) => (typeof sub === 'string' ? sub : sub?.title))
@@ -493,7 +513,7 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
     if (!allowedIds.has(taskId) && !dayTaskIds.has(taskId)) continue;
     const task = tasksById.get(taskId);
     if (!task || task.project_archived) continue;
-    if (never.has(taskId)) continue;
+    if (never.has(taskId) || noRename.has(taskId)) continue;
 
     const title = String(raw?.title || '').trim().slice(0, 160);
     const current = String(task.display_title || task.content || '').trim();

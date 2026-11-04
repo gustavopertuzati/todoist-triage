@@ -254,19 +254,32 @@ ouvre un questionnaire ciblé et conditionnel :
 | Sa taille ? | petit / moyen / gros | corrige l'estimation |
 | Valable | juste cette fois · toujours pour cette tâche | étend ou limite |
 
+Mais surtout, **le questionnaire s'adapte au type de proposition** :
+
+| Proposition ignorée | Questions | Effet |
+| --- | --- | --- |
+| **Reporter** (déplacer hors du jour) | Pourquoi la **garder aujourd'hui** ? · Comment l'**adapter** ? | la tâche reste ce jour, l'IA propose une **adaptation** (découper, version courte…) — ou « ça peut attendre » → report |
+| **Découper** | Pourquoi pas de découpage ? · Que faire à la place ? | on ne repropose plus de découpe, ou on reformule/abandonne |
+| **Reformuler** | Le titre te convient ? | on ne repropose plus de titre |
+| **Nettoyage** (archiver/supprimer) | Pourquoi la garder ? | on ne repropose plus ce nettoyage |
+
+Exemple : si l'IA propose de **reporter** « Séance C », le questionnaire demande « Pourquoi
+la garder aujourd'hui ? » (date limite, quelqu'un l'attend, c'est rapide, important). Si tu
+réponds « J'y tiens aujourd'hui », l'app **relance l'analyse** : l'IA **garde la tâche**
+ce jour-là (adaptée si besoin) et **reporte autre chose** à la place.
+
 Ce que l'app en fait :
 
-- **Plus jamais reproposée** : une tâche marquée « ne plus proposer » / « jamais » (ou
-  « toujours » + « pas prioritaire »/« déjà fait ») est **exclue** des analyses suivantes,
-  côté client **et** côté serveur.
-- **Report** : « pas avant une date » — la tâche n'est pas proposée d'ici là ; et l'IA est
-  invitée à la **reprogrammer au bon moment**.
+- **Plus jamais reproposée** : une tâche marquée « ne plus proposer » / « jamais » / « tâche
+  inutile » est **exclue** des analyses suivantes, côté client **et** côté serveur.
+- **Report** : « pas avant une date » — la tâche n'est pas proposée d'ici là.
 - **Correction de taille** : ta taille réelle prime sur l'estimation.
-- **Amélioration de la tâche** : si tu signales « titre pas clair » ou « trop gros », l'IA
-  peut te proposer de **reformuler le titre** (`rename_task`) ou de **scinder** la tâche,
-  plutôt que de la reproposer telle quelle.
-- Les signaux agrégés (comptes par raison) et les derniers retours sont envoyés au modèle
-  pour qu'il **généralise** tes préférences.
+- **Amélioration de la tâche** : « titre pas clair » ou « trop gros » → l'IA peut
+  **reformuler le titre** (`rename_task`) ou **scinder** la tâche.
+- **Adaptation** : « je la garde aujourd'hui » → pas de report ; l'IA propose comment
+  l'adapter (découper, version courte, garder et reporter autre chose).
+- **Jamais découper / reformuler / nettoyer** : signalés et respectés.
+- Les signaux agrégés (comptes par raison) sont envoyés au modèle pour qu'il **généralise**.
 
 Les réponses sont **mémorisées sur ton appareil** (localStorage) et transmises à chaque
 analyse. Implémentation : `src/feedback.js` (pur et testé) + `src/aiProposals.js`.
@@ -459,9 +472,10 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 10 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 11 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour**, scission des tâches,
 **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA, récap hebdo) et
-**retour sur les propositions ignorées** pour que l'IA s'améliore. Les itérations suivantes
-(rituel du matin avec rattrapage automatique, planificateur de semaine, mémoire des
-préférences à long terme) ne sont pas implémentées et seront abordées après retour d'usage.
+**retour adaptatif sur les propositions ignorées** (par type de proposition) pour que l'IA
+s'améliore. Les itérations suivantes (rituel du matin avec rattrapage automatique,
+planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées et
+seront abordées après retour d'usage.

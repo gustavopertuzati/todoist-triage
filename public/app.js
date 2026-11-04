@@ -168,18 +168,50 @@
     saveFeedback();
   }
 
-  /** Une tâche est-elle bloquée par le feedback pour la date visée ? */
-  function feedbackBlocks(taskId, forDate) {
-    const entry = state.feedback[taskId];
+  /** La réponse donnée bloque-t-elle cette proposition pour la date visée ? */
+  function feedbackBlocks(proposal, forDate) {
+    const id = proposal?.target?.id;
+    const entry = state.feedback[id];
     if (!entry) return false;
-    if (entry.reason === 'never' || entry.window === 'never') return true;
-    if (entry.scope === 'always' && ['done', 'not_priority'].includes(entry.reason)) return true;
+
+    const isDefer = proposal.type === 'set_due_date' && proposal.move === true;
+    const isSplit = proposal.type === 'split_task';
+    const isRename = proposal.type === 'rename_task';
+    const isCleanup = proposal.type === 'delete_task' || proposal.type === 'archive_project';
+
+    // « Jamais » généraux, toutes propositions confondues.
+    if (entry.kind === 'place' && (entry.reason === 'never' || entry.window === 'never')) return true;
+    if (entry.kind === 'split' && entry.alt === 'delete') return true;
+    if (entry.kind === 'rename' && entry.reason === 'useless') return true;
+
+    if (isCleanup) return entry.kind === 'cleanup';
+    if (isSplit) {
+      return entry.kind === 'split' && ['already_split', 'single', 'too_many'].includes(entry.reason);
+    }
+    if (isRename) return entry.kind === 'rename';
+    if (isDefer) {
+      // « Je la garde aujourd'hui » → plus aucun report proposé pour cette tâche.
+      return entry.kind === 'defer' && entry.reason !== 'can_wait';
+    }
+
+    // Ajouts : report éventuel (« pas avant telle date »).
     const days = WINDOW_DAYS[entry.window];
     if (typeof days === 'number') {
       const today = state.data?.meta?.today;
       if (today && (forDate || today) < addDaysIso(today, days)) return true;
     }
+    if (entry.scope === 'always' && ['done', 'not_priority'].includes(entry.reason)) return true;
     return false;
+  }
+
+  /** Type de questionnaire adapté à la proposition. */
+  function kindForProposal(proposal) {
+    if (!proposal) return 'place';
+    if (proposal.type === 'delete_task' || proposal.type === 'archive_project') return 'cleanup';
+    if (proposal.type === 'split_task') return 'split';
+    if (proposal.type === 'rename_task') return 'rename';
+    if (proposal.type === 'set_due_date' && proposal.move) return 'defer';
+    return 'place';
   }
 
   function saveCheckins() {
@@ -902,19 +934,19 @@
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p.target?.id, date)
+        !feedbackBlocks(p, date)
     );
     const splits = (plan.splits || []).filter(
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p.target?.id, date)
+        !feedbackBlocks(p, date)
     );
     const renames = (plan.renames || []).filter(
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p.target?.id, date)
+        !feedbackBlocks(p, date)
     );
 
     if (proposals.length === 0 && splits.length === 0 && renames.length === 0) {
@@ -1153,79 +1185,84 @@
    * (pourquoi, quand revoir, taille réelle) et évite de la reproposer.
    */
   function openIgnorePanel(card, proposal) {
-    const q = state.ignoreFeedback || {};
+    const store = state.ignoreFeedback || {};
+    const questionnaires = store.questionnaires || {};
+    const kind = kindForProposal(proposal);
+    const questionnaire = questionnaires[kind] || questionnaires.place || null;
     const taskId = proposal.target.id;
     const title = proposal.target.name;
+    const date = state.selectedDate || state.data.meta.today;
     const container = card.querySelector('.proposal-actions');
     if (!container) return;
     clear(container);
 
     const record = (entry, message) => {
-      recordFeedback(taskId, { title, ...entry });
+      recordFeedback(taskId, { title, kind, ...entry });
       toast(message || 'Merci, l’IA en tiendra compte.', 'ok');
       removeProposalLocally(proposal);
+      // « Je la garde aujourd'hui » → on relance une analyse pour proposer
+      // des manières d'adapter plutôt qu'un report.
+      if (kind === 'defer' && entry.reason && entry.reason !== 'can_wait') {
+        toast('Compris : je cherche comment l’adapter pour aujourd’hui…', 'ok');
+        selectDay(date, { analyze: true, force: true });
+      }
     };
 
-    // Raccourcis : deux réponses en un tap, les plus fréquentes.
-    const later = h(
-      'button',
-      { type: 'button', class: 'btn btn-ghost btn-small' },
-      '⏳ Plus tard'
-    );
-    later.addEventListener('click', () => record({ reason: 'now', window: 'this_week' }, 'Reportée : l’IA l’écartera quelque temps.'));
+    // Raccourcis propres au type de proposition.
+    const quick = (questionnaire && questionnaire.quick) || [];
+    const quickRow = h('div', { class: 'ignore-quick' });
+    for (const item of quick) {
+      const button = h('button', { type: 'button', class: 'btn btn-ghost btn-small' }, item.label);
+      button.addEventListener('click', () => record({ ...item.entry }));
+      quickRow.append(button);
+    }
 
-    const never = h(
-      'button',
-      { type: 'button', class: 'btn btn-ghost btn-small' },
-      '🚫 Jamais'
-    );
-    never.addEventListener('click', () => record({ reason: 'never' }, 'Notée : elle ne sera plus proposée.'));
-
-    const more = h(
-      'button',
-      { type: 'button', class: 'btn btn-secondary btn-small' },
-      'Autre raison…'
-    );
-
-    const quickRow = h('div', { class: 'ignore-quick' }, later, never, more);
+    const more = h('button', { type: 'button', class: 'btn btn-secondary btn-small' }, 'Autre raison…');
+    quickRow.append(more);
     container.append(quickRow);
 
     more.addEventListener('click', () => {
       clear(container);
+      const questions = (questionnaire && questionnaire.questions) || [];
+      const selects = {};
+      const rows = [];
 
-      const reasonOptions = q.reasons || [];
-      const windowOptions = q.windows || [];
-      const sizeOptions = q.sizes || [];
-      const scopeOptions = q.scopes || [];
-
-      const reasonSel = feedbackSelect(reasonOptions, 'Raison');
-      const windowSel = feedbackSelect(windowOptions, 'Quand la revoir');
-      const sizeSel = feedbackSelect(sizeOptions, 'Sa vraie taille');
-      const scopeSel = feedbackSelect(scopeOptions, 'Portée');
+      for (const question of questions) {
+        const select = feedbackSelect(question.options, question.label);
+        selects[question.key] = select;
+        const row = h('label', { class: 'ignore-row' }, h('span', {}, question.label), select);
+        row.dataset.key = question.key;
+        rows.push(row);
+      }
 
       const syncVisibility = () => {
-        const reason = reasonSel.value;
-        const needsWindow = ['now', 'wrong_day', 'not_priority'].includes(reason);
-        const needsSize = reason === 'too_big';
-        windowRow.hidden = !needsWindow;
-        sizeRow.hidden = !needsSize;
+        for (const question of questions) {
+          const row = rows.find((r) => r.dataset.key === question.key);
+          if (!row) continue;
+          if (!question.showIf) {
+            row.hidden = false;
+            continue;
+          }
+          const controller = selects[question.showIf.key];
+          row.hidden = !(controller && (question.showIf.in || []).includes(controller.value));
+        }
       };
-
-      const reasonRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Pourquoi ?'), reasonSel);
-      const windowRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Quand ?'), windowSel);
-      const sizeRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Sa taille ?'), sizeSel);
-      const scopeRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Valable'), scopeSel);
-
-      reasonSel.addEventListener('change', syncVisibility);
+      for (const question of questions) {
+        if (question.showIf && selects[question.showIf.key]) {
+          selects[question.showIf.key].addEventListener('change', syncVisibility);
+        }
+      }
       syncVisibility();
 
       const save = h('button', { type: 'button', class: 'btn btn-primary btn-small' }, 'Enregistrer');
       const cancel = h('button', { type: 'button', class: 'btn btn-ghost btn-small' }, 'Annuler');
-
       save.addEventListener('click', () => {
-        const entry = { reason: reasonSel.value, scope: scopeSel.value };
-        if (['now', 'wrong_day', 'not_priority'].includes(entry.reason)) entry.window = windowSel.value;
-        if (entry.reason === 'too_big') entry.size = sizeSel.value;
+        const entry = {};
+        for (const question of questions) {
+          const row = rows.find((r) => r.dataset.key === question.key);
+          if (row && row.hidden) continue;
+          entry[question.key] = selects[question.key].value;
+        }
         record(entry);
       });
       cancel.addEventListener('click', () => {
@@ -1233,10 +1270,7 @@
         renderProposals();
       });
 
-      container.append(
-        h('div', { class: 'ignore-form' }, reasonRow, windowRow, sizeRow, scopeRow),
-        h('div', { class: 'ignore-form-actions' }, save, cancel)
-      );
+      container.append(h('div', { class: 'ignore-form' }, ...rows), h('div', { class: 'ignore-form-actions' }, save, cancel));
     });
   }
 
@@ -1287,7 +1321,7 @@
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p.target?.id, date)
+        !feedbackBlocks(p, date)
     );
   }
 
@@ -1358,7 +1392,7 @@
       (proposal) =>
         !state.ignored.has(proposal.id) &&
         !state.applied.has(proposal.id) &&
-        !feedbackBlocks(proposal.target?.id, today)
+        !feedbackBlocks(proposal, today)
     );
 
     els.proposalsCount.textContent = String(visible.length);
