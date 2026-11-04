@@ -1060,9 +1060,17 @@
     if (proposal.type === 'set_due_date' && proposal.size && appliedDate) {
       adjustCapacity(appliedDate, proposal.size, +1);
       if (state.dayPlan && state.dayPlan.date === appliedDate) {
-        state.dayPlan.load[proposal.size] += 1;
-        state.dayPlan.remaining[proposal.size] = Math.max(0, state.dayPlan.remaining[proposal.size] - 1);
-        state.dayPlan.total += 1;
+        const size = proposal.size;
+        if (state.dayPlan.load && typeof state.dayPlan.load[size] === 'number') {
+          state.dayPlan.load[size] += 1;
+        }
+        if (state.dayPlan.remaining && typeof state.dayPlan.remaining[size] === 'number') {
+          state.dayPlan.remaining[size] = Math.max(0, state.dayPlan.remaining[size] - 1);
+        }
+        if (state.dayPlan.can_add && typeof state.dayPlan.can_add[size] === 'number') {
+          state.dayPlan.can_add[size] = Math.max(0, state.dayPlan.can_add[size] - 1);
+        }
+        if (typeof state.dayPlan.total === 'number') state.dayPlan.total += 1;
       }
     }
   }
