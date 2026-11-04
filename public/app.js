@@ -37,6 +37,15 @@
       strategy: null,
       error: null,
     },
+    cleanup: { depth: 0, scan: null, loading: false },
+    taskDetail: {
+      open: false,
+      taskId: null,
+      loading: false,
+      error: null,
+      strategy: null,
+      proposals: [],
+    },
   };
 
   const els = {
@@ -54,6 +63,7 @@
     syncedAt: document.getElementById('synced-at'),
     warningsPanel: document.getElementById('warnings-panel'),
     warningsList: document.getElementById('warnings-list'),
+    widgetTitle: document.getElementById('widget-title'),
     kpis: document.getElementById('kpis'),
     widgetSummary: document.getElementById('widget-summary'),
     widgetLists: document.getElementById('widget-lists'),
@@ -62,6 +72,8 @@
     dayPlan: document.getElementById('day-plan'),
     weekRecap: document.getElementById('week-recap'),
     proposalsNote: document.getElementById('proposals-note'),
+    cleanupScanBtn: document.getElementById('cleanup-scan-btn'),
+    cleanupScanInfo: document.getElementById('cleanup-scan-info'),
     proposalsList: document.getElementById('proposals-list'),
     trash: document.getElementById('trash'),
     insights: document.getElementById('insights'),
@@ -91,6 +103,11 @@
     prepare: document.getElementById('prepare'),
     prepareSub: document.getElementById('prepare-sub'),
     prepareBody: document.getElementById('prepare-body'),
+    // Détail d'une tâche et sous-tâches.
+    taskDetail: document.getElementById('task-detail'),
+    taskDetailTitle: document.getElementById('task-detail-title'),
+    taskDetailSub: document.getElementById('task-detail-sub'),
+    taskDetailBody: document.getElementById('task-detail-body'),
   };
 
   const TODOIST_COLORS = new Set([
@@ -442,6 +459,8 @@
     try {
       const data = await apiJson(`/api/overview${force ? '?refresh=1' : ''}`);
       state.data = data;
+      // Un rafraîchissement complet repart de l'analyse normale.
+      if (force) state.cleanup = { depth: 0, scan: null, loading: false };
       render();
       ensureDefaultDay();
       els.loading.hidden = true;
@@ -559,33 +578,49 @@
     return state.data.tasks.filter((task) => !task.project_archived);
   }
 
-  function sortedTodayTasks() {
+  function tasksDueOn(date) {
     return activeTasks()
-      .filter((task) => task.is_due_today || task.is_overdue)
-      .sort((a, b) => {
-        if (a.is_overdue !== b.is_overdue) return a.is_overdue ? -1 : 1;
-        return (b.days_overdue || 0) - (a.days_overdue || 0) ||
-          a.display_title.localeCompare(b.display_title);
-      });
+      .filter((task) => task.due_date === date)
+      .sort(
+        (a, b) =>
+          (b.priority || 0) - (a.priority || 0) ||
+          a.display_title.localeCompare(b.display_title, 'fr-FR')
+      );
   }
 
   function renderWidget() {
     const tasks = activeTasks();
-    const todayTasks = sortedTodayTasks();
+    const today = state.data.meta.today;
+    const focusDate = state.selectedDate || today;
+    const isToday = focusDate === today;
+    const dayTasks = tasksDueOn(focusDate);
+    const overdue = isToday
+      ? tasks
+          .filter((task) => task.is_overdue && task.due_date !== focusDate)
+          .sort((a, b) => (b.days_overdue || 0) - (a.days_overdue || 0))
+      : [];
     const titleOnly = tasks
       .filter((task) => task.date_convention.valid && !task.due_date)
       .sort((a, b) => (a.title_due_date || '').localeCompare(b.title_due_date || '') ||
         a.display_title.localeCompare(b.display_title));
     const conflicts = tasks.filter((task) => task.conflict);
 
+    if (els.widgetTitle) {
+      els.widgetTitle.textContent = isToday
+        ? 'Le widget « Aujourd’hui »'
+        : `Le widget du ${formatTodayLabel(focusDate)}`;
+    }
+
     clear(els.widgetSummary);
     clear(els.widgetLists);
 
     const stats = [
       {
-        tone: todayTasks.length > 0 ? 'ok' : 'muted',
-        value: todayTasks.length,
-        label: 'tâche(s) avec une échéance aujourd’hui ou en retard',
+        tone: dayTasks.length > 0 ? 'ok' : 'muted',
+        value: dayTasks.length,
+        label: isToday
+          ? 'tâche(s) prévue(s) aujourd’hui'
+          : `tâche(s) prévue(s) le ${formatDate(focusDate)}`,
       },
       {
         tone: titleOnly.length > 0 ? 'warn' : 'muted',
@@ -609,22 +644,36 @@
       );
     }
 
-    if (todayTasks.length > 0) {
+    // Le clic sur un jour met à jour cette liste : ce sont les tâches du jour
+    // sélectionné, pas seulement celles d'aujourd'hui.
+    els.widgetLists.append(
+      buildListBlock(
+        isToday ? 'Visibles aujourd’hui' : `Tâches du ${formatDate(focusDate)}`,
+        `${dayTasks.length} tâche(s)`,
+        dayTasks.length > 0
+          ? dayTasks.slice(0, 12).map((task) => taskLine(task))
+          : [
+              h(
+                'p',
+                { class: 'empty-line' },
+                isToday
+                  ? 'Aucune tâche avec une échéance aujourd’hui.'
+                  : 'Aucune tâche prévue ce jour-là.'
+              ),
+            ],
+        'ok'
+      )
+    );
+
+    if (overdue.length > 0) {
       els.widgetLists.append(
         buildListBlock(
-          'Visibles dans le widget',
-          `${todayTasks.length} tâche(s)`,
-          todayTasks.slice(0, 8).map((task) => taskLine(task)),
-          'ok'
-        )
-      );
-    } else {
-      els.widgetLists.append(
-        buildListBlock(
-          'Visibles dans le widget',
-          '0 tâche',
-          [h('p', { class: 'empty-line' }, 'Aucune échéance aujourd’hui ni en retard.')],
-          'ok'
+          'En retard (à replacer)',
+          `${overdue.length} tâche(s)`,
+          overdue.slice(0, 8).map((task) =>
+            taskLine(task, `${task.days_overdue || 0} j de retard`)
+          ),
+          'danger'
         )
       );
     }
@@ -795,6 +844,7 @@
     state.selectedDate = date;
     state.dayLoading = true;
     state.dayError = null;
+    renderWidget();
     renderPlanner();
     await loadDay(date, { analyze, force });
   }
@@ -1197,7 +1247,7 @@
     const validateBtn = h(
       'button',
       { class: 'btn btn-primary', type: 'button' },
-      isDelete ? 'Supprimer' : isPrepare ? proposal.action_label || 'Créer la préparation' : 'Valider'
+      isDelete ? 'Supprimer' : proposal.action_label || (isPrepare ? 'Créer la préparation' : 'Valider')
     );
     const ignoreBtn = h('button', { class: 'btn btn-ghost', type: 'button' }, 'Ignorer');
 
@@ -1426,6 +1476,15 @@
         return;
       }
 
+      // Découpage depuis le détail d'une tâche : on relit et on rafraîchit.
+      if (state.taskDetail.open && proposal.type === 'split_task') {
+        await load({ force: true, silent: true });
+        state.taskDetail.proposals = [];
+        state.taskDetail.strategy = null;
+        renderTaskDetail();
+        return;
+      }
+
       renderPlanner();
       renderProposals();
     } catch (error) {
@@ -1446,7 +1505,68 @@
   // Autres propositions (archivage, scission, retards)
   // ---------------------------------------------------------------------------
 
+  function renderCleanupTools() {
+    const depth = state.cleanup.depth || 0;
+    els.cleanupScanBtn.disabled = Boolean(state.cleanup.loading);
+    els.cleanupScanBtn.textContent = state.cleanup.loading
+      ? '🔎 Analyse approfondie…'
+      : depth === 0
+        ? '🔎 Lancer un nettoyage approfondi'
+        : `🔎 Approfondir encore (niveau ${Math.min(4, depth + 1)})`;
+
+    const scan = state.cleanup.scan;
+    if (!scan) {
+      els.cleanupScanInfo.hidden = true;
+      return;
+    }
+    const extras = [];
+    if (scan.include_subtasks) extras.push('sous-tâches incluses');
+    if (scan.cross_project_duplicates) extras.push('doublons entre projets');
+    els.cleanupScanInfo.hidden = false;
+    els.cleanupScanInfo.textContent =
+      `Niveau ${scan.depth} · fantômes ≥ ${scan.ghost_days} j · ${scan.scanned_tasks} tâche(s) inspectée(s)` +
+      (extras.length ? ` · ${extras.join(' · ')}` : '');
+  }
+
+  /** Relance un nettoyage en élargissant progressivement la recherche. */
+  async function scanCleanup() {
+    if (state.cleanup.loading) return;
+    const depth = Math.min(4, (state.cleanup.depth || 0) + 1);
+    state.cleanup.loading = true;
+    renderCleanupTools();
+
+    try {
+      const result = await apiJson('/api/cleanup/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ depth }),
+      });
+      state.cleanup.depth = result.depth;
+      state.cleanup.scan = result.scan;
+      state.data.proposals = Array.isArray(result.proposals) ? result.proposals : [];
+      if (state.data.summary) {
+        state.data.summary.proposals = result.summary || state.data.summary.proposals;
+        if (result.project_diagnosis) {
+          state.data.summary.project_diagnosis = result.project_diagnosis;
+        }
+      }
+      renderProposals();
+      const total = state.data.proposals.length;
+      toast(
+        `Nettoyage niveau ${result.depth} : ${total} proposition(s), analyse élargie.`,
+        'ok'
+      );
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Analyse approfondie impossible.', 'error');
+    } finally {
+      state.cleanup.loading = false;
+      renderCleanupTools();
+    }
+  }
+
   function renderProposals() {
+    renderCleanupTools();
     const all = Array.isArray(state.data.proposals) ? state.data.proposals : [];
     const summary = state.data.summary.proposals || { total: all.length, truncated: {} };
     const today = state.data.meta.today;
@@ -2107,6 +2227,16 @@
       }
       if (badges.childElementCount > 0) content.append(badges);
 
+      // Détail : voir les sous-tâches à tous les niveaux, en ajouter, découper.
+      const tools = h('div', { class: 'task-tools' });
+      const detailBtn = h(
+        'button',
+        { type: 'button', class: 'btn btn-ghost btn-small' },
+        task.subtask_count ? `🗂 Voir (${task.subtask_count})` : '🗂 Voir la tâche'
+      );
+      detailBtn.addEventListener('click', () => openTaskDetail(task));
+      tools.append(detailBtn);
+
       // Préparation : uniquement pour une tâche sans sous-tâches (l'IA propose
       // alors des petites étapes datées, avant ou le jour même).
       if (state.data?.ai?.enabled && !task.subtask_count && task.type !== 'note') {
@@ -2116,8 +2246,9 @@
           '✨ Préparer'
         );
         prepareBtn.addEventListener('click', () => openPrepare(task));
-        content.append(h('div', { class: 'task-tools' }, prepareBtn));
+        tools.append(prepareBtn);
       }
+      content.append(tools);
 
       if (task.description) {
         content.append(
@@ -2251,6 +2382,206 @@
       state.prepare.loading = false;
       state.prepare.error = error.message || 'Impossible de préparer cette tâche.';
       renderPrepare();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Détail d'une tâche : sous-tâches, ajout manuel, découpage assisté
+  // ---------------------------------------------------------------------------
+
+  function findTaskById(id) {
+    return (state.data?.tasks || []).find((task) => task.id === id) || null;
+  }
+
+  function childTasksOf(id) {
+    return (state.data?.tasks || []).filter((task) => task.parent_id === id);
+  }
+
+  function closeTaskDetail() {
+    state.taskDetail.open = false;
+    els.taskDetail.hidden = true;
+  }
+
+  function openTaskDetail(task) {
+    state.taskDetail = {
+      open: true,
+      taskId: task.id,
+      loading: false,
+      error: null,
+      strategy: null,
+      proposals: [],
+    };
+    els.taskDetail.hidden = false;
+    renderTaskDetail();
+  }
+
+  function renderTaskNode(task, depth) {
+    const node = h('li', { class: 'task-detail-node' });
+    const head = h('div', { class: 'task-detail-node-head' });
+    const link = h(
+      'button',
+      { type: 'button', class: 'task-detail-link' },
+      task.display_title || task.content
+    );
+    link.addEventListener('click', () => openTaskDetail(task));
+    head.append(link);
+
+    if (task.due_date) {
+      head.append(h('span', { class: 'badge badge-due' }, formatDate(task.due_date)));
+    }
+    if (task.subtask_count) {
+      head.append(h('span', { class: 'pill pill-soft' }, `${task.subtask_count} sous-tâche(s)`));
+    }
+    node.append(head);
+
+    if (depth < 12) {
+      const children = childTasksOf(task.id);
+      if (children.length > 0) {
+        const list = h('ul', { class: 'task-detail-children' });
+        for (const child of children) list.append(renderTaskNode(child, depth + 1));
+        node.append(list);
+      }
+    }
+    return node;
+  }
+
+  function renderTaskDetail() {
+    const task = findTaskById(state.taskDetail.taskId);
+    clear(els.taskDetailBody);
+    if (!task) {
+      els.taskDetailTitle.textContent = 'Tâche introuvable';
+      els.taskDetailSub.textContent = '';
+      els.taskDetailBody.append(
+        h('p', { class: 'empty-line' }, 'Cette tâche a peut-être été déplacée. Recharge la page.')
+      );
+      return;
+    }
+
+    els.taskDetailTitle.textContent = task.display_title || task.content;
+    els.taskDetailSub.textContent = [task.project_name, task.due_date ? `échéance ${formatDate(task.due_date)}` : null]
+      .filter(Boolean)
+      .join(' · ');
+
+    if (task.description) {
+      els.taskDetailBody.append(h('p', { class: 'task-detail-note' }, task.description));
+    }
+
+    const children = childTasksOf(task.id);
+    els.taskDetailBody.append(
+      h('h3', { class: 'task-detail-heading' }, `Sous-tâches (${children.length})`)
+    );
+
+    if (children.length > 0) {
+      const tree = h('ul', { class: 'task-detail-tree' });
+      for (const child of children) tree.append(renderTaskNode(child, 1));
+      els.taskDetailBody.append(tree);
+      els.taskDetailBody.append(
+        h('p', { class: 'fine-print' }, 'Clique une sous-tâche pour ouvrir son propre niveau.')
+      );
+    } else {
+      els.taskDetailBody.append(
+        h('p', { class: 'empty-line' }, 'Aucune sous-tâche : c’est le dernier niveau.')
+      );
+      if (state.data?.ai?.enabled) {
+        const decomposeBtn = h(
+          'button',
+          { type: 'button', class: 'btn btn-secondary' },
+          state.taskDetail.loading ? '🧠 Découpage en cours…' : '✂️ Découper en petits morceaux'
+        );
+        decomposeBtn.disabled = state.taskDetail.loading;
+        decomposeBtn.addEventListener('click', () => decomposeTask(task));
+        els.taskDetailBody.append(h('div', { class: 'task-detail-actions' }, decomposeBtn));
+      }
+    }
+
+    // Ajout manuel d'une sous-tâche (explorateur).
+    const form = h('form', { class: 'task-detail-add' });
+    const input = h('input', {
+      type: 'text',
+      maxlength: '200',
+      placeholder: 'Ajouter une sous-tâche…',
+      'aria-label': 'Titre de la nouvelle sous-tâche',
+    });
+    const submit = h('button', { type: 'submit', class: 'btn btn-primary btn-small' }, 'Ajouter');
+    form.append(input, submit);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const content = input.value.trim();
+      if (content) addSubtask(task, content, submit, input);
+    });
+    els.taskDetailBody.append(
+      h('h3', { class: 'task-detail-heading' }, 'Ajouter une sous-tâche'),
+      form
+    );
+
+    if (state.taskDetail.error) {
+      els.taskDetailBody.append(
+        h('p', { class: 'day-status is-error' }, state.taskDetail.error)
+      );
+    }
+
+    if (state.taskDetail.strategy) {
+      els.taskDetailBody.append(
+        h('p', { class: 'day-strategy' }, `🧠 ${state.taskDetail.strategy}`)
+      );
+    }
+
+    if (state.taskDetail.proposals.length > 0) {
+      const list = h('div', { class: 'proposals' });
+      for (const proposal of state.taskDetail.proposals) list.append(proposalCard(proposal));
+      els.taskDetailBody.append(list);
+    }
+  }
+
+  async function addSubtask(task, content, button, input) {
+    button.disabled = true;
+    input.disabled = true;
+    try {
+      const result = await apiJson(`/api/tasks/${encodeURIComponent(task.id)}/subtasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ content }),
+      });
+      toast(
+        result.verified === false
+          ? 'Sous-tâche envoyée, mais la relecture est incomplète.'
+          : 'Sous-tâche ajoutée.',
+        result.verified === false ? 'error' : 'ok'
+      );
+      await load({ force: true, silent: true });
+      state.taskDetail.proposals = [];
+      state.taskDetail.strategy = null;
+      renderTaskDetail();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Impossible d’ajouter la sous-tâche.', 'error');
+    } finally {
+      if (button.isConnected) button.disabled = false;
+      if (input.isConnected) input.disabled = false;
+    }
+  }
+
+  async function decomposeTask(task) {
+    state.taskDetail.loading = true;
+    state.taskDetail.error = null;
+    state.taskDetail.strategy = null;
+    state.taskDetail.proposals = [];
+    renderTaskDetail();
+
+    try {
+      const result = await apiJson(`/api/tasks/${encodeURIComponent(task.id)}/decompose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({}),
+      });
+      state.taskDetail.proposals = Array.isArray(result.proposals) ? result.proposals : [];
+      state.taskDetail.strategy = result.strategy || null;
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.taskDetail.error = error.message || 'Découpage impossible.';
+    } finally {
+      state.taskDetail.loading = false;
+      renderTaskDetail();
     }
   }
 
@@ -2563,13 +2894,20 @@
   els.assistantCopy.addEventListener('click', copyForOpencode);
   els.assistantClearDone.addEventListener('click', clearDoneNotes);
 
-  // Fenêtre de préparation.
+  // Nettoyage approfondi.
+  els.cleanupScanBtn.addEventListener('click', scanCleanup);
+
+  // Fenêtre de préparation et détail de tâche.
   for (const el of document.querySelectorAll('[data-close="prepare"]')) {
     el.addEventListener('click', closePrepare);
   }
+  for (const el of document.querySelectorAll('[data-close="task-detail"]')) {
+    el.addEventListener('click', closeTaskDetail);
+  }
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (state.prepare.open) closePrepare();
+    if (state.taskDetail.open) closeTaskDetail();
+    else if (state.prepare.open) closePrepare();
     if (state.assistant.open) setAssistantOpen(false);
   });
 

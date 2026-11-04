@@ -121,16 +121,23 @@ function makeDeleteProposal(task, kind, rationale) {
  * doublons (même titre dans un projet) et orphelines (projet absent).
  */
 function buildCleanupTasks({ tasks, projects, limits }) {
-  const { ghostDays = 365, cleanupMaxPerKind = 10, cleanupMaxTotal = 25 } = limits;
+  const {
+    ghostDays = 365,
+    cleanupMaxPerKind = 10,
+    cleanupMaxTotal = 25,
+    includeSubtasks = false,
+    crossProjectDuplicates = false,
+  } = limits;
   const projectIds = new Set(projects.map((project) => project.id));
   const result = [];
 
-  // Tâches fantômes : anciennes, sans échéance, jamais retouchées, hors sous-tâches.
+  // Tâches fantômes : anciennes, sans échéance, jamais retouchées. En mode
+  // approfondi, on inspecte aussi les sous-tâches (souvent oubliées).
   const ghosts = tasks
     .filter(
       (task) =>
         !task.due_date &&
-        !task.parent_id &&
+        (includeSubtasks || !task.parent_id) &&
         task.age_days !== null &&
         task.age_days >= ghostDays
     )
@@ -147,13 +154,16 @@ function buildCleanupTasks({ tasks, projects, limits }) {
     );
   }
 
-  // Doublons : même titre normalisé dans un même projet.
+  // Doublons : même titre normalisé. En mode approfondi, on compare aussi
+  // entre projets (un même intitulé recopié un peu partout).
   const groups = new Map();
   for (const task of tasks) {
     if (!task.project_id || !projectIds.has(task.project_id)) continue;
     const normalized = normalizeTitle(task.display_title || task.content);
     if (normalized.length < 4) continue;
-    const key = `${task.project_id}::${normalized}`;
+    const key = crossProjectDuplicates
+      ? normalized
+      : `${task.project_id}::${normalized}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(task);
   }
@@ -170,7 +180,11 @@ function buildCleanupTasks({ tasks, projects, limits }) {
         makeDeleteProposal(
           task,
           'duplicate',
-          `Doublon de « ${keep.display_title || keep.content} » dans le même projet.`
+          crossProjectDuplicates && task.project_id !== keep.project_id
+            ? `Doublon de « ${keep.display_title || keep.content} » (autre projet : ${
+                keep.project_name || 'sans nom'
+              }).`
+            : `Doublon de « ${keep.display_title || keep.content} » dans le même projet.`
         )
       );
     }

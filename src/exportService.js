@@ -24,10 +24,31 @@ function buildCompletedDates(today) {
   };
 }
 
-async function loadSnapshot() {
+/**
+ * Profil d'analyse approfondie. Chaque niveau élargit la recherche :
+ * seuil de fantômes plus bas, plus de propositions, puis sous-tâches et
+ * doublons entre projets.
+ */
+function deepProfile(depth) {
+  const level = Math.max(0, Math.min(4, Number.parseInt(depth, 10) || 0));
+  if (level === 0) return null;
+  return {
+    depth: level,
+    proposalsMaxPerType: Math.min(80, config.proposalsMaxPerType * (1 + level)),
+    proposalsMaxTotal: Math.min(250, Math.round(config.proposalsMaxTotal * (1 + level * 0.8))),
+    cleanupGhostDays: Math.max(30, config.cleanupGhostDays - level * 120),
+    cleanupMaxPerKind: Math.min(80, config.cleanupMaxPerKind * (1 + level)),
+    cleanupMaxTotal: Math.min(300, Math.round(config.cleanupMaxTotal * (1 + level * 0.8))),
+    cleanupIncludeSubtasks: level >= 2,
+    cleanupCrossProject: level >= 3,
+  };
+}
+
+async function loadSnapshot({ deep = 0 } = {}) {
   const generatedAt = new Date().toISOString();
   const today = todayInTimeZone(config.timezone, new Date(generatedAt));
   const warnings = [];
+  const profile = deepProfile(deep);
 
   const syncPromise = fullSync();
   const dates = buildCompletedDates(today);
@@ -49,19 +70,30 @@ async function loadSnapshot() {
     completedLookbackDays: config.completedLookbackDays,
     oldTaskDays: config.oldTaskDays,
     noProgressMinAgeDays: config.projectNoProgressMinAgeDays,
-    proposalsMaxPerType: config.proposalsMaxPerType,
-    proposalsMaxTotal: config.proposalsMaxTotal,
+    proposalsMaxPerType: profile ? profile.proposalsMaxPerType : config.proposalsMaxPerType,
+    proposalsMaxTotal: profile ? profile.proposalsMaxTotal : config.proposalsMaxTotal,
     proposalDueOffsetDays: config.proposalDueOffsetDays,
     capacityHorizonDays: config.capacityHorizonDays,
     capacityRule: config.capacityRule,
     includeDueDateRule: !config.aiEnabled,
     cleanupEnabled: config.cleanupEnabled,
-    cleanupGhostDays: config.cleanupGhostDays,
-    cleanupMaxPerKind: config.cleanupMaxPerKind,
-    cleanupMaxTotal: config.cleanupMaxTotal,
+    cleanupGhostDays: profile ? profile.cleanupGhostDays : config.cleanupGhostDays,
+    cleanupMaxPerKind: profile ? profile.cleanupMaxPerKind : config.cleanupMaxPerKind,
+    cleanupMaxTotal: profile ? profile.cleanupMaxTotal : config.cleanupMaxTotal,
+    cleanupIncludeSubtasks: profile ? profile.cleanupIncludeSubtasks : false,
+    cleanupCrossProject: profile ? profile.cleanupCrossProject : false,
+    scan: profile,
     generatedAt,
     appVersion: config.appVersion,
   });
+}
+
+/**
+ * Analyse approfondie : relit Todoist sans toucher au cache normal et avec des
+ * limites élargies. Utilisée par le bouton « Nettoyage plus profond ».
+ */
+async function getDeepSnapshot({ depth = 1 } = {}) {
+  return loadSnapshot({ deep: depth });
 }
 
 /**
@@ -99,4 +131,4 @@ function clearCache() {
   cached = null;
 }
 
-module.exports = { getSnapshot, clearCache };
+module.exports = { getSnapshot, getDeepSnapshot, deepProfile, clearCache };

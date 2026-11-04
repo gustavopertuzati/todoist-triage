@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 12.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 13.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -15,10 +15,12 @@ Todoist surchargé et aide à y voir clair.
 > **avec corbeille réversible**, et un **retour sur les propositions ignorées** apprend à
 > l'IA (ne plus reproposer, reporter, corriger la taille, reformuler). Une tâche peut aussi
 > être **préparée** : l'IA propose des petites étapes datées avant (ou le jour même de) la
-> tâche. Un **carnet de notes** en bas à droite garde tes idées d'amélioration pour la
-> prochaine demande sur le projet. Tu **valides ou ignores chaque proposition
-> individuellement**. Tant que tu n'as pas validé, **rien n'est écrit dans Todoist** ;
-> chaque écriture validée est ensuite relue depuis l'API.
+> tâche. Dans l'**explorateur**, tu ouvres une tâche pour voir **toutes ses sous-tâches**,
+> en ajouter une à la main, et **découper** un dernier niveau en petits morceaux. Un bouton
+> relance un **nettoyage de plus en plus profond**. Un **carnet de notes** en bas à droite
+> garde tes idées d'amélioration pour la prochaine demande sur le projet. Tu **valides ou
+> ignores chaque proposition individuellement**. Tant que tu n'as pas validé, **rien n'est
+> écrit dans Todoist** ; chaque écriture validée est ensuite relue depuis l'API.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
 > (`JJ.MM.AAAA`, `auj`) restent détectées et affichées passivement, mais ne sont pas la
@@ -305,7 +307,8 @@ Ce que fait le moteur :
 
 - filtre les doublons avec les sous-tâches existantes et les titres trop courts ;
 - refuse une date hors de la fenêtre *aujourd'hui → échéance de la tâche* ;
-- refuse un jour dont la place « petit » est déjà pleine ;
+- **ne bloque plus sur la capacité 1-3-5** : une préparation est une petite action de
+  mise en route, elle peut se poser même si la journée est pleine ;
 - plafonne le nombre de préparations (`PREP_MAX_ITEMS`, 3 par défaut) ;
 - ne propose rien pour une tâche qui a déjà des sous-tâches ;
 - répond **« trop tôt »** pour une tâche dont l'échéance dépasse 30 jours : la
@@ -314,6 +317,52 @@ Ce que fait le moteur :
 Routes : `POST /api/prepare` (génération), puis la validation habituelle
 `POST /api/proposals/:id/apply` (création des sous-tâches, relue via l'API).
 Implémentation : `src/prepare.js` (pur et testé) + `src/applyProposal.js`.
+
+## Itération 13 — explorer les sous-tâches, découper, nettoyer plus profond
+
+### Le widget suit le jour choisi
+
+Quand tu cliques un jour dans la bande de charge, la partie « Le widget » affiche
+immédiatement **les tâches prévues ce jour-là** (et non plus seulement aujourd'hui).
+Le titre, le compteur et la liste changent avec le jour sélectionné ; les retards restent
+visibles dans un bloc séparé quand le jour choisi est aujourd'hui.
+
+### Explorer une tâche à tous les niveaux
+
+Dans **Explorer**, chaque tâche a un bouton **« 🗂 Voir »** qui ouvre son détail :
+
+- l'arbre complet des **sous-tâches, sous-sous-tâches, etc.** (cliquables pour descendre
+  d'un niveau) ;
+- un champ **« Ajouter une sous-tâche »** (écriture explicite, relue via l'API) ;
+- au **dernier niveau** (aucune sous-tâche), un bouton **« ✂️ Découper en petits
+  morceaux »** : l'IA propose 2 à 5 sous-tâches concrètes, validées une fois puis créées.
+
+Routes : `POST /api/tasks/:id/subtasks` (ajout manuel) et
+`POST /api/tasks/:id/decompose` (découpage IA, sans écriture avant validation).
+Réglage : `DECOMPOSE_MAX_ITEMS` (5 par défaut).
+
+### Nettoyage de plus en plus profond
+
+Le panneau **Nettoyage guidé** a un bouton **« 🔎 Lancer un nettoyage approfondi »**.
+Chaque clic relit Todoist et élargit la recherche (niveaux 1 à 4) :
+
+| Niveau | Fantômes | Portée |
+| --- | --- | --- |
+| 1 | ≥ 245 j | plafonds élargis |
+| 2 | ≥ 125 j | **sous-tâches incluses** |
+| 3 | ≥ 30 j | **doublons entre projets** |
+| 4 | ≥ 30 j | plafonds maximaux |
+
+Un résumé indique le niveau, le seuil de fantômes, le nombre de tâches inspectées et les
+extensions actives. Aucune suppression n'est automatique : ce sont toujours des
+propositions à valider.
+
+### Espacements mobile
+
+Les blocs encadrés (widget, KPI, propositions, diagnostic, projets) ont des gouttières
+plus franches, un fond et un padding cohérents ; sur petit écran, la page et les panneaux
+respirent davantage, les boutons de proposition passent à la ligne et les formulaires
+s'empilent.
 
 ## Carnet « Notes & idées » pour OpenCode
 
@@ -397,6 +446,7 @@ npm run dev
 | `CLEANUP_MAX_PER_KIND` | non | `10` | Nombre maximum de suppressions proposées par catégorie. |
 | `CLEANUP_MAX_TOTAL` | non | `25` | Nombre maximum total de suppressions proposées. |
 | `PREP_MAX_ITEMS` | non | `3` | Nombre maximum de tâches de préparation proposées pour une tâche. |
+| `DECOMPOSE_MAX_ITEMS` | non | `5` | Nombre maximum de sous-tâches proposées par le découpage assisté. |
 | `ASSISTANT_NOTES_FILE` | non | `data/assistant-notes.json` | Fichier JSON du carnet de notes. |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
@@ -501,7 +551,7 @@ src/proposals.js       génération des propositions (pure)
 src/applyProposal.js   exécution d'une proposition + vérification via l'API
 src/ai.js              client OpenRouter (appel au modèle)
 src/aiProposals.js     condensé, invite, validation et cache des propositions IA
-src/prepare.js         tâches de préparation proposées par l'IA (itération 12)
+src/prepare.js         préparation et découpage assisté d'une tâche (IA)
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
@@ -523,11 +573,12 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 12 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 13 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour**, scission des tâches,
 **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA, récap hebdo),
 **retour adaptatif sur les propositions ignorées** (par type de proposition),
-**préparation des tâches** en sous-étapes datées et **carnet de notes** persistant pour
-OpenCode. Les itérations suivantes (rituel du matin avec rattrapage automatique,
-planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées et
-seront abordées après retour d'usage.
+**préparation des tâches** en sous-étapes datées, **exploration des sous-tâches** avec
+ajout manuel et **découpage assisté**, **nettoyage approfondi progressif** et **carnet de
+notes** persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
+automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
+implémentées et seront abordées après retour d'usage.

@@ -104,6 +104,8 @@ const config = {
 
   // Itération 12 : tâches de préparation proposées par l'IA.
   prepMaxItems: readInt('PREP_MAX_ITEMS', 3, { min: 1, max: 6 }),
+  // Découpage manuel assisté d'une tâche feuille (explorateur).
+  decomposeMaxItems: readInt('DECOMPOSE_MAX_ITEMS', 5, { min: 2, max: 8 }),
 
   isProduction: process.env.NODE_ENV === 'production',
 };

@@ -8,6 +8,9 @@ const {
   buildPrepareDigest,
   buildPreparePrompt,
   validatePrepareResponse,
+  buildDecomposeDigest,
+  buildDecomposePrompt,
+  validateDecomposeResponse,
 } = require('../src/prepare');
 
 const TODAY = '2026-11-04';
@@ -135,7 +138,7 @@ test('validatePrepareResponse accepte des préparations datées dans la fenêtre
   assert.match(proposal.preview, /2 préparation/);
 });
 
-test('validatePrepareResponse refuse les dates hors fenêtre et les jours pleins', () => {
+test('validatePrepareResponse refuse les dates hors fenêtre', () => {
   const task = makeTask();
   const snapshot = makeSnapshot();
   const digest = buildPrepareDigest(task, snapshot, { maxPrep: 3 });
@@ -144,14 +147,30 @@ test('validatePrepareResponse refuse les dates hors fenêtre et les jours pleins
     preparations: [
       { title: 'Trop tôt', date: '2026-11-01' },
       { title: 'Trop tard', date: '2026-11-12' },
-      { title: 'Jour plein', date: '2026-11-06' }, // S = 0
       { title: 'Bon jour', date: '2026-11-04' },
     ],
   };
 
   const { items, dropped } = validatePrepareResponse(parsed, task, snapshot, digest);
-  assert.equal(dropped, 3);
+  assert.equal(dropped, 2);
   assert.deepEqual(items[0].action.subtasks.map((s) => s.title), ['Bon jour']);
+});
+
+test('une journée pleine n’empêche pas une préparation (elles sont légères)', () => {
+  const task = makeTask();
+  const snapshot = makeSnapshot();
+  const digest = buildPrepareDigest(task, snapshot, { maxPrep: 3 });
+
+  // 2026-11-06 a remaining.S = 0 : c'était bloquant avant.
+  const parsed = {
+    preparations: [{ title: 'Jour plein mais préparation utile', date: '2026-11-06' }],
+  };
+
+  const { items, dropped } = validatePrepareResponse(parsed, task, snapshot, digest);
+  assert.equal(dropped, 0);
+  assert.deepEqual(items[0].action.subtasks.map((s) => s.title), [
+    'Jour plein mais préparation utile',
+  ]);
 });
 
 test('validatePrepareResponse déduplique et ignore les titres trop courts', () => {
@@ -202,4 +221,97 @@ test('validatePrepareResponse renvoie une liste vide sans préparation valable',
   const { items, dropped } = validatePrepareResponse({ preparations: [] }, task, snapshot, digest);
   assert.deepEqual(items, []);
   assert.equal(dropped, 0);
+});
+
+test('buildDecomposeDigest liste les sous-tâches existantes', () => {
+  const task = makeTask({ description: 'Trier les cartons et les outils' });
+  const child = makeTask({
+    id: 'c1',
+    content: 'Sortir les cartons',
+    display_title: 'Sortir les cartons',
+    parent_id: 't1',
+  });
+  const digest = buildDecomposeDigest(task, makeSnapshot(task, [child]), { maxItems: 4 });
+
+  assert.equal(digest.max_items, 4);
+  assert.equal(digest.task.title, 'Ranger la cave');
+  assert.deepEqual(digest.task.existing_subtasks, ['Sortir les cartons']);
+});
+
+test('buildDecomposePrompt demande des morceaux concrets sans date', () => {
+  const task = makeTask();
+  const prompt = buildDecomposePrompt(buildDecomposeDigest(task, makeSnapshot(), { maxItems: 3 }));
+  assert.match(prompt, /Découpe la tâche/);
+  assert.match(prompt, /Pas de dates/);
+  assert.match(prompt, /2 à 3 sous-tâches/);
+});
+
+test('validateDecomposeResponse crée une proposition de découpage', () => {
+  const task = makeTask();
+  const digest = buildDecomposeDigest(task, makeSnapshot(), { maxItems: 5 });
+
+  const { item, dropped } = validateDecomposeResponse(
+    {
+      summary: 'Trois morceaux pour démarrer facilement.',
+      subtasks: ['Trier les outils', 'Descendre les cartons', 'Ranger les étagères'],
+    },
+    task,
+    digest
+  );
+
+  assert.equal(dropped, 0);
+  assert.equal(item.type, 'split_task');
+  assert.equal(item.action_label, 'Créer les sous-tâches');
+  assert.deepEqual(item.action.subtasks, [
+    'Trier les outils',
+    'Descendre les cartons',
+    'Ranger les étagères',
+  ]);
+  assert.match(item.preview, /3 sous-tâche/);
+});
+
+test('validateDecomposeResponse déduplique et exige au moins deux morceaux', () => {
+  const task = makeTask();
+  const child = makeTask({
+    id: 'c1',
+    content: 'Trier les outils',
+    display_title: 'Trier les outils',
+    parent_id: 't1',
+  });
+  const digest = buildDecomposeDigest(task, makeSnapshot(task, [child]), { maxItems: 5 });
+
+  const duplicate = validateDecomposeResponse(
+    { subtasks: ['Trier les outils', 'Trier les outils', 'Ranger'] },
+    task,
+    digest
+  );
+  assert.equal(duplicate.item, null);
+
+  const short = validateDecomposeResponse({ subtasks: ['ab', 'cd'] }, task, digest);
+  assert.equal(short.item, null);
+
+  const ok = validateDecomposeResponse(
+    {
+      subtasks: [
+        'Trier les outils',
+        'Ranger les étagères',
+        'Passer un coup de balai',
+        'Ranger les étagères',
+      ],
+    },
+    task,
+    digest
+  );
+  assert.deepEqual(ok.item.action.subtasks, ['Ranger les étagères', 'Passer un coup de balai']);
+});
+
+test('validateDecomposeResponse respecte le maximum demandé', () => {
+  const task = makeTask();
+  const digest = buildDecomposeDigest(task, makeSnapshot(), { maxItems: 2 });
+  const { item } = validateDecomposeResponse(
+    { subtasks: ['Premier', 'Deuxième', 'Troisième'] },
+    task,
+    digest
+  );
+  assert.deepEqual(item.action.subtasks, ['Premier', 'Deuxième']);
 });

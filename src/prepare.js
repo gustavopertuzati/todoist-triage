@@ -99,7 +99,8 @@ function buildPreparePrompt(digest) {
     'Règles :',
     '- Chaque préparation est une PETITE tâche, vraiment utile (pas de remplissage).',
     '- "date" au format AAAA-MM-JJ, entre today et la date de la tâche.',
-    '- Respecte la place restante des jours (voir "capacity") ; ne dépasse jamais.',
+    '- Les préparations sont LÉGÈRES : elles n’occupent pas de créneau 1-3-5.',
+    '  Tu peux en proposer même si la journée paraît pleine (voir "capacity" comme une indication).',
     '- N’ajoute pas une préparation qui existe déjà (voir "existing_subtasks").',
     '- Si la tâche n’a pas besoin de préparation, renvoie une liste vide.',
     '',
@@ -113,8 +114,9 @@ function buildPreparePrompt(digest) {
 }
 
 /**
- * Valide la réponse du modèle : titres uniques, dates dans la fenêtre, place
- * restante respectée (petites tâches), pas de doublon avec l’existant.
+ * Valide la réponse du modèle : titres uniques, dates dans la fenêtre, pas de
+ * doublon avec l’existant. La capacité 1-3-5 ne bloque **pas** une préparation :
+ * ce sont de petites actions de mise en route, pas des tâches de la journée.
  * @returns {{items: object[], dropped: number}}
  */
 function validatePrepareResponse(parsed, task, snapshot, digest) {
@@ -122,9 +124,6 @@ function validatePrepareResponse(parsed, task, snapshot, digest) {
   const target = digest.task.date;
   const existing = new Set(
     (digest.task.existing_subtasks || []).map((s) => normalizeTitle(s.title))
-  );
-  const remaining = new Map(
-    (digest.capacity || []).map((day) => [day.date, { ...day.remaining }])
   );
 
   const raw = Array.isArray(parsed?.preparations) ? parsed.preparations : [];
@@ -141,10 +140,6 @@ function validatePrepareResponse(parsed, task, snapshot, digest) {
     const date = String(entry?.date || '').trim();
     const windowEnd = isValidIsoDate(digest.window_end) ? digest.window_end : target;
     if (!isValidIsoDate(date) || date < today || date > windowEnd) continue;
-
-    const slot = remaining.get(date);
-    if (!slot || slot.S <= 0) continue; // les préparations sont de petites tâches
-    slot.S -= 1;
 
     seen.add(normalized);
     subtasks.push({ title, date, reason: String(entry?.reason || '').trim().slice(0, 200) || null });
@@ -246,14 +241,175 @@ async function generatePreparation(snapshot, taskId, { force = false } = {}) {
 
 function clearPrepareCache() {
   cache = new Map();
+  decomposeCache = new Map();
+}
+
+// ---------------------------------------------------------------------------
+// Découpage d'une tâche feuille en sous-tâches (depuis l'explorateur)
+// ---------------------------------------------------------------------------
+
+const DECOMPOSE_SYSTEM_PROMPT = [
+  'Tu aides une personne à DÉCOUPER une tâche trop grosse en sous-tâches concrètes.',
+  'Chaque sous-tâche doit être une action claire, autonome et réalisable.',
+  'Réfléchis brièvement. Tu réponds UNIQUEMENT par un objet JSON valide, sans texte autour.',
+].join(' ');
+
+let decomposeCache = new Map();
+
+function buildDecomposeDigest(task, snapshot, { maxItems = 5 } = {}) {
+  const existing = snapshot.tasks
+    .filter((item) => item.parent_id === task.id)
+    .map((item) => String(item.display_title || item.content || '').slice(0, 120));
+
+  return {
+    today: snapshot.meta.today,
+    max_items: maxItems,
+    task: {
+      id: task.id,
+      title: String(task.display_title || task.content || '').slice(0, 160),
+      project: task.project_name || null,
+      date: task.due_date || null,
+      size: estimateTaskSize(task, task.subtask_count || 0),
+      note: String(task.description || '').slice(0, 500),
+      existing_subtasks: existing,
+    },
+  };
+}
+
+function buildDecomposePrompt(digest) {
+  return [
+    `Découpe la tâche « ${digest.task.title} » en 2 à ${digest.max_items} sous-tâches.`,
+    '',
+    'Règles :',
+    '- Chaque sous-tâche est une action concrète, à l’infinitif, réalisable seule.',
+    '- Ne recopie pas la tâche parente et n’ajoute pas de sous-tâche déjà existante.',
+    '- Pas de dates : ce sont des morceaux de la tâche, pas un planning.',
+    '- Si la tâche est déjà atomique (une seule action), renvoie une liste vide.',
+    '- Ordonne les sous-tâches dans l’ordre logique d’exécution.',
+    '',
+    'Réponds EXACTEMENT par ce JSON :',
+    '{"summary":"phrase courte expliquant le découpage",',
+    ' "subtasks":["première action","deuxième action"]}',
+    '',
+    'Données :',
+    JSON.stringify(digest),
+  ].join('\n');
+}
+
+function validateDecomposeResponse(parsed, task, digest) {
+  const raw = Array.isArray(parsed?.subtasks) ? parsed.subtasks : [];
+  const existing = new Set((digest.task.existing_subtasks || []).map(normalizeTitle));
+  const seen = new Set([...existing].filter(Boolean));
+  const titles = [];
+
+  for (const entry of raw) {
+    if (titles.length >= digest.max_items) break;
+    const value = typeof entry === 'string' ? entry : entry?.title;
+    const title = String(value || '').trim().slice(0, 160);
+    if (title.length < 3) continue;
+    const normalized = normalizeTitle(title);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    titles.push(title);
+  }
+
+  // Un découpage d'un seul morceau n'apporte rien.
+  if (titles.length < 2) return { item: null, dropped: raw.length };
+
+  const item = {
+    id: `ai:decompose:${task.id}:${hashId(titles)}`,
+    type: 'split_task',
+    type_label: 'Découper',
+    action_label: 'Créer les sous-tâches',
+    source: 'ai',
+    tone: 'ok',
+    score: 46,
+    size: null,
+    size_label: null,
+    title: 'Découper cette tâche',
+    rationale:
+      typeof parsed?.summary === 'string' && parsed.summary.trim()
+        ? parsed.summary.trim().slice(0, 300)
+        : 'Ces morceaux rendront la tâche plus facile à démarrer.',
+    ai_group: null,
+    target: targetFromTask(task),
+    action: { subtasks: titles },
+    editable: [],
+    preview: `${titles.length} sous-tâche(s) : ${titles.slice(0, 4).join(' · ')}${
+      titles.length > 4 ? '…' : ''
+    }`,
+    format: 'split',
+    subtasks: titles,
+  };
+
+  return { item, dropped: raw.length - titles.length };
+}
+
+/**
+ * Génère (ou récupère) un découpage de la tâche en sous-tâches.
+ */
+async function generateDecomposition(snapshot, taskId, { force = false } = {}) {
+  if (!config.aiEnabled) {
+    throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
+  }
+
+  const task = snapshot.tasks.find((item) => item.id === String(taskId));
+  if (!task || task.project_archived) {
+    throw new AiError('TASK_NOT_FOUND', 'Tâche introuvable (elle a peut-être changé).');
+  }
+  if ((task.subtask_count || 0) > 0) {
+    return {
+      items: [],
+      summary: 'Cette tâche a déjà des sous-tâches : ouvre-en une pour la découper à son tour.',
+      cached: false,
+    };
+  }
+
+  const digest = buildDecomposeDigest(task, snapshot, { maxItems: config.decomposeMaxItems });
+  const signature = signatureOf(digest);
+  const cached = decomposeCache.get(String(taskId));
+
+  const fresh =
+    cached &&
+    cached.signature === signature &&
+    (config.aiCacheTtlMs === 0 || Date.now() - cached.generatedAt < config.aiCacheTtlMs);
+
+  if (fresh && !force) return { ...cached, cached: true };
+
+  const { data, usage, model } = await chatJson({
+    system: DECOMPOSE_SYSTEM_PROMPT,
+    user: buildDecomposePrompt(digest),
+  });
+
+  const { item, dropped } = validateDecomposeResponse(data, task, digest);
+
+  let summary = typeof data?.summary === 'string' ? data.summary.trim().slice(0, 400) : null;
+  if (!item && !summary) {
+    summary = 'Cette tâche semble déjà atomique : elle n’a pas besoin d’être découpée.';
+  }
+  if (dropped > 0 && item) {
+    summary = `${summary ? `${summary} ` : ''}(${dropped} proposition(s) écartée(s).)`;
+  }
+
+  const items = item ? [item] : [];
+  const entry = { signature, items, summary, generatedAt: Date.now(), usage, model };
+  decomposeCache.set(String(taskId), entry);
+  if (items.length > 0) rememberItems(items);
+
+  return { ...entry, cached: false };
 }
 
 module.exports = {
   SYSTEM_PROMPT,
+  DECOMPOSE_SYSTEM_PROMPT,
   prepWindow,
   buildPrepareDigest,
   buildPreparePrompt,
   validatePrepareResponse,
+  validateDecomposeResponse,
+  buildDecomposeDigest,
+  buildDecomposePrompt,
   generatePreparation,
+  generateDecomposition,
   clearPrepareCache,
 };

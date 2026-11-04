@@ -136,6 +136,12 @@
             <span id="proposals-count" class="pill">0</span>
           </div>
           <div id="proposals-note" class="fine-print" hidden></div>
+          <div class="cleanup-tools">
+            <button id="cleanup-scan-btn" class="btn btn-secondary btn-small" type="button">
+              🔎 Nettoyage plus profond
+            </button>
+            <span id="cleanup-scan-info" class="fine-print" hidden></span>
+          </div>
           <div id="proposals-list" class="proposals"></div>
           <div id="trash" class="trash" hidden></div>
         </section>
@@ -220,6 +226,30 @@
         <div id="prepare-body" class="modal-body">
           <p class="day-status">🧠 L’IA cherche comment préparer cette tâche…</p>
         </div>
+      </section>
+    </div>
+
+    <!-- Itération 12 : détail d'une tâche, sous-tâches et découpage assisté. -->
+    <div id="task-detail" class="modal" hidden>
+      <div class="modal-backdrop" data-close="task-detail"></div>
+      <section
+        class="modal-card modal-card-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-detail-title"
+      >
+        <header class="modal-head">
+          <div>
+            <h2 id="task-detail-title">Détail de la tâche</h2>
+            <p id="task-detail-sub" class="modal-sub"></p>
+          </div>
+          <button class="icon-btn" type="button" data-close="task-detail" aria-label="Fermer">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="m6 6 12 12M18 6 6 18" stroke-linecap="round" />
+            </svg>
+          </button>
+        </header>
+        <div id="task-detail-body" class="modal-body"></div>
       </section>
     </div>
 

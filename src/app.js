@@ -15,12 +15,19 @@ const express = require('express');
 
 const { config, checkConfig } = require('./config');
 const auth = require('./auth');
-const { getSnapshot, clearCache } = require('./exportService');
-const { TodoistError } = require('./todoist');
+const { getSnapshot, getDeepSnapshot, clearCache } = require('./exportService');
+const { TodoistError, createTask, getTask } = require('./todoist');
 const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
-const { describeDay, peekDayPlan, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
-const { generatePreparation } = require('./prepare');
+const {
+  describeDay,
+  peekDayPlan,
+  generateDayProposals,
+  findAiProposal,
+  removeAiProposal,
+  rememberItems,
+} = require('./aiProposals');
+const { generatePreparation, generateDecomposition } = require('./prepare');
 const assistantNotes = require('./assistantNotes');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
@@ -324,6 +331,36 @@ function createApp() {
     })
   );
 
+  /**
+   * Nettoyage approfondi : relit Todoist et élargit progressivement la
+   * recherche (fantômes plus récents, sous-tâches, doublons entre projets).
+   * Aucune écriture : on renvoie un nouvel ensemble de propositions.
+   */
+  app.post(
+    '/api/cleanup/scan',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const depth = Math.max(1, Math.min(4, Number.parseInt(req.body?.depth, 10) || 1));
+      const snapshot = await getDeepSnapshot({ depth });
+
+      // Les propositions approfondies ne figurent pas dans l'instantané normal :
+      // on les mémorise pour que leur validation reste résolvable.
+      rememberItems(snapshot.proposals || []);
+
+      return res.json({
+        ok: true,
+        depth,
+        scan: snapshot.meta.scan || null,
+        proposals: snapshot.proposals,
+        summary: snapshot.summary.proposals,
+        project_diagnosis: snapshot.summary.project_diagnosis,
+      });
+    })
+  );
+
   /** Restaure une tâche supprimée (corbeille). */
   app.post(
     '/api/trash/:id/restore',
@@ -459,6 +496,113 @@ function createApp() {
 
       const { snapshot } = await getSnapshot({ force: false });
       const result = await generatePreparation(snapshot, taskId, { force });
+
+      return res.json({
+        ok: true,
+        task_id: taskId,
+        proposals: result.items,
+        strategy: result.summary || null,
+        cached: Boolean(result.cached),
+        usage: result.usage || null,
+      });
+    })
+  );
+
+  /**
+   * Ajoute manuellement une sous-tâche depuis l'explorateur.
+   * Écriture Todoist explicite (jamais automatique), relue ensuite.
+   */
+  app.post(
+    '/api/tasks/:id/subtasks',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.writesEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'WRITES_DISABLED',
+            message: 'Les écritures Todoist sont désactivées sur ce serveur.',
+            hint: 'Définis WRITES_ENABLED=true puis redéploie.',
+          },
+        });
+      }
+
+      const taskId = String(req.params.id || '');
+      const content = String(req.body?.content || '').trim().slice(0, 200);
+      if (!content) {
+        return res.status(400).json({
+          error: { code: 'SUBTASK_EMPTY', message: 'Écris le titre de la sous-tâche.' },
+        });
+      }
+
+      const dueDate =
+        typeof req.body?.due_date === 'string' && isValidIsoDate(req.body.due_date.trim())
+          ? req.body.due_date.trim()
+          : null;
+
+      // Relecture fraîche : la tâche parente vient peut-être d'être créée.
+      const { snapshot } = await getSnapshot({ force: true });
+      const parent = snapshot.tasks.find(
+        (item) => item.id === taskId && !item.project_archived
+      );
+      if (!parent) {
+        return res.status(404).json({
+          error: { code: 'TASK_NOT_FOUND', message: 'Tâche parente introuvable.' },
+        });
+      }
+
+      const payload = { content, parent_id: parent.id };
+      if (parent.project_id) payload.project_id = parent.project_id;
+      if (parent.section_id) payload.section_id = parent.section_id;
+      if (dueDate) payload.due_date = dueDate;
+
+      const created = await createTask(payload);
+
+      // Relecture : la sous-tâche doit exister avec le bon contenu.
+      let verified = false;
+      try {
+        const fresh = await getTask(created?.id);
+        verified = Boolean(fresh?.id) && String(fresh.content || '') === content;
+      } catch {
+        verified = Boolean(created?.id);
+      }
+
+      clearCache();
+      return res.status(201).json({
+        ok: true,
+        task_id: created?.id || null,
+        parent_id: parent.id,
+        content,
+        verified,
+      });
+    })
+  );
+
+  /**
+   * Découpe une tâche feuille en sous-tâches proposées par l'IA.
+   * Aucune écriture ici : la proposition passe par la validation habituelle.
+   */
+  app.post(
+    '/api/tasks/:id/decompose',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.aiEnabled) {
+        return res.status(403).json({
+          error: { code: 'AI_DISABLED', message: 'L’IA n’est pas configurée sur ce serveur.' },
+        });
+      }
+
+      const taskId = String(req.params.id || '');
+      const force = req.body?.force === true;
+      const { snapshot } = await getSnapshot({ force: false });
+      const result = await generateDecomposition(snapshot, taskId, { force });
 
       return res.json({
         ok: true,

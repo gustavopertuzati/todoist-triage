@@ -18,6 +18,7 @@ const {
   findAiProposal,
   removeAiProposal,
   clearAiCache,
+  rememberItems,
 } = require('../src/aiProposals');
 const { buildAgenda } = require('../src/capacity');
 
@@ -272,6 +273,23 @@ test('un jour reste résolvable et une proposition retirée ne casse pas les aut
     assert.ok(findAiProposal(second.id));
   } finally {
     global.fetch = originalFetch;
+    clearAiCache();
+  }
+});
+
+test('rememberItems rend les propositions approfondies résolvables', () => {
+  const proposals = [
+    { id: 'delete_task:x:deep', type: 'delete_task', target: { id: 'x' } },
+    { id: 'delete_task:y:deep', type: 'delete_task', target: { id: 'y' } },
+  ];
+  rememberItems(proposals);
+  try {
+    assert.ok(findAiProposal('delete_task:x:deep'));
+    assert.ok(findAiProposal('delete_task:y:deep'));
+    removeAiProposal('delete_task:x:deep');
+    assert.equal(findAiProposal('delete_task:x:deep'), null);
+    assert.ok(findAiProposal('delete_task:y:deep'));
+  } finally {
     clearAiCache();
   }
 });

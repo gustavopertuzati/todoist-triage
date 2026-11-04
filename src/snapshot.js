@@ -166,6 +166,9 @@ function buildSnapshot({
   cleanupGhostDays = 365,
   cleanupMaxPerKind = 10,
   cleanupMaxTotal = 25,
+  cleanupIncludeSubtasks = false,
+  cleanupCrossProject = false,
+  scan = null,
   generatedAt = new Date().toISOString(),
   appVersion = null,
 }) {
@@ -376,6 +379,8 @@ function buildSnapshot({
       ghostDays: cleanupGhostDays,
       cleanupMaxPerKind,
       cleanupMaxTotal,
+      includeSubtasks: cleanupIncludeSubtasks,
+      crossProjectDuplicates: cleanupCrossProject,
     },
   });
 
@@ -446,6 +451,17 @@ function buildSnapshot({
       source: 'Todoist API v1 (full sync + tâches terminées)',
       completed_lookback_days: completedLookbackDays,
       completed_available: completedAvailable,
+      scan: scan
+        ? {
+            depth: scan.depth,
+            ghost_days: cleanupGhostDays,
+            max_per_kind: cleanupMaxPerKind,
+            max_total: cleanupMaxTotal,
+            include_subtasks: cleanupIncludeSubtasks,
+            cross_project_duplicates: cleanupCrossProject,
+            scanned_tasks: allTasks.length,
+          }
+        : null,
       warnings,
     },
     user,

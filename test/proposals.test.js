@@ -179,3 +179,52 @@ test('normalizeTitle ignore accents, casse et URL', () => {
   assert.equal(normalizeTitle('ÉCOLE à la maison'), 'ecole a la maison');
   assert.equal(normalizeTitle('Lire https://x.com/a'), 'lire');
 });
+
+test('le nettoyage approfondi inspecte aussi les sous-tâches', () => {
+  const projects = [project({ id: 'p1', name: 'Projet' })];
+  const tasks = [
+    task({
+      id: 'sub',
+      content: 'Vieille sous-tâche',
+      display_title: 'Vieille sous-tâche',
+      parent_id: 'parent',
+      age_days: 700,
+    }),
+  ];
+
+  const shallow = buildCleanupTasks({ tasks, projects, limits: LIMITS });
+  assert.equal(shallow.filter((p) => p.cleanup_kind === 'ghost').length, 0);
+
+  const deep = buildCleanupTasks({
+    tasks,
+    projects,
+    limits: { ...LIMITS, includeSubtasks: true },
+  });
+  assert.deepEqual(
+    deep.filter((p) => p.cleanup_kind === 'ghost').map((p) => p.target.id),
+    ['sub']
+  );
+});
+
+test('le nettoyage approfondi compare les doublons entre projets', () => {
+  const projects = [
+    project({ id: 'p1', name: 'Projet' }),
+    project({ id: 'p2', name: 'Autre' }),
+  ];
+  const tasks = [
+    task({ id: 'a', content: 'Appeler le dentiste', display_title: 'Appeler le dentiste', project_id: 'p1' }),
+    task({ id: 'b', content: 'Appeler le dentiste', display_title: 'Appeler le dentiste', project_id: 'p2' }),
+  ];
+
+  const shallow = buildCleanupTasks({ tasks, projects, limits: { ...LIMITS, ghostDays: 9999 } });
+  assert.equal(shallow.filter((p) => p.cleanup_kind === 'duplicate').length, 0);
+
+  const deep = buildCleanupTasks({
+    tasks,
+    projects,
+    limits: { ...LIMITS, ghostDays: 9999, crossProjectDuplicates: true },
+  });
+  const duplicates = deep.filter((p) => p.cleanup_kind === 'duplicate');
+  assert.equal(duplicates.length, 1);
+  assert.match(duplicates[0].rationale, /autre projet/);
+});

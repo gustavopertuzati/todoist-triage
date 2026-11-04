@@ -1960,7 +1960,7 @@ button:disabled {
 }
 
 /* ==========================================================================
-   Itération 12 — préparation d'une tâche
+   ItÃ©ration 12 â€” prÃ©paration d'une tÃ¢che
    ========================================================================== */
 
 .task-tools {
@@ -2007,7 +2007,7 @@ button:disabled {
   font-size: 12px;
 }
 
-/* Fenêtre modale (préparation) */
+/* FenÃªtre modale (prÃ©paration) */
 .modal {
   position: fixed;
   inset: 0;
@@ -2057,7 +2057,7 @@ button:disabled {
 }
 
 /* ==========================================================================
-   Assistant « Notes & idées » (bas à droite)
+   Assistant Â« Notes & idÃ©es Â» (bas Ã  droite)
    ========================================================================== */
 
 .assistant {
@@ -2285,5 +2285,204 @@ button:disabled {
 
   .modal-card {
     border-radius: var(--radius);
+  }
+}
+
+/* ==========================================================================
+   ItÃ©ration 12 (suite) â€” nettoyage approfondi, dÃ©tail de tÃ¢che, espacements
+   ========================================================================== */
+
+.cleanup-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+
+.cleanup-tools .fine-print {
+  margin: 0;
+}
+
+.task-detail-heading {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.task-detail-heading:first-child {
+  margin-top: 0;
+}
+
+.task-detail-note {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-tree {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.task-detail-node {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.task-detail-node:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.task-detail-node-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+
+.task-detail-link {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-link:hover {
+  color: var(--accent);
+}
+
+.task-detail-children {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+.task-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.task-detail-add {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.task-detail-add input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px; /* ÃƒÂ©vite le zoom iOS */
+}
+
+.task-detail-add .btn {
+  flex: 0 0 auto;
+}
+
+/* Respiration des blocs encadrÃƒÂ©s (surtout sur mobile). */
+.proposals {
+  gap: 12px;
+}
+
+.diagnosis-list {
+  gap: 12px;
+}
+
+.projects {
+  gap: 10px;
+}
+
+.kpis {
+  gap: 12px;
+}
+
+.widget-summary {
+  gap: 10px;
+}
+
+.widget-lists {
+  gap: 16px;
+}
+
+.list-block {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.proposal-head {
+  flex-wrap: wrap;
+}
+
+.proposal-actions {
+  flex-wrap: wrap;
+}
+
+.proposal-actions .btn {
+  flex: 1 1 140px;
+}
+
+.diagnosis-summary {
+  gap: 10px;
+}
+
+@media (max-width: 480px) {
+  .page {
+    gap: 14px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .kpis {
+    gap: 10px;
+  }
+
+  .proposal {
+    padding: 12px;
+  }
+
+  .modal-card {
+    padding: 14px;
+  }
+
+  .task-detail-add {
+    flex-wrap: wrap;
+  }
+
+  .task-detail-add .btn {
+    width: 100%;
   }
 }
