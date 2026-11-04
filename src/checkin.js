@@ -77,7 +77,7 @@ const DEFAULTS = {
 const ENERGY = {
   exhausted: { L: 0, M: 0, S: 3 },
   low: { L: 0, M: 1, S: 3 },
-  medium: { L: 1, M: 2, S: 4 },
+  medium: { L: 1, M: 3, S: 5 },
   good: { L: 1, M: 3, S: 5 },
   high: { L: 1, M: 3, S: 5 },
 };
@@ -96,7 +96,9 @@ const MOOD = {
   great: { L: 1, M: 3, S: 5 },
 };
 
-const TIME_TOTAL = { lt1h: 2, h1to2: 3, h2to4: 5, allday: 99 };
+// Plafond global selon le temps disponible. « 2 à 4 h » laisse la pleine
+// capacité 1-3-5 (9 tâches) : c'est le réglage par défaut, donc neutre.
+const TIME_TOTAL = { lt1h: 2, h1to2: 4, h2to4: 9, allday: 99 };
 
 function optionValues(key) {
   const question = QUESTIONS.find((q) => q.key === key);

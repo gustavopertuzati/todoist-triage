@@ -54,5 +54,11 @@ test('le temps disponible plafonne le nombre de tâches', () => {
     { energy: 'high', health: 'great', time: 'h1to2', want: 'mix', mood: 'great' },
     RULE
   );
-  assert.equal(allowed.L + allowed.M + allowed.S, 3);
+  assert.equal(allowed.L + allowed.M + allowed.S, 4);
+});
+
+test('un check-in neutre laisse la pleine capacité 1-3-5', () => {
+  const { allowed, label } = computeAllowed(null, RULE);
+  assert.deepEqual(allowed, RULE);
+  assert.match(label, /normale/i);
 });
