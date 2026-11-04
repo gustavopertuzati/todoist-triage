@@ -2941,7 +2941,12 @@
   state.checkins = loadCheckins();
   state.feedback = loadFeedback();
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    // `updateViaCache: 'none'` : le navigateur ne réutilise pas un vieux sw.js
+    // en cache HTTP, sinon les mises à jour de l'app peuvent rester bloquées.
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch(() => {});
   }
   (async () => {
     try {
