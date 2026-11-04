@@ -11,9 +11,10 @@ Todoist surchargé et aide à y voir clair.
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
 > état, en respectant une **charge 1-3-5** et en te proposant de **reporter** si nécessaire.
-> Un **nettoyage guidé** repère les projets morts, doublons, tâches fantômes et orphelines,
-> **avec corbeille réversible**. Tu **valides ou ignores chaque proposition
-> individuellement**. Tant que tu n'as pas validé, **rien n'est écrit dans Todoist** ;
+> le **nettoyage guidé** repère les projets morts, doublons, tâches fantômes et orphelines,
+> **avec corbeille réversible**, et un **retour sur les propositions ignorées** apprend à
+> l'IA (ne plus reproposer, reporter, corriger la taille, reformuler). Tu **valides ou
+> ignores chaque proposition individuellement**. Tant que tu n'as pas validé, **rien n'est écrit dans Todoist** ;
 > chaque écriture validée est ensuite relue depuis l'API.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
@@ -231,6 +232,38 @@ semaine est dense.
 
 Seuil : aucun (calculé à partir de la charge). Aucune donnée persistée de plus côté serveur.
 
+## Itération 10 — retour sur les propositions ignorées
+
+Quand tu ignores une proposition, un **mini-questionnaire** recueille la raison pour que
+l'IA s'améliore réellement (au lieu de reproposer la même chose).
+
+Raccourcis en un tap : **« Plus tard »** et **« Jamais »**. Sinon **« Autre raison… »**
+ouvre un questionnaire ciblé et conditionnel :
+
+| Question | Valeurs | Effet |
+| --- | --- | --- |
+| Pourquoi ? | pas maintenant · pas le bon jour · trop gros · pas prioritaire · titre pas clair · déjà fait · ne plus proposer | signal principal |
+| Quand ? | demain · cette semaine · semaine prochaine · ce week-end · jamais | report (ne pas proposer avant) |
+| Sa taille ? | petit / moyen / gros | corrige l'estimation |
+| Valable | juste cette fois · toujours pour cette tâche | étend ou limite |
+
+Ce que l'app en fait :
+
+- **Plus jamais reproposée** : une tâche marquée « ne plus proposer » / « jamais » (ou
+  « toujours » + « pas prioritaire »/« déjà fait ») est **exclue** des analyses suivantes,
+  côté client **et** côté serveur.
+- **Report** : « pas avant une date » — la tâche n'est pas proposée d'ici là ; et l'IA est
+  invitée à la **reprogrammer au bon moment**.
+- **Correction de taille** : ta taille réelle prime sur l'estimation.
+- **Amélioration de la tâche** : si tu signales « titre pas clair » ou « trop gros », l'IA
+  peut te proposer de **reformuler le titre** (`rename_task`) ou de **scinder** la tâche,
+  plutôt que de la reproposer telle quelle.
+- Les signaux agrégés (comptes par raison) et les derniers retours sont envoyés au modèle
+  pour qu'il **généralise** tes préférences.
+
+Les réponses sont **mémorisées sur ton appareil** (localStorage) et transmises à chaque
+analyse. Implémentation : `src/feedback.js` (pur et testé) + `src/aiProposals.js`.
+
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
@@ -393,6 +426,7 @@ src/snapshot.js        normalisation, statistiques, dates dérivées
 src/diagnosis.js       verdicts, signaux et propositions par projet
 src/capacity.js        estimation de taille et plan de charge 1-3-5
 src/checkin.js         questionnaire du jour et charge autorisée
+src/feedback.js        retour sur les propositions ignorées (apprentissage)
 src/recycleBin.js      corbeille des tâches supprimées (restauration)
 src/proposals.js       génération des propositions (pure)
 src/applyProposal.js   exécution d'une proposition + vérification via l'API
@@ -418,9 +452,9 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 9 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 10 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour**, scission des tâches,
-**nettoyage guidé** avec corbeille et **confort d'usage** (tout valider, PWA installable,
-récap hebdo). Les itérations suivantes (rituel du matin avec rattrapage automatique,
-planificateur de semaine, reformulation des titres, mémoire des préférences) ne sont pas
-implémentées et seront abordées après retour d'usage.
+**nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA, récap hebdo) et
+**retour sur les propositions ignorées** pour que l'IA s'améliore. Les itérations suivantes
+(rituel du matin avec rattrapage automatique, planificateur de semaine, mémoire des
+préférences à long terme) ne sont pas implémentées et seront abordées après retour d'usage.

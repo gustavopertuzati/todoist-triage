@@ -21,6 +21,7 @@ const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
 const { describeDay, peekDayPlan, generateDayProposals, findAiProposal, removeAiProposal } = require('./aiProposals');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
+const { QUESTIONNAIRE } = require('./feedback');
 const { AiError } = require('./ai');
 const { isValidIsoDate } = require('./dates');
 const recycleBin = require('./recycleBin');
@@ -244,6 +245,7 @@ function createApp() {
       ai_enabled: config.aiEnabled,
       ai_model: config.aiModel,
       checkin: { questions: QUESTIONS, defaults: DEFAULTS },
+      ignore_feedback: QUESTIONNAIRE,
     });
   });
 
@@ -356,6 +358,7 @@ function createApp() {
       const date = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
       const force = req.body?.force === true;
       const checkin = normalizeCheckin(req.body?.checkin);
+      const feedback = Array.isArray(req.body?.feedback) ? req.body.feedback : null;
       // L'analyse IA ne part QUE si `analyze` est explicitement demandé
       // (bouton « Analyser »). Sinon, on se contente de renvoyer l'état du jour
       // et, s'ils existent déjà, les propositions mises en cache.
@@ -390,12 +393,12 @@ function createApp() {
       };
 
       if (!config.aiEnabled) {
-        return res.json({ ...base, ai: false, proposals: [], splits: [], strategy: null, cached: false });
+        return res.json({ ...base, ai: false, proposals: [], splits: [], renames: [], strategy: null, cached: false });
       }
 
       // Lecture seule : pas de nouvel appel au modèle.
       if (!analyze) {
-        const cached = peekDayPlan(snapshot, date, checkin);
+        const cached = peekDayPlan(snapshot, date, checkin, feedback);
         if (cached) {
           return res.json({
             ...base,
@@ -403,16 +406,17 @@ function createApp() {
             analyzed: true,
             proposals: cached.items,
             splits: cached.splits || [],
+            renames: cached.renames || [],
             strategy: cached.strategy || null,
             cached: true,
             usage: null,
           });
         }
         // Rien en cache : on ne montre que l'état du jour, sans générer.
-        return res.json({ ...base, ai: true, analyzed: false, proposals: [], splits: [], strategy: null, cached: false });
+        return res.json({ ...base, ai: true, analyzed: false, proposals: [], splits: [], renames: [], strategy: null, cached: false });
       }
 
-      const plan = await generateDayProposals(snapshot, date, { force, checkin });
+      const plan = await generateDayProposals(snapshot, date, { force, checkin, feedback });
 
       return res.json({
         ...base,
@@ -420,6 +424,7 @@ function createApp() {
         analyzed: true,
         proposals: plan.items,
         splits: plan.splits || [],
+        renames: plan.renames || [],
         strategy: plan.summary || null,
         cached: Boolean(plan.cached),
         usage: plan.usage || null,

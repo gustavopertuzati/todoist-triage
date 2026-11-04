@@ -20,6 +20,7 @@ const { chatJson, AiError } = require('./ai');
 const { weekdayName, estimateTaskSize, SIZE_LABELS } = require('./capacity');
 const { targetFromTask } = require('./proposals');
 const { computeAllowed, describeCheckin, normalizeCheckin } = require('./checkin');
+const { buildProfile, normalizeFeedback, describeForPrompt, REASON_TEXT } = require('./feedback');
 
 const SYSTEM_PROMPT = [
   'Tu es un assistant d’organisation personnelle, spécialisé dans la planification d’une',
@@ -100,10 +101,14 @@ function dayInfo(snapshot, date) {
 }
 
 /** Condensé envoyé au modèle pour une journée (avec le check-in). */
-function buildDayDigest(snapshot, date, checkin) {
+function buildDayDigest(snapshot, date, checkin, profile) {
   const info = dayInfo(snapshot, date);
   const { allowed, label, notes, answers } = computeAllowed(checkin, info.rule);
   const active = snapshot.tasks.filter((task) => !task.project_archived);
+
+  const never = new Set(profile ? profile.never : []);
+  const postpone = new Map((profile ? profile.postpone : []).map((p) => [p.taskId, p.until]));
+  const sizeCorrections = new Map((profile ? profile.sizes : []).map((s) => [s.taskId, s.size]));
 
   const overdue = active
     .filter((task) => task.is_overdue)
@@ -119,6 +124,7 @@ function buildDayDigest(snapshot, date, checkin) {
   const tasks = [];
   for (const task of [...overdue, ...undated]) {
     if (seen.has(task.id)) continue;
+    if (never.has(task.id)) continue; // ne jamais reproposer
     seen.add(task.id);
     tasks.push({
       id: task.id,
@@ -130,7 +136,9 @@ function buildDayDigest(snapshot, date, checkin) {
       age_days: task.age_days,
       labels: (task.labels || []).slice(0, 3),
       has_note: Boolean(task.description && task.description.trim()),
-      size_hint: estimateTaskSize(task),
+      size_hint: sizeCorrections.get(task.id) || estimateTaskSize(task),
+      reported_size: sizeCorrections.get(task.id) || null,
+      avoid_until: postpone.get(task.id) || null,
     });
   }
 
@@ -175,6 +183,7 @@ function buildDayDigest(snapshot, date, checkin) {
     max_defers: Math.min(config.aiMaxProposals, Math.max(0, total(excess))),
     selected_day_tasks: selectedDayTasks,
     agenda: otherDays,
+    feedback: describeForPrompt(profile) || null,
     projects: snapshot.projects
       .filter((project) => !project.is_archived)
       .map((project) => ({ id: project.id, name: project.name })),
@@ -196,6 +205,41 @@ function buildUserPrompt(digest) {
 
   if (digest.checkin.notes.length > 0) {
     lines.push('Consignes liées au check-in :', ...digest.checkin.notes.map((n) => `- ${n}`));
+  }
+
+  if (digest.feedback) {
+    const fb = digest.feedback;
+    lines.push('', 'Retours de la personne sur tes propositions précédentes :');
+    if (fb.signaux) {
+      const signals = Object.entries(fb.signaux)
+        .map(([reason, count]) => `${REASON_TEXT[reason] || reason} ×${count}`)
+        .join(', ');
+      if (signals) lines.push(`- Raisons fréquentes d’ignorer : ${signals}.`);
+    }
+    if (fb.ne_pas_proposer.length) {
+      lines.push(`- NE PLUS PROPOSER : ${fb.ne_pas_proposer.join(' ; ')}.`);
+    }
+    if (fb.reporter_apres.length) {
+      lines.push(
+        '- À NE PAS REPROGRAMMER AVANT : ' +
+          fb.reporter_apres.map((p) => `${p.tache} (après ${p.apres})`).join(' ; ') +
+          '.'
+      );
+    }
+    if (fb.taille_reelle.length) {
+      lines.push(
+        '- Tailles corrigées par la personne : ' +
+          fb.taille_reelle.map((s) => `${s.tache} = ${s.taille}`).join(' ; ') +
+          '.'
+      );
+    }
+    if (fb.a_ameliorer.length) {
+      lines.push(
+        '- TÂCHES À AMÉLIORER (titre pas clair ou trop grosses) : ' +
+          fb.a_ameliorer.map((i) => `${i.tache} (${i.pourquoi})`).join(' ; ') +
+          '. Tu peux proposer un titre plus clair dans "renames" ou une scission dans "splits".'
+      );
+    }
   }
 
   lines.push(
@@ -243,11 +287,15 @@ function buildUserPrompt(digest) {
     'Tu peux aussi proposer de scinder une grosse tâche fourre-tout (2 à 10 sous-tâches)',
     'dans "splits" (parmi les tâches listées ou celles du jour).',
     '',
+    'Et, pour une tâche au titre peu clair (voir les retours ci-dessus), un titre plus clair',
+    'dans "renames".',
+    '',
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase décrivant la journée adaptée à son état",',
     ' "proposals":[{"task_id":"...","due_date":"' + digest.date + '","size":"L|M|S","reason":"...","group":"..."}],',
     ' "defer":[{"task_id":"...","due_date":"AAAA-MM-JJ","reason":"..."}],',
-    ' "splits":[{"task_id":"...","reason":"...","subtasks":["...","..."]}]}',
+    ' "splits":[{"task_id":"...","reason":"...","subtasks":["...","..."]}],',
+    ' "renames":[{"task_id":"...","title":"nouveau titre clair","reason":"..."}]}',
     '',
     'Données :',
     JSON.stringify(digest)
@@ -260,11 +308,15 @@ function buildUserPrompt(digest) {
  * Valide la réponse du modèle pour la journée : ajouts bornés à la charge autorisée,
  * reports bornés à la place des jours cibles, scissions.
  */
-function validateDayResponse(parsed, snapshot, date, digest) {
+function validateDayResponse(parsed, snapshot, date, digest, profile) {
   const tasksById = new Map(snapshot.tasks.map((task) => [task.id, task]));
   const allowedIds = new Set(digest.tasks.map((task) => task.id));
   const dayTaskIds = new Set(digest.selected_day_tasks.map((task) => task.id));
   const rule = digest.capacity_rule;
+
+  const never = new Set(profile ? profile.never : []);
+  const postpone = new Map((profile ? profile.postpone : []).map((p) => [p.taskId, p.until]));
+  const sizeCorrections = new Map((profile ? profile.sizes : []).map((s) => [s.taskId, s.size]));
 
   const dayRemaining = new Map(
     ((snapshot.capacity && snapshot.capacity.days) || []).map((day) => [
@@ -285,7 +337,7 @@ function validateDayResponse(parsed, snapshot, date, digest) {
   for (const raw of Array.isArray(parsed?.proposals) ? parsed.proposals : []) {
     if (items.filter((item) => !item.move).length >= digest.max_proposals) break;
     const taskId = String(raw?.task_id || '');
-    if (!allowedIds.has(taskId) || seen.has(taskId)) continue;
+    if (!allowedIds.has(taskId) || seen.has(taskId) || never.has(taskId)) continue;
 
     const due = String(raw?.due_date || '').trim();
     if (due !== date) continue;
@@ -293,9 +345,14 @@ function validateDayResponse(parsed, snapshot, date, digest) {
     const task = tasksById.get(taskId);
     if (!task || task.project_archived || task.due_date === date) continue;
 
-    const size = ['L', 'M', 'S'].includes(raw?.size)
+    // Respecte un report demandé par l'utilisateur (« pas avant telle date »).
+    const until = postpone.get(taskId);
+    if (until && date < until) continue;
+
+    // La taille corrigée par l'utilisateur prime sur l'estimation.
+    const size = sizeCorrections.get(taskId) || (['L', 'M', 'S'].includes(raw?.size)
       ? raw.size
-      : estimateTaskSize(task, task.subtask_count || 0);
+      : estimateTaskSize(task, task.subtask_count || 0));
     if (addBudget[size] <= 0) continue;
     addBudget[size] -= 1;
 
@@ -337,6 +394,9 @@ function validateDayResponse(parsed, snapshot, date, digest) {
 
     const task = tasksById.get(taskId);
     if (!task || task.due_date !== date) continue;
+    if (never.has(taskId)) continue;
+    const until = postpone.get(taskId);
+    if (until && due < until) continue;
 
     const size = estimateTaskSize(task, task.subtask_count || 0);
     if (slot[size] <= 0) continue;
@@ -407,21 +467,57 @@ function validateDayResponse(parsed, snapshot, date, digest) {
     });
   }
 
+  // Reformulations de titres peu clairs.
+  const renames = [];
+  for (const raw of Array.isArray(parsed?.renames) ? parsed.renames : []) {
+    if (renames.length >= 3) break;
+    const taskId = String(raw?.task_id || '');
+    if (seen.has(taskId)) continue;
+    if (!allowedIds.has(taskId) && !dayTaskIds.has(taskId)) continue;
+    const task = tasksById.get(taskId);
+    if (!task || task.project_archived) continue;
+
+    const title = String(raw?.title || '').trim().slice(0, 160);
+    const current = String(task.display_title || task.content || '').trim();
+    if (title.length < 3 || title === current) continue;
+
+    seen.add(taskId);
+    renames.push({
+      id: `ai:rename_task:${taskId}:${hashId([title])}`,
+      type: 'rename_task',
+      type_label: 'Reformuler',
+      source: 'ai',
+      tone: 'warn',
+      score: 42,
+      size: null,
+      size_label: null,
+      title: 'Reformuler le titre',
+      rationale: String(raw?.reason || '').trim().slice(0, 300) || 'Titre plus clair proposé.',
+      ai_group: null,
+      target: targetFromTask(task),
+      action: { content: title },
+      editable: [],
+      preview: `Titre → « ${title} »`,
+      format: 'rename',
+    });
+  }
+
   const rawCount =
     (Array.isArray(parsed?.proposals) ? parsed.proposals.length : 0) +
     (Array.isArray(parsed?.defer) ? parsed.defer.length : 0);
 
-  return { items, splits, dropped: Math.max(0, rawCount - items.length) };
+  return { items, splits, renames, dropped: Math.max(0, rawCount - items.length) };
 }
 
-/** Génère (ou récupère) les propositions pour une journée, avec check-in. */
-async function generateDayProposals(snapshot, date, { force = false, checkin = null } = {}) {
+/** Génère (ou récupère) les propositions pour une journée, avec check-in et retours. */
+async function generateDayProposals(snapshot, date, { force = false, checkin = null, feedback = null } = {}) {
   if (!config.aiEnabled) {
     throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
   }
 
   const answers = normalizeCheckin(checkin);
-  const digest = buildDayDigest(snapshot, date, answers);
+  const profile = buildProfile(normalizeFeedback(feedback), snapshot.meta.today);
+  const digest = buildDayDigest(snapshot, date, answers, profile);
   const signature = signatureOf(digest);
   const cached = dayCache.get(date);
 
@@ -441,6 +537,7 @@ async function generateDayProposals(snapshot, date, { force = false, checkin = n
       signature,
       items: [],
       splits: [],
+      renames: [],
       summary:
         canAdd === 0 && toRemove === 0
           ? 'Cette journée correspond déjà à ta charge autorisée.'
@@ -460,7 +557,7 @@ async function generateDayProposals(snapshot, date, { force = false, checkin = n
     user: buildUserPrompt(digest),
   });
 
-  const { items, splits, dropped } = validateDayResponse(data, snapshot, date, digest);
+  const { items, splits, renames, dropped } = validateDayResponse(data, snapshot, date, digest, profile);
 
   let summary = typeof data?.summary === 'string' ? data.summary.trim().slice(0, 400) : null;
   if (dropped > 0) {
@@ -471,6 +568,7 @@ async function generateDayProposals(snapshot, date, { force = false, checkin = n
     signature,
     items,
     splits,
+    renames,
     summary,
     generatedAt: Date.now(),
     usage,
@@ -479,7 +577,7 @@ async function generateDayProposals(snapshot, date, { force = false, checkin = n
     allowed: digest.allowed,
   };
   dayCache.set(date, entry);
-  rememberItems([...items, ...splits]);
+  rememberItems([...items, ...splits, ...renames]);
 
   return { ...entry, cached: false };
 }
@@ -507,10 +605,11 @@ function describeDay(snapshot, date, checkin) {
  * appeler le modèle. C'est ce quasi-lecture sur rechargement qui conserve les
  * propositions existantes sans en recréer de nouvelles.
  */
-function peekDayPlan(snapshot, date, checkin) {
+function peekDayPlan(snapshot, date, checkin, feedback) {
   if (!snapshot) return null;
   const answers = normalizeCheckin(checkin);
-  const digest = buildDayDigest(snapshot, date, answers);
+  const profile = buildProfile(normalizeFeedback(feedback), snapshot.meta.today);
+  const digest = buildDayDigest(snapshot, date, answers, profile);
   const signature = signatureOf(digest);
   const entry = dayCache.get(date);
 
@@ -523,6 +622,7 @@ function peekDayPlan(snapshot, date, checkin) {
     return {
       items: entry.items || [],
       splits: entry.splits || [],
+      renames: entry.renames || [],
       summary: entry.summary || null,
       strategy: entry.summary || null,
       checkin: entry.checkin || null,

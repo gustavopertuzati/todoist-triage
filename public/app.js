@@ -25,6 +25,8 @@
     checkinQuestions: [],
     checkinDefaults: {},
     checkins: {},
+    ignoreFeedback: null,
+    feedback: {},
   };
 
   const els = {
@@ -135,6 +137,49 @@
     } catch {
       return {};
     }
+  }
+
+  const FEEDBACK_KEY = 'todoist-triage:feedback';
+  const WINDOW_DAYS = { tomorrow: 1, this_week: 4, next_week: 10, weekend: 5 };
+
+  function loadFeedback() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FEEDBACK_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveFeedback() {
+    try {
+      localStorage.setItem(FEEDBACK_KEY, JSON.stringify(state.feedback));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function feedbackList() {
+    return Object.entries(state.feedback).map(([taskId, entry]) => ({ taskId, ...entry }));
+  }
+
+  function recordFeedback(taskId, entry) {
+    state.feedback[taskId] = { ...entry, at: new Date().toISOString() };
+    saveFeedback();
+  }
+
+  /** Une tâche est-elle bloquée par le feedback pour la date visée ? */
+  function feedbackBlocks(taskId, forDate) {
+    const entry = state.feedback[taskId];
+    if (!entry) return false;
+    if (entry.reason === 'never' || entry.window === 'never') return true;
+    if (entry.scope === 'always' && ['done', 'not_priority'].includes(entry.reason)) return true;
+    const days = WINDOW_DAYS[entry.window];
+    if (typeof days === 'number') {
+      const today = state.data?.meta?.today;
+      if (today && (forDate || today) < addDaysIso(today, days)) return true;
+    }
+    return false;
   }
 
   function saveCheckins() {
@@ -702,7 +747,7 @@
       const plan = await apiJson('/api/day/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, force, analyze, checkin: getCheckin(date) }),
+        body: JSON.stringify({ date, force, analyze, checkin: getCheckin(date), feedback: feedbackList() }),
       });
       state.dayPlan = plan;
       state.dayLoading = false;
@@ -851,13 +896,25 @@
     }
 
     const proposals = (plan.proposals || []).filter(
-      (p) => !state.ignored.has(p.id) && !state.applied.has(p.id)
+      (p) =>
+        !state.ignored.has(p.id) &&
+        !state.applied.has(p.id) &&
+        !feedbackBlocks(p.target?.id, date)
     );
     const splits = (plan.splits || []).filter(
-      (p) => !state.ignored.has(p.id) && !state.applied.has(p.id)
+      (p) =>
+        !state.ignored.has(p.id) &&
+        !state.applied.has(p.id) &&
+        !feedbackBlocks(p.target?.id, date)
+    );
+    const renames = (plan.renames || []).filter(
+      (p) =>
+        !state.ignored.has(p.id) &&
+        !state.applied.has(p.id) &&
+        !feedbackBlocks(p.target?.id, date)
     );
 
-    if (proposals.length === 0 && splits.length === 0) {
+    if (proposals.length === 0 && splits.length === 0 && renames.length === 0) {
       if (isAnalyzed === false) {
         // Rien d'analysé : le bloc supérieur affiche déjà le bouton « Analyser ».
         els.dayPlan.append(
@@ -877,6 +934,7 @@
     } else {
       const list = h('div', { class: 'proposals' });
       for (const proposal of proposals) list.append(proposalCard(proposal));
+      for (const proposal of renames) list.append(proposalCard(proposal));
       for (const proposal of splits) list.append(proposalCard(proposal));
       els.dayPlan.append(list);
     }
@@ -1062,15 +1120,121 @@
     validateBtn.addEventListener('click', () =>
       validateProposal(proposal, dateInput, validateBtn, ignoreBtn)
     );
-    ignoreBtn.addEventListener('click', () => {
-      state.ignored.add(proposal.id);
-      saveIgnoredProposals();
-      renderPlanner();
-      renderProposals();
-    });
+    ignoreBtn.addEventListener('click', () => openIgnorePanel(card, proposal));
 
-    card.append(h('div', { class: 'proposal-actions' }, validateBtn, ignoreBtn));
+    const actions = h('div', { class: 'proposal-actions' }, validateBtn, ignoreBtn);
+    card.append(actions);
     return card;
+  }
+
+  /** Retire une carte localement, sans recharger la page. */
+  function removeProposalLocally(proposal) {
+    if (state.dayPlan) {
+      state.dayPlan.proposals = (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id);
+      state.dayPlan.splits = (state.dayPlan.splits || []).filter((p) => p.id !== proposal.id);
+      state.dayPlan.renames = (state.dayPlan.renames || []).filter((p) => p.id !== proposal.id);
+    }
+    state.data.proposals = (state.data.proposals || []).filter((p) => p.id !== proposal.id);
+    renderPlanner();
+    renderProposals();
+  }
+
+  function feedbackSelect(options, ariaLabel) {
+    const select = h('select', { class: 'ignore-select', 'aria-label': ariaLabel });
+    for (const option of options) select.append(h('option', { value: option.value }, option.label));
+    return select;
+  }
+
+  /**
+   * Petit questionnaire quand on ignore une proposition : il apprend à l'IA
+   * (pourquoi, quand revoir, taille réelle) et évite de la reproposer.
+   */
+  function openIgnorePanel(card, proposal) {
+    const q = state.ignoreFeedback || {};
+    const taskId = proposal.target.id;
+    const title = proposal.target.name;
+    const container = card.querySelector('.proposal-actions');
+    if (!container) return;
+    clear(container);
+
+    const record = (entry, message) => {
+      recordFeedback(taskId, { title, ...entry });
+      toast(message || 'Merci, l’IA en tiendra compte.', 'ok');
+      removeProposalLocally(proposal);
+    };
+
+    // Raccourcis : deux réponses en un tap, les plus fréquentes.
+    const later = h(
+      'button',
+      { type: 'button', class: 'btn btn-ghost btn-small' },
+      '⏳ Plus tard'
+    );
+    later.addEventListener('click', () => record({ reason: 'now', window: 'this_week' }, 'Reportée : l’IA l’écartera quelque temps.'));
+
+    const never = h(
+      'button',
+      { type: 'button', class: 'btn btn-ghost btn-small' },
+      '🚫 Jamais'
+    );
+    never.addEventListener('click', () => record({ reason: 'never' }, 'Notée : elle ne sera plus proposée.'));
+
+    const more = h(
+      'button',
+      { type: 'button', class: 'btn btn-secondary btn-small' },
+      'Autre raison…'
+    );
+
+    const quickRow = h('div', { class: 'ignore-quick' }, later, never, more);
+    container.append(quickRow);
+
+    more.addEventListener('click', () => {
+      clear(container);
+
+      const reasonOptions = q.reasons || [];
+      const windowOptions = q.windows || [];
+      const sizeOptions = q.sizes || [];
+      const scopeOptions = q.scopes || [];
+
+      const reasonSel = feedbackSelect(reasonOptions, 'Raison');
+      const windowSel = feedbackSelect(windowOptions, 'Quand la revoir');
+      const sizeSel = feedbackSelect(sizeOptions, 'Sa vraie taille');
+      const scopeSel = feedbackSelect(scopeOptions, 'Portée');
+
+      const syncVisibility = () => {
+        const reason = reasonSel.value;
+        const needsWindow = ['now', 'wrong_day', 'not_priority'].includes(reason);
+        const needsSize = reason === 'too_big';
+        windowRow.hidden = !needsWindow;
+        sizeRow.hidden = !needsSize;
+      };
+
+      const reasonRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Pourquoi ?'), reasonSel);
+      const windowRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Quand ?'), windowSel);
+      const sizeRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Sa taille ?'), sizeSel);
+      const scopeRow = h('label', { class: 'ignore-row' }, h('span', {}, 'Valable'), scopeSel);
+
+      reasonSel.addEventListener('change', syncVisibility);
+      syncVisibility();
+
+      const save = h('button', { type: 'button', class: 'btn btn-primary btn-small' }, 'Enregistrer');
+      const cancel = h('button', { type: 'button', class: 'btn btn-ghost btn-small' }, 'Annuler');
+
+      save.addEventListener('click', () => {
+        const entry = { reason: reasonSel.value, scope: scopeSel.value };
+        if (['now', 'wrong_day', 'not_priority'].includes(entry.reason)) entry.window = windowSel.value;
+        if (entry.reason === 'too_big') entry.size = sizeSel.value;
+        record(entry);
+      });
+      cancel.addEventListener('click', () => {
+        renderPlanner();
+        renderProposals();
+      });
+
+      container.append(
+        h('div', { class: 'ignore-form' }, reasonRow, windowRow, sizeRow, scopeRow),
+        h('div', { class: 'ignore-form-actions' }, save, cancel)
+      );
+    });
   }
 
   /** Applique une proposition (réutilisé par la carte et « Tout valider »). */
@@ -1114,8 +1278,14 @@
 
   function pendingDayItems() {
     const plan = state.dayPlan;
-    const items = [...(plan?.proposals || []), ...(plan?.splits || [])];
-    return items.filter((p) => !state.ignored.has(p.id) && !state.applied.has(p.id));
+    const items = [...(plan?.proposals || []), ...(plan?.renames || []), ...(plan?.splits || [])];
+    const date = plan?.date;
+    return items.filter(
+      (p) =>
+        !state.ignored.has(p.id) &&
+        !state.applied.has(p.id) &&
+        !feedbackBlocks(p.target?.id, date)
+    );
   }
 
   async function validateAllDay() {
@@ -1180,8 +1350,12 @@
   function renderProposals() {
     const all = Array.isArray(state.data.proposals) ? state.data.proposals : [];
     const summary = state.data.summary.proposals || { total: all.length, truncated: {} };
+    const today = state.data.meta.today;
     const visible = all.filter(
-      (proposal) => !state.ignored.has(proposal.id) && !state.applied.has(proposal.id)
+      (proposal) =>
+        !state.ignored.has(proposal.id) &&
+        !state.applied.has(proposal.id) &&
+        !feedbackBlocks(proposal.target?.id, today)
     );
 
     els.proposalsCount.textContent = String(visible.length);
@@ -1980,6 +2154,7 @@
   // Démarrage.
   state.ignored = loadIgnoredProposals();
   state.checkins = loadCheckins();
+  state.feedback = loadFeedback();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
@@ -1988,6 +2163,7 @@
       const session = await apiJson('/api/session');
       state.checkinQuestions = session.checkin?.questions || [];
       state.checkinDefaults = session.checkin?.defaults || {};
+      state.ignoreFeedback = session.ignore_feedback || null;
     } catch {
       /* le questionnaire ne s'affichera pas, le reste fonctionne */
     }

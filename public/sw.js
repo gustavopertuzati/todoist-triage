@@ -1,9 +1,9 @@
 'use strict';
 
-/* Service worker minimal : cache du « shell » de l'app et repli réseau.
+/* Service worker : réseau d'abord, cache en secours (mode hors-ligne limité).
    Les données Todoist ne sont jamais mises en cache (ni le cookie de session). */
 
-const CACHE = 'tri-v2';
+const CACHE = 'tri-v3';
 const SHELL = ['/', '/login', '/styles.css', '/app.js', '/login.js', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -20,28 +20,30 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Réseau d'abord : on récupère toujours la version fraîche quand on est en ligne,
+// et on retombe sur le cache uniquement si le réseau échoue (hors-ligne).
+function networkFirst(request, fallbackKey) {
+  return fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => {});
+      }
+      return response;
+    })
+    .catch(() =>
+      caches.match(request).then((cached) => cached || caches.match(fallbackKey || '/'))
+    );
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== location.origin) return;
 
-  // Ne jamais intercepter les appels API (session et données restent côté réseau).
+  // Jamais d'interception des appels API (session et données restent au réseau).
   if (url.pathname.startsWith('/api/')) return;
 
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put('/offline-shell', copy)).catch(() => {});
-          return response;
-        })
-        .catch(() => caches.match('/offline-shell').then((r) => r || caches.match('/')))
-    );
-    return;
-  }
-
-  event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request))
-  );
+  event.respondWith(networkFirst(request, request.mode === 'navigate' ? '/login' : '/'));
 });

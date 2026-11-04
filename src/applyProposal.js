@@ -130,6 +130,22 @@ async function applyDelete(proposal) {
   };
 }
 
+async function applyRename(proposal) {
+  const title = String(proposal.action?.content || '').trim();
+  if (title.length < 3) throw new ProposalError('TITLE_INVALID', 'Nouveau titre invalide.');
+
+  await updateTask(proposal.target.id, { content: title });
+  const task = await getTask(proposal.target.id);
+  const actual = String(task?.content || '').trim();
+  const verified = actual === title;
+
+  return {
+    verified,
+    message: verified ? `Tâche renommée : « ${title} ».` : 'Écriture envoyée, relecture non concluante.',
+    effects: { content: actual },
+  };
+}
+
 /**
  * @param {{proposal: object, overrides?: {due_date?: string}}} params
  */
@@ -148,6 +164,8 @@ async function applyProposal({ proposal, overrides = null }) {
       return applySplit(proposal);
     case 'delete_task':
       return applyDelete(proposal);
+    case 'rename_task':
+      return applyRename(proposal);
     default:
       throw new ProposalError('UNKNOWN_TYPE', 'Type de proposition inconnu.');
   }
