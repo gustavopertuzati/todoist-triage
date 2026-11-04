@@ -735,6 +735,7 @@
   async function loadDayOrder() {
     const date = currentFocusDate();
     if (!date || state.dayOrder.loading) return;
+    const alreadyLoaded = state.dayOrder.data?.date === date;
     state.dayOrder = {
       date,
       loading: true,
@@ -748,12 +749,16 @@
       const result = await apiJson('/api/day/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date }),
+        body: JSON.stringify({ date, force: alreadyLoaded }),
       });
       state.dayOrder.data = result;
       state.dayOrder.loading = false;
       state.dayOrder.mode = 'execution';
       renderDayOrder();
+      toast('Ordre de la journée prêt.', 'ok');
+      if (els.dayOrder && typeof els.dayOrder.scrollIntoView === 'function') {
+        els.dayOrder.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
       state.dayOrder.loading = false;
@@ -762,16 +767,82 @@
     }
   }
 
+  /** Prévisualisation locale immédiate pendant que l'IA calcule. */
+  function localDayOrderTasks(date) {
+    const today = state.data?.meta?.today;
+    const list = activeTasks().filter(
+      (task) =>
+        (!task.parent_id || isPreparationTask(task)) &&
+        (task.due_date === date ||
+          (date === today && task.is_overdue && task.due_date !== date))
+    );
+    return list
+      .sort(
+        (a, b) =>
+          (b.priority || 1) - (a.priority || 1) ||
+          Number(b.is_overdue) - Number(a.is_overdue) ||
+          (a.display_title || '').localeCompare(b.display_title || '', 'fr-FR')
+      )
+      .slice(0, 12)
+      .map((task) => {
+        const parent = task.parent_id
+          ? (state.data?.tasks || []).find((item) => item.id === task.parent_id)
+          : null;
+        return {
+          id: task.id,
+          title: task.display_title || task.content,
+          priority_label: task.priority_label,
+          size: null,
+          overdue: Boolean(task.is_overdue),
+          is_prep: isPreparationTask(task),
+          parent_title: parent ? cleanTaskTitle(parent) : null,
+        };
+      });
+  }
+
+  function dayOrderRow(task, index, why) {
+    const sizeLabel = { L: 'Gros', M: 'Moyen', S: 'Petit' };
+    return h(
+      'div',
+      { class: 'day-order-item' },
+      h('span', { class: 'day-order-rank' }, `${index + 1}.`),
+      h('span', { class: 'pill prio-pill' }, task.priority_label),
+      h(
+        'div',
+        { class: 'day-order-body' },
+        h(
+          'div',
+          { class: 'day-order-title-line' },
+          h('span', { class: 'day-order-title' }, task.title),
+          task.size
+            ? h('span', { class: `pill size-${task.size}` }, sizeLabel[task.size] || task.size)
+            : null,
+          task.overdue ? h('span', { class: 'pill pill-danger' }, 'En retard') : null,
+          task.is_prep
+            ? h(
+                'span',
+                { class: 'pill pill-soft' },
+                `🧩${task.parent_title ? ` de « ${task.parent_title} »` : ''}`
+              )
+            : null
+        ),
+        why ? h('span', { class: 'day-order-why' }, why) : null
+      )
+    );
+  }
+
   function renderDayOrder() {
     if (!els.dayOrder) return;
-    els.dayOrderBtn.disabled = Boolean(state.dayOrder.loading);
-    els.dayOrderBtn.textContent = state.dayOrder.loading
-      ? '🔀 Analyse de l’ordre…'
-      : '🔀 Réorganiser la journée';
-
     const focus = currentFocusDate();
     const data = state.dayOrder.data;
     const sameDay = data && data.date === focus;
+
+    els.dayOrderBtn.disabled = Boolean(state.dayOrder.loading);
+    els.dayOrderBtn.textContent = state.dayOrder.loading
+      ? '🔀 Analyse de l’ordre…'
+      : sameDay
+        ? '↻ Recalculer l’ordre'
+        : '🔀 Réorganiser la journée';
 
     if (state.dayOrder.error) {
       els.dayOrder.hidden = false;
@@ -783,11 +854,32 @@
     }
 
     if (state.dayOrder.loading) {
+      // Affichage immédiat d'un ordre de priorité local, puis l'IA affine
+      // l'ordre d'exécution. Le bouton ne donne jamais l'impression de bloquer.
       els.dayOrder.hidden = false;
       clear(els.dayOrder);
       els.dayOrder.append(
-        h('p', { class: 'day-status' }, '🧠 Je cherche l’ordre de priorité et d’exécution…')
+        h(
+          'div',
+          { class: 'day-order-head' },
+          h('h3', {}, 'Ordre de priorité (provisoire)')
+        ),
+        h(
+          'p',
+          { class: 'day-status' },
+          '🧠 Ordre de priorité affiché — je calcule l’ordre d’exécution…'
+        )
       );
+      const preview = localDayOrderTasks(focus);
+      if (preview.length === 0) {
+        els.dayOrder.append(h('p', { class: 'empty-line' }, 'Aucune tâche ce jour-là.'));
+        return;
+      }
+      const list = h('div', { class: 'day-order-list' });
+      for (const [index, task] of preview.entries()) {
+        list.append(dayOrderRow(task, index, null));
+      }
+      els.dayOrder.append(list);
       return;
     }
 
@@ -831,7 +923,13 @@
       h(
         'div',
         { class: 'day-order-head' },
-        h('h3', {}, `Ordre du ${formatDate(focus)}`),
+        h(
+          'h3',
+          {},
+          focus === state.data?.meta?.today
+            ? 'Ordre du jour'
+            : `Ordre du ${formatDate(focus)}`
+        ),
         h('div', { class: 'chips' }, toggle('priority', 'Priorité'), toggle('execution', 'Exécution'))
       )
     );
@@ -846,37 +944,10 @@
     }
 
     const list = h('div', { class: 'day-order-list' });
-    const sizeLabel = { L: 'Gros', M: 'Moyen', S: 'Petit' };
     for (const [index, entry] of ordered.entries()) {
       const task = byId.get(entry.id);
       if (!task) continue;
-      list.append(
-        h(
-          'div',
-          { class: 'day-order-item' },
-          h('span', { class: 'day-order-rank' }, `${index + 1}.`),
-          h('span', { class: `pill prio-pill` }, task.priority_label),
-          h(
-            'div',
-            { class: 'day-order-body' },
-            h(
-              'div',
-              { class: 'day-order-title-line' },
-              h('span', { class: 'day-order-title' }, task.title),
-              h('span', { class: `pill size-${task.size}` }, sizeLabel[task.size] || task.size),
-              task.overdue ? h('span', { class: 'pill pill-danger' }, 'En retard') : null,
-              task.is_prep
-                ? h(
-                    'span',
-                    { class: 'pill pill-soft' },
-                    `🧩${task.parent_title ? ` de « ${task.parent_title} »` : ''}`
-                  )
-                : null
-            ),
-            entry.why ? h('span', { class: 'day-order-why' }, entry.why) : null
-          )
-        )
-      );
+      list.append(dayOrderRow(task, index, entry.why));
     }
     els.dayOrder.append(list);
   }

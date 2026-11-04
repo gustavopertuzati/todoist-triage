@@ -492,6 +492,10 @@ préparations et une **raison courte** par tâche en mode exécution. Un sélect
 Aucun ordre n'est écrit dans Todoist : c'est une aide à l'exécution, en lecture seule.
 Route : `POST /api/day/order` — implémentation `src/dayOrder.js` (cache 30 min).
 
+Le clic affiche **immédiatement** un ordre de priorité local (prévisualisation), puis l'IA
+affine l'ordre d'exécution. Si l'IA est indisponible ou dépasse le délai, l'ordre de
+priorité reste affiché avec une explication — le bouton ne reste jamais bloqué.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une

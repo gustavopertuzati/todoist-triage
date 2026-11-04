@@ -209,10 +209,31 @@ async function generateDayOrder(snapshot, date, { force = false } = {}) {
 
   if (fresh && !force) return { ...cached, cached: true };
 
-  const { data, usage, model } = await chatJson({
-    system: SYSTEM_PROMPT,
-    user: buildOrderPrompt(digest),
-  });
+  let data;
+  let usage = null;
+  let model = null;
+  try {
+    const response = await chatJson({
+      system: SYSTEM_PROMPT,
+      user: buildOrderPrompt(digest),
+    });
+    data = response.data;
+    usage = response.usage;
+    model = response.model;
+  } catch (error) {
+    // L'IA peut timeout : le bouton doit quand même produire un ordre utile.
+    console.warn('[ordre] IA indisponible :', error?.code || error?.message);
+    return {
+      date,
+      tasks,
+      priority,
+      execution: fallbackExecution,
+      changed: 0,
+      summary: 'IA indisponible : ordre de priorité utilisé.',
+      cached: false,
+      usage: null,
+    };
+  }
 
   const { execution, changed, summary } = validateOrderResponse(data, tasks);
   const entry = {
