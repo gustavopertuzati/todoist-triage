@@ -6,11 +6,13 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 3.** L'app affiche un résumé, explore les projets, **diagnostique
-> chaque projet**, et surtout **propose des modifications concrètes** (donner une échéance,
-> reporter, scinder, archiver) que tu **valides une par une**. Tant que tu n'as pas validé
-> une proposition, **rien n'est écrit dans Todoist** ; chaque écriture validée est ensuite
-> relue depuis l'API pour vérifier qu'elle a bien pris effet.
+> **Itérations 1 à 4.** L'app affiche un résumé, explore les projets, **diagnostique
+> chaque projet**, et **propose des modifications concrètes** (donner une échéance,
+> reporter, scinder, archiver) que tu **valides une par une**. À partir de l'itération 4,
+> une **IA** (OpenRouter, `deepseek/deepseek-v4.1-flash`) réfléchit aux meilleures
+> échéances : dates variées, regroupées par thème, justifiées — au lieu de tout dater
+> le même jour. Tant que tu n'as pas validé une proposition, **rien n'est écrit dans
+> Todoist** ; chaque écriture validée est ensuite relue depuis l'API.
 >
 > La référence de date est l'**échéance native Todoist**. Les dates écrites dans les titres
 > (`JJ.MM.AAAA`, `auj`) restent détectées et affichées passivement, mais ne sont pas la
@@ -33,6 +35,9 @@ Todoist surchargé et aide à y voir clair.
 - **Propositions validables une par une** : l'app génère une liste d'actions concrètes
   ciblant des tâches ou des projets ; chaque carte se valide (ou s'ignore) individuellement,
   puis l'écriture est vérifiée via l'API. Voir « Itération 3 » ci-dessous.
+- **Échéances proposées par une IA** : un modèle réfléchit à la meilleure date pour chaque
+  tâche (répartition, priorités, regroupement par thème) et justifie son choix, au lieu
+  d'appliquer une règle uniforme. Voir « Itération 4 » ci-dessous.
 - Détection de la convention de date en **fin de titre** :
   - `11.10.2026` → échéance `2026-10-11` ;
   - `auj` / `auj.` → aujourd'hui, dans le fuseau configuré.
@@ -93,6 +98,40 @@ Détails d'implémentation : `src/proposals.js` (génération, pure et testée) 
 pour une proposition présente dans l'instantané courant : aucune action arbitraire n'est
 acceptée.
 
+## Itération 4 — échéances proposées par une IA
+
+Quand `OPENROUTER_API_KEY` est défini, l'app envoie au modèle un condensé des tâches à
+planifier (tâches en retard et anciennes sans échéance) et lui demande de choisir les
+meilleures échéances. Le modèle répond uniquement par un JSON :
+
+```json
+{
+  "summary": "Je regroupe maison/courses en fin de semaine et j'étale les lectures.",
+  "proposals": [
+    { "task_id": "…", "due_date": "2026-11-07", "reason": "…", "group": "Maison" }
+  ]
+}
+```
+
+Garde-fous :
+
+- L'IA ne peut produire **qu'une seule action** : fixer une échéance (`set_due_date`).
+  Rien d'autre n'est accepté — pas de suppression, pas de création.
+- Chaque proposition est **validée** contre l'instantané : tâche connue, date ISO valide
+  dans l'horizon (`today … today + AI_HORIZON_DAYS`), pas de doublon. Le reste est écarté.
+- Les échéances IA **remplacent** la règle « tout à la même date » ; les autres types
+  (reporter, scinder, archiver) restent générés par les règles.
+- Résultat **mis en cache** par empreinte des données : un rechargement sans changement ne
+  rappelle pas le modèle (et le coût reste de l'ordre du millième de dollar).
+- Aucune donnée sensible n'est envoyée : uniquement des titres, métadonnées et la date du
+  jour — jamais le token Todoist ni le mot de passe.
+- La génération est asynchrone : l'interface affiche « l'IA réfléchit… » puis les
+  propositions, sans bloquer l'affichage.
+- Sans clé (ou `AI_ENABLED=false`), l'app fonctionne exactement comme avant, en mode règles.
+
+Implémentation : `src/ai.js` (client OpenRouter) et `src/aiProposals.js` (condensé,
+invite, validation, cache).
+
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
@@ -141,6 +180,15 @@ npm run dev
 | `PROPOSALS_MAX_PER_TYPE` | non | `15` | Nombre maximum de propositions par type. |
 | `PROPOSALS_MAX_TOTAL` | non | `40` | Nombre maximum de propositions affichées au total. |
 | `PROPOSAL_DUE_OFFSET_DAYS` | non | `7` | Décalage par défaut proposé pour dater une tâche ancienne. |
+| `OPENROUTER_API_KEY` | non | — | Clé OpenRouter. Sans elle, l'IA est désactivée (mode règles). |
+| `AI_MODEL` | non | `deepseek/deepseek-v4.1-flash` | Modèle utilisé pour proposer les échéances. |
+| `AI_MAX_TOKENS` | non | `8000` | Budget de génération (raisonnement + JSON). |
+| `AI_REASONING_MAX_TOKENS` | non | `400` | Plafond du raisonnement du modèle. |
+| `AI_MAX_PROPOSALS` | non | `8` | Nombre maximum d'échéances proposées par l'IA. |
+| `AI_HORIZON_DAYS` | non | `120` | Horizon maximum pour une échéance proposée. |
+| `AI_TIMEOUT_MS` | non | `90000` | Délai maximal d'un appel au modèle. |
+| `AI_CACHE_TTL_MINUTES` | non | `30` | Durée de cache des propositions IA. |
+| `AI_ENABLED` | non | `true` | `false` désactive l'IA même si la clé est présente. |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
 Toutes les valeurs sensibles sont lues uniquement depuis l'environnement du serveur.
@@ -160,8 +208,9 @@ npm test
 
 Les tests unitaires couvrent l'analyse des dates de titre, la construction du résumé
 (filtrage des archives, cas de date invalide), le diagnostic des projets (signaux,
-verdicts, agrégation par action) et le moteur de propositions (liste à puces, échéances,
-plafonds, identifiants stables).
+verdicts, agrégation par action), le moteur de propositions (liste à puces, échéances,
+plafonds, identifiants stables) et la couche IA (parsing tolérant, validation stricte des
+réponses, fusion avec les règles).
 
 ## Déploiement sur Orkestr
 
@@ -199,23 +248,23 @@ Toute modification d'une variable d'environnement nécessite un nouveau déploie
 >   -H "Authorization: Bearer <ork_token>"
 > ```
 
-## Vérification sur téléphone (itérations 1 à 3)
+## Vérification sur téléphone (itérations 1 à 4)
 
 1. Ouvrir `https://<slug>.orkestr.run` : la page de connexion s'affiche.
 2. Entrer un mauvais mot de passe : le message « Mot de passe incorrect. » apparaît.
 3. Entrer le bon mot de passe : le tableau de bord « Ton Todoist, en clair. » s'affiche.
 4. Vérifier que le nombre de projets et de tâches correspond à ton compte Todoist.
-5. Dans **Propositions**, lire une carte (type, cible, raison, aperçu). Pour une carte
-   « Dater », changer la date si besoin, puis **Valider** : un message confirme
-   l'application, la carte disparaît et le compteur baisse.
-6. Vérifier dans l'app Todoist que la modification est bien là (échéance, projet archivé,
-   sous-tâches créées). Une carte **Ignorer** disparaît et ne revient pas.
-7. Dans **Diagnostic des projets**, vérifier le classement et les filtres.
-8. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
-9. Chercher un mot connu dans la barre de recherche : les résultats se filtrent.
-10. Appuyer sur **Exporter** : un fichier `todoist-export-….json` est téléchargé ; il
-    contient `summary.project_diagnosis`, `summary.proposals` et la liste `proposals`.
-11. Se déconnecter : retour à la page de connexion ; l'URL `/` redirige vers `/login`.
+5. Dans **Propositions**, attendre la ligne « 🧠 Stratégie : … » : les échéances proposées
+   par l'IA apparaissent, avec un badge **IA**, un **thème** et une justification. Vérifier
+   que les dates sont **variées** (pas toutes le même jour).
+6. Valider une carte (changer la date si besoin) : un message confirme l'application, la
+   carte disparaît et le compteur baisse. Une carte **Ignorer** disparaît durablement.
+7. Vérifier dans l'app Todoist que la modification est bien là.
+8. Dans **Diagnostic des projets**, vérifier le classement et les filtres.
+9. Ouvrir un projet dans **Explorer** : sections et sous-tâches apparaissent.
+10. Appuyer sur **Exporter** : le fichier `todoist-export-….json` contient aussi les
+    propositions et le diagnostic.
+11. Se déconnecter : retour à la page de connexion.
 
 > Astuce : pour tester sans risque, mets `WRITES_ENABLED=false` : l'app reste entièrement
 > fonctionnelle mais refuse toute écriture.
@@ -232,6 +281,8 @@ src/snapshot.js        normalisation, statistiques, dates dérivées
 src/diagnosis.js       verdicts, signaux et propositions par projet
 src/proposals.js       génération des propositions (pure)
 src/applyProposal.js   exécution d'une proposition + vérification via l'API
+src/ai.js              client OpenRouter (appel au modèle)
+src/aiProposals.js     condensé, invite, validation et cache des propositions IA
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
@@ -252,7 +303,8 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 3 terminées : export, lecture, diagnostic des projets et propositions
-validables individuellement (écritures vérifiées). Les itérations suivantes (questionnaire
-quotidien avec sélection assistée, propositions générées par IA, import de dates depuis
-les titres) ne sont pas implémentées et seront abordées après retour d'usage.
+Itérations 1 à 4 terminées : export, lecture, diagnostic des projets, propositions
+validables individuellement (écritures vérifiées) et échéances proposées par une IA. Les
+itérations suivantes (questionnaire quotidien avec sélection assistée, autres actions
+générées par l'IA : reformuler un titre, déplacer vers un projet, scinder un fourre-tout)
+ne sont pas implémentées et seront abordées après retour d'usage.

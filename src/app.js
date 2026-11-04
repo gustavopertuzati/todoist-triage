@@ -6,8 +6,8 @@
  * Principes :
  * - aucune donnée Todoist n'est accessible sans session ;
  * - le token Todoist reste côté serveur ;
- * - les itérations 1 et 2 sont en lecture seule ; l'itération 3 n'écrit que
- *   lorsqu'une proposition est validée individuellement par l'utilisateur.
+ * - les itérations 1 et 2 sont en lecture seule ; les itérations 3 et 4 n'écrivent
+ *   que lorsqu'une proposition est validée individuellement par l'utilisateur.
  */
 
 const path = require('node:path');
@@ -17,8 +17,10 @@ const { config, checkConfig } = require('./config');
 const auth = require('./auth');
 const { getSnapshot, clearCache } = require('./exportService');
 const { TodoistError } = require('./todoist');
-const { findProposal } = require('./proposals');
+const { findProposal, mergeProposalLists } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
+const { peek: peekAi, findAiProposal, generateAiProposals, clearAiCache } = require('./aiProposals');
+const { AiError } = require('./ai');
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
@@ -236,6 +238,8 @@ function createApp() {
       missing_env: missing,
       app_version: config.appVersion,
       timezone: config.timezone,
+      ai_enabled: config.aiEnabled,
+      ai_model: config.aiModel,
     });
   });
 
@@ -297,10 +301,69 @@ function createApp() {
     asyncHandler(async (req, res) => {
       const force = req.query.refresh === '1';
       const { snapshot, cache } = await getSnapshot({ force });
+
+      // Les propositions de l'IA sont fusionnées si elles ont déjà été générées
+      // (aucun appel au modèle ici : la page reste rapide).
+      const ai = peekAi(snapshot);
+      const merged = mergeProposalLists(snapshot.proposals, ai ? ai.items : [], {
+        maxTotal: config.proposalsMaxTotal,
+      });
+
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         ...snapshot,
+        proposals: merged.items,
+        summary: { ...snapshot.summary, proposals: merged.summary },
+        ai: {
+          enabled: config.aiEnabled,
+          generated: Boolean(ai),
+          generated_at: ai ? new Date(ai.generatedAt).toISOString() : null,
+          summary: ai ? ai.summary : null,
+          model: config.aiModel,
+        },
         meta: { ...snapshot.meta, cache },
+      });
+    })
+  );
+
+  /**
+   * Demande à l'IA de proposer des échéances. Le résultat est mis en cache par
+   * empreinte des données : un rechargement sans changement ne rappelle pas le
+   * modèle. Aucune écriture Todoist n'a lieu ici.
+   */
+  app.post(
+    '/api/proposals/ai',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.aiEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'AI_DISABLED',
+            message: 'L’IA n’est pas configurée sur ce serveur.',
+            hint: 'Ajoute OPENROUTER_API_KEY puis redéploie.',
+          },
+        });
+      }
+
+      const force = req.body?.force === true;
+      const { snapshot } = await getSnapshot({ force: false });
+      const ai = await generateAiProposals(snapshot, { force });
+      const merged = mergeProposalLists(snapshot.proposals, ai.items, {
+        maxTotal: config.proposalsMaxTotal,
+      });
+
+      return res.json({
+        ok: true,
+        cached: ai.cached,
+        ai_summary: ai.summary,
+        items: merged.items,
+        proposals: merged.summary,
+        usage: ai.usage || null,
+        model: ai.model || config.aiModel,
       });
     })
   );
@@ -347,7 +410,7 @@ function createApp() {
       };
 
       const { snapshot } = await getSnapshot({ force: true });
-      const proposal = findProposal(snapshot, id);
+      const proposal = findProposal(snapshot, id) || findAiProposal(snapshot, id);
       if (!proposal) {
         return res.status(409).json({
           error: {
@@ -359,6 +422,7 @@ function createApp() {
 
       const result = await applyProposal({ proposal, overrides });
       clearCache();
+      clearAiCache();
 
       return res.json({
         ok: true,
@@ -392,6 +456,21 @@ function createApp() {
     if (err instanceof ProposalError) {
       return res.status(400).json({
         error: { code: err.code, message: err.message },
+      });
+    }
+
+    if (err instanceof AiError) {
+      const status = err.code === 'AI_TIMEOUT' ? 504 : err.code === 'AI_DISABLED' ? 403 : 502;
+      console.error(`[ia] ${err.code}`);
+      return res.status(status).json({
+        error: {
+          code: err.code,
+          message: err.message,
+          hint:
+            err.code === 'AI_UPSTREAM' || err.code === 'AI_NETWORK'
+              ? 'Réessaie dans un instant ; l’IA a peut-être un souci passager.'
+              : null,
+        },
       });
     }
 

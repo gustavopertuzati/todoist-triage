@@ -73,6 +73,21 @@ const config = {
   // Décalage par défaut proposé pour dater une tâche ancienne sans échéance.
   proposalDueOffsetDays: readInt('PROPOSAL_DUE_OFFSET_DAYS', 7, { min: 0, max: 60 }),
 
+  // Itération 4 : propositions datées par une IA (OpenRouter).
+  // Sans clé, l'app fonctionne normalement en mode règles.
+  openrouterApiKey: (process.env.OPENROUTER_API_KEY || '').trim(),
+  openrouterBaseUrl: (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, ''),
+  aiModel: (process.env.AI_MODEL || 'deepseek/deepseek-v4.1-flash').trim(),
+  aiTimeoutMs: readInt('AI_TIMEOUT_MS', 90000, { min: 5000, max: 300000 }),
+  aiMaxTokens: readInt('AI_MAX_TOKENS', 8000, { min: 1000, max: 32000 }),
+  aiReasoningMaxTokens: readInt('AI_REASONING_MAX_TOKENS', 400, { min: 0, max: 8000 }),
+  aiMaxProposals: readInt('AI_MAX_PROPOSALS', 8, { min: 1, max: 40 }),
+  aiHorizonDays: readInt('AI_HORIZON_DAYS', 120, { min: 7, max: 365 }),
+  aiCacheTtlMs: readInt('AI_CACHE_TTL_MINUTES', 30, { min: 0, max: 1440 }) * 60000,
+  aiEnabled:
+    Boolean((process.env.OPENROUTER_API_KEY || '').trim()) &&
+    (process.env.AI_ENABLED || 'true').toLowerCase() !== 'false',
+
   isProduction: process.env.NODE_ENV === 'production',
 };
 

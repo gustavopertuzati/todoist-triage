@@ -223,6 +223,53 @@ function normalizeDueDate(value) {
   return isValidIsoDate(trimmed) ? trimmed : null;
 }
 
+function summarizeTypes(items) {
+  const byType = {};
+  for (const item of items) byType[item.type] = (byType[item.type] || 0) + 1;
+  return byType;
+}
+
+/**
+ * Fusionne les propositions à règles et celles de l'IA.
+ * Les types couverts par l'IA prennent le pas sur les règles (ex. : l'IA datera
+ * mieux que la règle « tout à la même date »).
+ * @param {object[]} ruleItems
+ * @param {object[]} aiItems
+ * @param {{maxTotal?: number}} options
+ */
+function mergeProposalLists(ruleItems, aiItems, { maxTotal = 0 } = {}) {
+  const rule = Array.isArray(ruleItems) ? ruleItems : [];
+  const ai = Array.isArray(aiItems) ? aiItems : [];
+
+  const aiTypes = new Set(ai.map((proposal) => proposal.type));
+  const combined = [...rule.filter((proposal) => !aiTypes.has(proposal.type)), ...ai];
+
+  const seen = new Set();
+  const unique = [];
+  for (const proposal of combined) {
+    const key = `${proposal.type}:${proposal.target?.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(proposal);
+  }
+
+  unique.sort(
+    (a, b) =>
+      (b.score || 0) - (a.score || 0) ||
+      a.type.localeCompare(b.type) ||
+      String(a.id).localeCompare(String(b.id))
+  );
+
+  const items = maxTotal > 0 ? unique.slice(0, maxTotal) : unique;
+  const truncated = {};
+  if (items.length < unique.length) truncated.total = unique.length - items.length;
+
+  return {
+    items,
+    summary: { total: items.length, by_type: summarizeTypes(items), truncated },
+  };
+}
+
 module.exports = {
   TYPE_META,
   parseChecklist,
@@ -230,4 +277,6 @@ module.exports = {
   buildProposals,
   findProposal,
   normalizeDueDate,
+  targetFromTask,
+  mergeProposalLists,
 };

@@ -18,6 +18,7 @@
     diagnosisFilter: 'all',
     applied: new Map(),
     ignored: new Set(),
+    ai: { status: 'idle', requested: false, summary: null, error: null },
   };
 
   const els = {
@@ -39,6 +40,7 @@
     widgetSummary: document.getElementById('widget-summary'),
     widgetLists: document.getElementById('widget-lists'),
     proposalsCount: document.getElementById('proposals-count'),
+    proposalsAi: document.getElementById('proposals-ai'),
     proposalsNote: document.getElementById('proposals-note'),
     proposalsList: document.getElementById('proposals-list'),
     insights: document.getElementById('insights'),
@@ -290,9 +292,16 @@
     }
 
     try {
+      if (force) {
+        state.ai.requested = false;
+        state.ai.status = 'idle';
+        state.ai.summary = null;
+        state.ai.error = null;
+      }
       const data = await apiJson(`/api/overview${force ? '?refresh=1' : ''}`);
       state.data = data;
       render();
+      maybeRequestAi();
       els.loading.hidden = true;
       els.content.hidden = false;
       if (force && !silent) toast('Données rafraîchies depuis Todoist.', 'ok');
@@ -574,6 +583,7 @@
   }
 
   function renderProposals() {
+    renderProposalsAi();
     const all = Array.isArray(state.data.proposals) ? state.data.proposals : [];
     const summary = state.data.summary.proposals || { total: all.length, truncated: {} };
     const visible = all.filter(
@@ -603,6 +613,93 @@
     for (const proposal of visible) els.proposalsList.append(proposalCard(proposal));
   }
 
+  function renderProposalsAi() {
+    const ai = state.data?.ai;
+    clear(els.proposalsAi);
+    if (!ai?.enabled) {
+      els.proposalsAi.hidden = true;
+      return;
+    }
+
+    const status = state.ai.status;
+    const text = h('span', { class: 'proposals-ai-text' });
+
+    if (status === 'loading') {
+      text.textContent = '🧠 L’IA analyse tes tâches et prépare des échéances…';
+    } else if (status === 'error') {
+      text.textContent = `🧠 IA indisponible : ${state.ai.error || 'erreur inconnue'}.`;
+    } else if (status === 'done') {
+      const count = (state.data.proposals || []).filter((p) => p.source === 'ai').length;
+      const strategy = state.ai.summary ? `Stratégie : ${state.ai.summary} ` : '';
+      text.textContent = count > 0
+        ? `🧠 ${strategy}(${count} échéance(s) proposée(s) par l’IA).`
+        : `🧠 ${strategy}L’IA n’a rien proposé de mieux que les règles.`;
+    } else {
+      text.textContent = '🧠 L’IA peut proposer des échéances plus fines.';
+    }
+
+    els.proposalsAi.append(text);
+
+    if (status === 'done' || status === 'error') {
+      els.proposalsAi.append(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn btn-ghost btn-small',
+            onclick: () => requestAiProposals(true),
+          },
+          'Relancer l’IA'
+        )
+      );
+    }
+
+    els.proposalsAi.hidden = false;
+  }
+
+  function maybeRequestAi() {
+    const ai = state.data?.ai;
+    if (!ai?.enabled || state.ai.requested) return;
+    state.ai.requested = true;
+    if (ai.generated) {
+      state.ai.status = 'done';
+      state.ai.summary = ai.summary || null;
+      renderProposalsAi();
+      return;
+    }
+    requestAiProposals(false);
+  }
+
+  async function requestAiProposals(force) {
+    state.ai.status = 'loading';
+    state.ai.error = null;
+    renderProposalsAi();
+    try {
+      const response = await apiJson('/api/proposals/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ force: Boolean(force) }),
+      });
+      state.ai.status = 'done';
+      state.ai.summary = response.ai_summary || null;
+      state.data.proposals = response.items || [];
+      if (state.data.summary) state.data.summary.proposals = response.proposals;
+      state.data.ai = {
+        ...(state.data.ai || {}),
+        enabled: true,
+        generated: true,
+        summary: response.ai_summary || null,
+        model: response.model || state.data.ai?.model,
+      };
+      renderProposals();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.ai.status = 'error';
+      state.ai.error = error.message || 'Erreur inconnue';
+      renderProposalsAi();
+    }
+  }
+
   function proposalCard(proposal) {
     const typeLabel = PROPOSAL_TYPE_META[proposal.type] || proposal.type;
     const card = h('article', { class: `proposal tone-${proposal.tone}` });
@@ -612,11 +709,13 @@
         'div',
         { class: 'proposal-head' },
         h('span', { class: `proposal-type tone-${proposal.tone}` }, typeLabel),
+        proposal.source === 'ai' ? h('span', { class: 'pill pill-ai' }, 'IA') : null,
         h(
           'div',
           { class: 'proposal-title-wrap' },
           h('span', { class: 'proposal-title' }, proposal.title),
-          h('span', { class: 'proposal-target' }, proposalTargetLabel(proposal.target))
+          h('span', { class: 'proposal-target' }, proposalTargetLabel(proposal.target)),
+          proposal.ai_group ? h('span', { class: 'proposal-group' }, `Thème : ${proposal.ai_group}`) : null
         )
       ),
       h('p', { class: 'proposal-rationale' }, proposal.rationale),
@@ -668,6 +767,8 @@
       });
       state.applied.set(proposal.id, result);
       toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
+      // Le cache IA serveur est vidé après une écriture : on relancera l'analyse.
+      state.ai.requested = false;
       await load({ silent: true });
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;

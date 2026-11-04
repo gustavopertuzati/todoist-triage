@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 3 : propositions validées individuellement, avec écritures vérifiées).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 4 : propositions datées par une IA, validées individuellement).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

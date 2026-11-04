@@ -759,6 +759,42 @@ button:disabled {
   gap: 10px;
 }
 
+.proposals-ai {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+}
+
+.proposals-ai-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-small {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.pill-ai {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.proposal-group {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .proposal {
   padding: 12px 14px;
   border: 1px solid var(--line);
