@@ -194,6 +194,35 @@ Garde-fous de la suppression :
 Implémentation : `src/proposals.js` (`buildCleanupTasks`) pour la détection et
 `src/recycleBin.js` pour la corbeille. La détection de doublons est pure et testée.
 
+## Itération 9 — confort d'usage
+
+Trois ajouts pour un usage plus agréable, notamment sur mobile.
+
+### Tout valider
+Dans un plan du jour, un bouton **« Tout valider (n) »** applique d'un coup toutes les
+propositions en attente de ce jour (ajouts, reports, scissions). Chacune passe par le même
+garde-fou que d'habitude (validation + relecture + corbeille si suppression) ; si l'une
+expire, l'application s'arrête et recharge proprement.
+
+### PWA / appli installable
+L'app est une **PWA** : sur ton téléphone, « Ajouter à l'écran d'accueil » l'installe comme
+une vraie app en plein écran. Un service worker met en cache le « shell » (pages, CSS, JS)
+pour un démarrage rapide et une disponibilité hors-ligne limitée ; les données Todoist et
+la session ne sont **jamais** mises en cache.
+
+- `public/manifest.webmanifest` (nom, icônes, affichage standalone)
+- `public/icon-192.png`, `public/icon-512.png`, `public/apple-touch-icon.png`
+- `public/sw.js` (service worker)
+- Balises `<meta name="mobile-web-app-capable">`, `apple-mobile-web-app-capable`, icône
+  Apple, manifest.
+
+### Récap de la semaine
+Sous le planificateur, un **récap** de la semaine courante : nombre de journées, tâches
+planifiées, jours libres / complets, et le jour le plus chargé — avec un conseil si la
+semaine est dense.
+
+Seuil : aucun (calculé à partir de la charge). Aucune donnée persistée de plus côté serveur.
+
 ## Prérequis
 
 - Node.js **22 ou plus** (testé avec Node 22).
@@ -364,7 +393,7 @@ src/aiProposals.js     condensé, invite, validation et cache des propositions I
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
-public/                CSS et JavaScript navigateur
+public/                CSS, JS, manifest PWA, icônes et service worker
 test/                  tests unitaires (node:test)
 ```
 
@@ -381,8 +410,9 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 8 terminées : export, lecture, diagnostic des projets, planification
-**jour par jour** assistée par une IA, **check-in du jour**, scission des tâches et
-**nettoyage guidé** avec corbeille. Les itérations suivantes (rituel du matin avec
-rattrapage automatique, planificateur de semaine, reformulation des titres, mémoire des
-préférences) ne sont pas implémentées et seront abordées après retour d'usage.
+Itérations 1 à 9 terminées : export, lecture, diagnostic des projets, planification
+**jour par jour** assistée par une IA, **check-in du jour**, scission des tâches,
+**nettoyage guidé** avec corbeille et **confort d'usage** (tout valider, PWA installable,
+récap hebdo). Les itérations suivantes (rituel du matin avec rattrapage automatique,
+planificateur de semaine, reformulation des titres, mémoire des préférences) ne sont pas
+implémentées et seront abordées après retour d'usage.

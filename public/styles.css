@@ -1073,6 +1073,37 @@ button:disabled {
   color: var(--warn);
 }
 
+/* Récap de la semaine */
+.week-recap {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.week-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.week-line {
+  margin-top: 4px;
+  font-size: 13.5px;
+}
+
+.week-note {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 12.5px;
+}
+
 .proposal {
   padding: 12px 14px;
   border: 1px solid var(--line);

@@ -48,6 +48,7 @@
     proposalsCount: document.getElementById('proposals-count'),
     capacity: document.getElementById('capacity'),
     dayPlan: document.getElementById('day-plan'),
+    weekRecap: document.getElementById('week-recap'),
     proposalsNote: document.getElementById('proposals-note'),
     proposalsList: document.getElementById('proposals-list'),
     trash: document.getElementById('trash'),
@@ -366,6 +367,7 @@
     renderKpis(summary);
     renderWidget();
     renderPlanner();
+    renderWeekRecap();
     renderProposals();
     renderTrash();
     renderInsights();
@@ -852,21 +854,29 @@
       els.dayPlan.append(list);
     }
 
-    els.dayPlan.append(
-      h(
-        'div',
-        { class: 'day-actions' },
+    const reviews = h('div', { class: 'day-actions' });
+    const pending = pendingDayItems();
+    if (pending.length > 1) {
+      reviews.append(
         h(
           'button',
-          {
-            type: 'button',
-            class: 'btn btn-ghost btn-small',
-            onclick: () => selectDay(date, { force: true }),
-          },
-          'Nouvelles propositions pour ce jour'
+          { type: 'button', id: 'validate-all-btn', class: 'btn btn-primary', onclick: validateAllDay },
+          `Tout valider (${pending.length})`
         )
+      );
+    }
+    reviews.append(
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn btn-ghost btn-small',
+          onclick: () => selectDay(date, { force: true }),
+        },
+        'Nouvelles propositions pour ce jour'
       )
     );
+    els.dayPlan.append(reviews);
   }
 
   function dayCapacityText(load) {
@@ -875,6 +885,46 @@
     if (load.M) parts.push(`${load.M} moy`);
     if (load.S) parts.push(`${load.S} pti`);
     return `Déjà posé : ${parts.length ? parts.join(' · ') : 'rien'}`;
+  }
+
+  function renderWeekRecap() {
+    const capacity = state.data.capacity;
+    const today = state.data.meta.today;
+    const days = Array.isArray(capacity?.days) ? capacity.days : [];
+    clear(els.weekRecap);
+    if (days.length === 0) {
+      els.weekRecap.hidden = true;
+      return;
+    }
+
+    // Jours restants de la semaine courante : du jour au dimanche (ou +6 jours).
+    const startIndex = days.findIndex((d) => d.date === today);
+    if (startIndex === -1) {
+      els.weekRecap.hidden = true;
+      return;
+    }
+    const week = days.slice(startIndex, startIndex + 7);
+
+    const totalPlanned = week.reduce((sum, d) => sum + d.total, 0);
+    const freeDays = week.filter((d) => d.total === 0).length;
+    const fullDays = week.filter((d) => d.full).length;
+    const biggest = week.reduce((a, b) => (b.total > a.total ? b : a), week[0]);
+
+    els.weekRecap.hidden = false;
+    els.weekRecap.append(
+      h('h3', { class: 'week-title' }, 'Récap de la semaine'),
+      h(
+        'p',
+        { class: 'week-line' },
+        `${week.length} journée(s) · ${totalPlanned} tâche(s) planifiée(s) · ${freeDays} jour(s) libre(s) · ${fullDays} jour(s) complet(s).`
+      ),
+      biggest.total > 0
+        ? h('p', { class: 'week-line' }, `Le jour le plus chargé : ${formatDate(biggest.date)} (${biggest.total} tâche(s)).`)
+        : null,
+      biggest.total > 0 && biggest.full
+        ? h('p', { class: 'week-note' }, 'La semaine est dense : pense au check-in ou au report des journées pleines.')
+        : null
+    );
   }
 
   function renderCheckinForm(date) {
@@ -986,6 +1036,72 @@
     return card;
   }
 
+  /** Applique une proposition (réutilisé par la carte et « Tout valider »). */
+  async function sendApply(proposal, dueDateValue) {
+    const body = {};
+    if (dueDateValue) body.due_date = dueDateValue;
+    return apiJson(`/api/proposals/${encodeURIComponent(proposal.id)}/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Consomme le retour d'une application (maj locale, capacité, render). */
+  function consumeApplied(proposal, result) {
+    state.applied.set(proposal.id, result);
+    if (state.dayPlan) {
+      state.dayPlan.proposals = (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id);
+      state.dayPlan.splits = (state.dayPlan.splits || []).filter((p) => p.id !== proposal.id);
+    }
+    state.data.proposals = (state.data.proposals || []).filter((p) => p.id !== proposal.id);
+
+    const appliedDate = result.effects?.due_date || proposal.action?.due_date;
+    if (proposal.type === 'set_due_date' && proposal.size && appliedDate) {
+      adjustCapacity(appliedDate, proposal.size, +1);
+      if (state.dayPlan && state.dayPlan.date === appliedDate) {
+        state.dayPlan.load[proposal.size] += 1;
+        state.dayPlan.remaining[proposal.size] = Math.max(0, state.dayPlan.remaining[proposal.size] - 1);
+        state.dayPlan.total += 1;
+      }
+    }
+  }
+
+  function pendingDayItems() {
+    const plan = state.dayPlan;
+    const items = [...(plan?.proposals || []), ...(plan?.splits || [])];
+    return items.filter((p) => !state.ignored.has(p.id) && !state.applied.has(p.id));
+  }
+
+  async function validateAllDay() {
+    const items = pendingDayItems();
+    if (items.length === 0) return;
+    const btn = document.getElementById('validate-all-btn');
+    if (btn) btn.disabled = true;
+
+    let done = 0;
+    for (const proposal of items) {
+      try {
+        const result = await sendApply(proposal, proposal.action?.due_date);
+        consumeApplied(proposal, result);
+        done += 1;
+      } catch (error) {
+        if (error.code === 'SESSION_REQUIRED') return;
+        if (error.code === 'PROPOSAL_STALE') {
+          toast('Une proposition a expiré — je recharge la journée.', 'ok');
+          await selectDay(state.selectedDate || state.data.meta.today, { force: true });
+          return;
+        }
+        toast(error.message || 'Application impossible.', 'error');
+        break;
+      }
+    }
+    if (done > 0) toast(`${done} proposition(s) appliquée(s).`, 'ok');
+    renderPlanner();
+    renderProposals();
+    if (btn) btn.disabled = false;
+  }
+
   async function validateProposal(proposal, dateInput, validateBtn, ignoreBtn) {
     validateBtn.disabled = true;
     ignoreBtn.disabled = true;
@@ -993,49 +1109,15 @@
     validateBtn.textContent = 'Application…';
 
     try {
-      const body = {};
-      if (dateInput && dateInput.value) body.due_date = dateInput.value;
-      const result = await apiJson(`/api/proposals/${encodeURIComponent(proposal.id)}/apply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify(body),
-      });
-
-      state.applied.set(proposal.id, result);
+      const result = await sendApply(proposal, dateInput ? dateInput.value : undefined);
+      consumeApplied(proposal, result);
       toast(result.message || 'Proposition appliquée.', result.verified === false ? 'error' : 'ok');
-
-      // Retrait local : pas de rechargement global (les autres cartes restent).
-      if (state.dayPlan) {
-        state.dayPlan.proposals = (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id);
-        state.dayPlan.splits = (state.dayPlan.splits || []).filter((p) => p.id !== proposal.id);
-      }
-      state.data.proposals = (state.data.proposals || []).filter((p) => p.id !== proposal.id);
-
-      const appliedDate = result.effects?.due_date || proposal.action?.due_date;
-      if (proposal.type === 'set_due_date' && proposal.size && appliedDate) {
-        adjustCapacity(appliedDate, proposal.size, +1);
-        if (state.dayPlan && state.dayPlan.date === appliedDate) {
-          state.dayPlan.load[proposal.size] += 1;
-          state.dayPlan.remaining[proposal.size] = Math.max(
-            0,
-            state.dayPlan.remaining[proposal.size] - 1
-          );
-          state.dayPlan.total += 1;
-        }
-      }
-
       renderPlanner();
       renderProposals();
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
       if (error.code === 'PROPOSAL_STALE') {
         toast('Cette proposition a expiré — je recharge la journée.', 'ok');
-        state.dayPlan = state.dayPlan
-          ? {
-              ...state.dayPlan,
-              proposals: (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id),
-            }
-          : null;
         await selectDay(state.selectedDate || state.data.meta.today, { force: true });
         return;
       }
@@ -1853,6 +1935,9 @@
   // Démarrage.
   state.ignored = loadIgnoredProposals();
   state.checkins = loadCheckins();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
   (async () => {
     try {
       const session = await apiJson('/api/session');
