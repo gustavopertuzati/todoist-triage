@@ -28,6 +28,7 @@ const {
   rememberItems,
 } = require('./aiProposals');
 const { generatePreparation, generateDecomposition } = require('./prepare');
+const { generateSubtaskOrder } = require('./subtaskOrder');
 const assistantNotes = require('./assistantNotes');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
@@ -608,6 +609,41 @@ function createApp() {
         ok: true,
         task_id: taskId,
         proposals: result.items,
+        strategy: result.summary || null,
+        cached: Boolean(result.cached),
+        usage: result.usage || null,
+      });
+    })
+  );
+
+  /**
+   * Ordonne logiquement les sous-tâches (tous les niveaux) d'une tâche.
+   * Lecture seule : l'ordre est affiché avec des numéros, rien n'est écrit.
+   */
+  app.post(
+    '/api/tasks/:id/order',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.aiEnabled) {
+        return res.status(403).json({
+          error: { code: 'AI_DISABLED', message: 'L’IA n’est pas configurée sur ce serveur.' },
+        });
+      }
+
+      const taskId = String(req.params.id || '');
+      const force = req.body?.force === true;
+      const { snapshot } = await getSnapshot({ force: false });
+      const result = await generateSubtaskOrder(snapshot, taskId, { force });
+
+      return res.json({
+        ok: true,
+        task_id: taskId,
+        orders: result.orders || {},
+        changed: result.changed || 0,
         strategy: result.summary || null,
         cached: Boolean(result.cached),
         usage: result.usage || null,

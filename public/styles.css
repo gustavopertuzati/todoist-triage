@@ -2313,6 +2313,34 @@ button:disabled {
   letter-spacing: 0.06em;
 }
 
+.task-detail-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 16px 0 8px;
+}
+
+.task-detail-heading-row .task-detail-heading {
+  margin: 0;
+}
+
+.task-detail-order {
+  flex: 0 0 auto;
+  min-width: 1.5em;
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-order {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
 .task-detail-heading:first-child {
   margin-top: 0;
 }

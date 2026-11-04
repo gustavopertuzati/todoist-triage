@@ -18,6 +18,7 @@ const {
   deleteTask,
 } = require('./todoist');
 const { normalizeDueDate } = require('./proposals');
+const { numberedTitle } = require('./prepare');
 const recycleBin = require('./recycleBin');
 
 class ProposalError extends Error {
@@ -151,9 +152,11 @@ async function applyPrepare(proposal) {
   if (items.length === 0) throw new ProposalError('PREP_EMPTY', 'Aucune préparation à créer.');
 
   const created = [];
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     const payload = {
-      content: item.title,
+      // Toujours numérotées dans l'ordre d'exécution, même pour une ancienne
+      // proposition déjà en cache.
+      content: numberedTitle(item.title, index),
       parent_id: proposal.target.id,
     };
     if (proposal.target.project_id) payload.project_id = proposal.target.project_id;

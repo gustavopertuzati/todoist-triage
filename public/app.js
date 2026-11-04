@@ -45,6 +45,10 @@
       error: null,
       strategy: null,
       proposals: [],
+      orders: {},
+      orderSummary: null,
+      orderLoading: false,
+      orderError: null,
     },
   };
 
@@ -580,7 +584,9 @@
 
   function tasksDueOn(date) {
     return activeTasks()
-      .filter((task) => task.due_date === date)
+      // Les préparations et autres sous-tâches restent sous leur parent :
+      // le widget du jour montre les tâches principales, pas chaque morceau.
+      .filter((task) => task.due_date === date && !task.parent_id)
       .sort(
         (a, b) =>
           (b.priority || 0) - (a.priority || 0) ||
@@ -596,7 +602,9 @@
     const dayTasks = tasksDueOn(focusDate);
     const overdue = isToday
       ? tasks
-          .filter((task) => task.is_overdue && task.due_date !== focusDate)
+          .filter(
+            (task) => task.is_overdue && task.due_date !== focusDate && !task.parent_id
+          )
           .sort((a, b) => (b.days_overdue || 0) - (a.days_overdue || 0))
       : [];
     const titleOnly = tasks
@@ -765,6 +773,12 @@
         tools.append(prepareBtn);
       }
       body.append(tools);
+
+      if (task.subtask_count) {
+        body.append(
+          h('span', { class: 'plain-item-meta' }, `${task.subtask_count} sous-tâche(s)`)
+        );
+      }
     }
 
     return h(
@@ -2186,7 +2200,7 @@
       groups.get(key).push(task);
     }
 
-    const renderTask = (task, depth) => {
+    const renderTask = (task, depth, index = 0) => {
       const listItem = h('li', { class: 'task' });
       const row = h('div', { class: `task-row${depth > 0 ? ' is-subtask' : ''}` });
 
@@ -2194,7 +2208,12 @@
 
       const content = h('div', { class: 'task-content' });
       content.append(
-        h('div', { class: 'task-head' }, h('span', { class: 'task-title' }, task.display_title || task.content))
+        h(
+          'div',
+          { class: 'task-head' },
+          depth > 0 ? h('span', { class: 'task-order' }, `${index + 1}.`) : null,
+          h('span', { class: 'task-title' }, task.display_title || task.content)
+        )
       );
 
       const badges = h('div', { class: 'badges' });
@@ -2292,7 +2311,9 @@
       const childTasks = (children.get(task.id) || []).filter(isVisible);
       if (childTasks.length > 0 && depth < 12) {
         const childList = h('ul', { class: 'task-children' });
-        for (const child of childTasks) childList.append(renderTask(child, depth + 1));
+        for (const [childIndex, child] of childTasks.entries()) {
+          childList.append(renderTask(child, depth + 1, childIndex));
+        }
         listItem.append(childList);
       }
       return listItem;
@@ -2422,6 +2443,24 @@
     return (state.data?.tasks || []).filter((task) => task.parent_id === id);
   }
 
+  /** Enfants triés : ordre logique de l'IA s'il existe, sinon ordre Todoist. */
+  function orderedChildrenOf(id) {
+    const children = sortTasks([...childTasksOf(id)]);
+    const order = state.taskDetail.orders ? state.taskDetail.orders[id] : null;
+    if (!Array.isArray(order) || order.length === 0) return children;
+
+    const byId = new Map(children.map((child) => [child.id, child]));
+    const ordered = [];
+    for (const childId of order) {
+      const child = byId.get(childId);
+      if (!child) continue;
+      ordered.push(child);
+      byId.delete(childId);
+    }
+    for (const child of children) if (byId.has(child.id)) ordered.push(child);
+    return ordered;
+  }
+
   function closeTaskDetail() {
     state.taskDetail.open = false;
     els.taskDetail.hidden = true;
@@ -2435,14 +2474,22 @@
       error: null,
       strategy: null,
       proposals: [],
+      orders: {},
+      orderSummary: null,
+      orderLoading: false,
+      orderError: null,
     };
     els.taskDetail.hidden = false;
     renderTaskDetail();
+    // L'ordre logique est calculé automatiquement dès qu'il y a plusieurs
+    // sous-tâches. L'affichage actuel reste visible pendant l'analyse.
+    if (childTasksOf(task.id).length > 1) loadSubtaskOrder(task);
   }
 
-  function renderTaskNode(task, depth) {
+  function renderTaskNode(task, depth, index) {
     const node = h('li', { class: 'task-detail-node' });
     const head = h('div', { class: 'task-detail-node-head' });
+    head.append(h('span', { class: 'task-detail-order' }, `${index + 1}.`));
     const link = h(
       'button',
       { type: 'button', class: 'task-detail-link' },
@@ -2460,14 +2507,43 @@
     node.append(head);
 
     if (depth < 12) {
-      const children = childTasksOf(task.id);
+      const children = orderedChildrenOf(task.id);
       if (children.length > 0) {
         const list = h('ul', { class: 'task-detail-children' });
-        for (const child of children) list.append(renderTaskNode(child, depth + 1));
+        for (const [childIndex, child] of children.entries()) {
+          list.append(renderTaskNode(child, depth + 1, childIndex));
+        }
         node.append(list);
       }
     }
     return node;
+  }
+
+  async function loadSubtaskOrder(task, { force = false } = {}) {
+    if (state.taskDetail.taskId !== task.id) return;
+    state.taskDetail.orderLoading = true;
+    state.taskDetail.orderError = null;
+    renderTaskDetail();
+
+    try {
+      const result = await apiJson(`/api/tasks/${encodeURIComponent(task.id)}/order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ force }),
+      });
+      if (state.taskDetail.taskId !== task.id) return;
+      state.taskDetail.orders = result.orders || {};
+      state.taskDetail.orderSummary = result.strategy || null;
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      if (state.taskDetail.taskId !== task.id) return;
+      state.taskDetail.orderError = error.message || 'Impossible d’ordonner les sous-tâches.';
+    } finally {
+      if (state.taskDetail.taskId === task.id) {
+        state.taskDetail.orderLoading = false;
+        renderTaskDetail();
+      }
+    }
   }
 
   function renderTaskDetail() {
@@ -2491,17 +2567,55 @@
       els.taskDetailBody.append(h('p', { class: 'task-detail-note' }, task.description));
     }
 
-    const children = childTasksOf(task.id);
+    const children = orderedChildrenOf(task.id);
+    const reorderBtn =
+      children.length > 1
+        ? h(
+            'button',
+            { type: 'button', class: 'btn btn-ghost btn-small' },
+            state.taskDetail.orderLoading ? '🧠 Analyse…' : '🧠 Réordonner'
+          )
+        : null;
+    if (reorderBtn) {
+      reorderBtn.disabled = state.taskDetail.orderLoading;
+      reorderBtn.addEventListener('click', () => loadSubtaskOrder(task, { force: true }));
+    }
+
     els.taskDetailBody.append(
-      h('h3', { class: 'task-detail-heading' }, `Sous-tâches (${children.length})`)
+      h(
+        'div',
+        { class: 'task-detail-heading-row' },
+        h('h3', { class: 'task-detail-heading' }, `Sous-tâches (${children.length})`),
+        reorderBtn
+      )
     );
+
+    if (state.taskDetail.orderLoading) {
+      els.taskDetailBody.append(
+        h('p', { class: 'day-status' }, '🧠 Analyse de l’ordre logique de toutes les sous-tâches…')
+      );
+    } else if (state.taskDetail.orderError) {
+      els.taskDetailBody.append(
+        h('p', { class: 'day-status is-error' }, state.taskDetail.orderError)
+      );
+    } else if (state.taskDetail.orderSummary) {
+      els.taskDetailBody.append(
+        h('p', { class: 'day-strategy' }, `🧠 ${state.taskDetail.orderSummary}`)
+      );
+    }
 
     if (children.length > 0) {
       const tree = h('ul', { class: 'task-detail-tree' });
-      for (const child of children) tree.append(renderTaskNode(child, 1));
+      for (const [index, child] of children.entries()) {
+        tree.append(renderTaskNode(child, 1, index));
+      }
       els.taskDetailBody.append(tree);
       els.taskDetailBody.append(
-        h('p', { class: 'fine-print' }, 'Clique une sous-tâche pour ouvrir son propre niveau.')
+        h(
+          'p',
+          { class: 'fine-print' },
+          'Les numéros indiquent l’ordre d’exécution. Clique une sous-tâche pour ouvrir son propre niveau.'
+        )
       );
     } else {
       els.taskDetailBody.append(

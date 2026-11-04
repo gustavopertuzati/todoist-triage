@@ -11,6 +11,8 @@ const {
   buildDecomposeDigest,
   buildDecomposePrompt,
   validateDecomposeResponse,
+  stripOrderPrefix,
+  numberedTitle,
 } = require('../src/prepare');
 
 const TODAY = '2026-11-04';
@@ -132,8 +134,8 @@ test('validatePrepareResponse accepte des préparations datées dans la fenêtre
   assert.equal(proposal.format, 'prepare');
   assert.equal(proposal.action.parent_id, 't1');
   assert.deepEqual(proposal.action.subtasks, [
-    { title: 'Sortir les cartons à descendre', date: '2026-11-05', reason: 'Libère de la place' },
-    { title: 'Préparer la lampe et les sacs', date: '2026-11-07', reason: 'Tout avoir sous la main' },
+    { title: '1. Sortir les cartons à descendre', date: '2026-11-05', reason: 'Libère de la place' },
+    { title: '2. Préparer la lampe et les sacs', date: '2026-11-07', reason: 'Tout avoir sous la main' },
   ]);
   assert.match(proposal.preview, /2 préparation/);
 });
@@ -153,7 +155,7 @@ test('validatePrepareResponse refuse les dates hors fenêtre', () => {
 
   const { items, dropped } = validatePrepareResponse(parsed, task, snapshot, digest);
   assert.equal(dropped, 2);
-  assert.deepEqual(items[0].action.subtasks.map((s) => s.title), ['Bon jour']);
+  assert.deepEqual(items[0].action.subtasks.map((s) => s.title), ['1. Bon jour']);
 });
 
 test('une journée pleine n’empêche pas une préparation (elles sont légères)', () => {
@@ -169,7 +171,7 @@ test('une journée pleine n’empêche pas une préparation (elles sont légère
   const { items, dropped } = validatePrepareResponse(parsed, task, snapshot, digest);
   assert.equal(dropped, 0);
   assert.deepEqual(items[0].action.subtasks.map((s) => s.title), [
-    'Jour plein mais préparation utile',
+    '1. Jour plein mais préparation utile',
   ]);
 });
 
@@ -194,7 +196,7 @@ test('validatePrepareResponse déduplique et ignore les titres trop courts', () 
   };
 
   const { items } = validatePrepareResponse(parsed, task, snapshot, digest);
-  assert.deepEqual(items[0].action.subtasks.map((s) => s.title), ['Préparer les sacs']);
+  assert.deepEqual(items[0].action.subtasks.map((s) => s.title), ['1. Préparer les sacs']);
 });
 
 test('validatePrepareResponse respecte le nombre maximum et la capacité', () => {
@@ -211,7 +213,7 @@ test('validatePrepareResponse respecte le nombre maximum et la capacité', () =>
 
   const { items } = validatePrepareResponse(parsed, task, snapshot, digest);
   assert.equal(items[0].action.subtasks.length, 1);
-  assert.equal(items[0].action.subtasks[0].title, 'Première chose');
+  assert.equal(items[0].action.subtasks[0].title, '1. Première chose');
 });
 
 test('validatePrepareResponse renvoie une liste vide sans préparation valable', () => {
@@ -221,6 +223,12 @@ test('validatePrepareResponse renvoie une liste vide sans préparation valable',
   const { items, dropped } = validatePrepareResponse({ preparations: [] }, task, snapshot, digest);
   assert.deepEqual(items, []);
   assert.equal(dropped, 0);
+});
+
+test('numberedTitle numérote sans jamais doubler le préfixe', () => {
+  assert.equal(numberedTitle('Trier les outils', 0), '1. Trier les outils');
+  assert.equal(numberedTitle('1. Trier les outils', 1), '2. Trier les outils');
+  assert.equal(stripOrderPrefix('3) Ranger les étagères'), 'Ranger les étagères');
 });
 
 test('buildDecomposeDigest liste les sous-tâches existantes', () => {
@@ -263,9 +271,9 @@ test('validateDecomposeResponse crée une proposition de découpage', () => {
   assert.equal(item.type, 'split_task');
   assert.equal(item.action_label, 'Créer les sous-tâches');
   assert.deepEqual(item.action.subtasks, [
-    'Trier les outils',
-    'Descendre les cartons',
-    'Ranger les étagères',
+    '1. Trier les outils',
+    '2. Descendre les cartons',
+    '3. Ranger les étagères',
   ]);
   assert.match(item.preview, /3 sous-tâche/);
 });
@@ -302,7 +310,10 @@ test('validateDecomposeResponse déduplique et exige au moins deux morceaux', ()
     task,
     digest
   );
-  assert.deepEqual(ok.item.action.subtasks, ['Ranger les étagères', 'Passer un coup de balai']);
+  assert.deepEqual(ok.item.action.subtasks, [
+    '1. Ranger les étagères',
+    '2. Passer un coup de balai',
+  ]);
 });
 
 test('validateDecomposeResponse respecte le maximum demandé', () => {
@@ -313,5 +324,5 @@ test('validateDecomposeResponse respecte le maximum demandé', () => {
     task,
     digest
   );
-  assert.deepEqual(item.action.subtasks, ['Premier', 'Deuxième']);
+  assert.deepEqual(item.action.subtasks, ['1. Premier', '2. Deuxième']);
 });

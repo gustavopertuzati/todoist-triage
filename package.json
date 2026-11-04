@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 13 : sous-tâches dans l'explorateur, découpage assisté, nettoyage approfondi).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 14 : ordre logique des sous-tâches, préparations numérotées, widget épuré).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

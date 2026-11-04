@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 13.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 14.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -16,8 +16,9 @@ Todoist surchargé et aide à y voir clair.
 > l'IA (ne plus reproposer, reporter, corriger la taille, reformuler). Une tâche peut aussi
 > être **préparée** : l'IA propose des petites étapes datées avant (ou le jour même de) la
 > tâche. Dans l'**explorateur**, tu ouvres une tâche pour voir **toutes ses sous-tâches**,
-> en ajouter une à la main, et **découper** un dernier niveau en petits morceaux. Un bouton
-> relance un **nettoyage de plus en plus profond**. Un **carnet de notes** en bas à droite
+> en ajouter une à la main, et **découper** un dernier niveau en petits morceaux. Toutes les
+> sous-tâches sont **numérotées dans l'ordre logique d'exécution** calculé par l'IA, à chaque
+> niveau. Un bouton relance un **nettoyage de plus en plus profond**. Un **carnet de notes** en bas à droite
 > garde tes idées d'amélioration pour la prochaine demande sur le projet. Tu **valides ou
 > ignores chaque proposition individuellement**. Tant que tu n'as pas validé, **rien n'est
 > écrit dans Todoist** ; chaque écriture validée est ensuite relue depuis l'API.
@@ -309,6 +310,8 @@ Ce que fait le moteur :
 - refuse une date hors de la fenêtre *aujourd'hui → échéance de la tâche* ;
 - **ne bloque plus sur la capacité 1-3-5** : une préparation est une petite action de
   mise en route, elle peut se poser même si la journée est pleine ;
+- **numérote les préparations** (`1.`, `2.`, `3.`) et les crée **toujours en sous-tâches**
+  de la tâche parente ;
 - plafonne le nombre de préparations (`PREP_MAX_ITEMS`, 3 par défaut) ;
 - ne propose rien pour une tâche qui a déjà des sous-tâches ;
 - répond **« trop tôt »** pour une tâche dont l'échéance dépasse 30 jours : la
@@ -371,6 +374,29 @@ desktop. Les KPI ont 16 px entre eux, les propositions/diagnostics 14 px, les pr
 12 px, et chaque bloc du widget a son propre fond arrondi avec padding. Sur petit écran,
 la page et les panneaux respirent davantage, les boutons de proposition passent à la ligne
 et les formulaires s'empilent.
+
+## Itération 14 — ordre logique des sous-tâches
+
+Quand tu ouvres une tâche (**🗂 Voir**, depuis Explorer ou depuis le widget du jour),
+l'app envoie à l'IA **tout l'arbre** de ses sous-tâches (sous-tâches, sous-sous-tâches,
+etc.). L'IA ordonne les enfants de **chaque niveau** dans l'ordre d'accomplissement :
+prérequis, exécution, puis vérification/clôture.
+
+- Chaque sous-tâche affiche un **numéro** (`1.`, `2.`, `3.`…) à son niveau ;
+- un résumé explique l'ordre choisi ;
+- le bouton **« 🧠 Réordonner »** relance l'analyse ;
+- l'IA ne renomme rien, ne supprime rien et n'écrit rien dans Todoist : elle ne renvoie
+  qu'un ordre d'affichage (cache 30 min).
+
+Route : `POST /api/tasks/:id/order` — implémentation `src/subtaskOrder.js`.
+
+### Préparations et widget
+
+- Les préparations créées sont **toujours des sous-tâches** du parent, **numérotées**
+  dans l'ordre d'exécution (`1. …`, `2. …`, `3. …`).
+- Le **widget du jour n'affiche que les tâches principales** : les préparations et autres
+  sous-tâches ne le polluent plus. Elles restent visibles via **🗂 Voir** sur la tâche
+  parente (avec leur numéro et leur ordre).
 
 ## Carnet « Notes & idées » pour OpenCode
 
@@ -560,6 +586,7 @@ src/applyProposal.js   exécution d'une proposition + vérification via l'API
 src/ai.js              client OpenRouter (appel au modèle)
 src/aiProposals.js     condensé, invite, validation et cache des propositions IA
 src/prepare.js         préparation et découpage assisté d'une tâche (IA)
+src/subtaskOrder.js    ordre logique récursif des sous-tâches (IA)
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
@@ -581,12 +608,13 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 13 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 14 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour**, scission des tâches,
 **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA, récap hebdo),
 **retour adaptatif sur les propositions ignorées** (par type de proposition),
-**préparation des tâches** en sous-étapes datées, **exploration des sous-tâches** avec
-ajout manuel et **découpage assisté**, **nettoyage approfondi progressif** et **carnet de
-notes** persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
-automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
-implémentées et seront abordées après retour d'usage.
+**préparation des tâches** en sous-étapes datées et **numérotées**, **exploration des
+sous-tâches** avec ajout manuel et **découpage assisté**, **ordre logique récursif** des
+sous-tâches, **nettoyage approfondi progressif** et **carnet de notes** persistant pour
+OpenCode. Les itérations suivantes (rituel du matin avec rattrapage automatique,
+planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées et
+seront abordées après retour d'usage.

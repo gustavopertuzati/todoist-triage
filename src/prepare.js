@@ -34,6 +34,19 @@ function hashId(parts) {
   return crypto.createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12);
 }
 
+/** Retire un éventuel préfixe « 1. » / « 2) » pour ne jamais le doubler. */
+function stripOrderPrefix(value) {
+  return String(value || '')
+    .replace(/^\s*\d+[.)]\s*/, '')
+    .trim();
+}
+
+/** Numérote une sous-tâche selon sa position d'exécution. */
+function numberedTitle(value, index) {
+  const clean = stripOrderPrefix(value);
+  return `${index + 1}. ${clean}`;
+}
+
 function signatureOf(value) {
   return crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex');
 }
@@ -65,7 +78,10 @@ function buildPrepareDigest(task, snapshot, { maxPrep = 3 } = {}) {
 
   const existing = snapshot.tasks
     .filter((item) => item.parent_id === task.id)
-    .map((item) => ({ title: String(item.display_title || item.content || '').slice(0, 80), date: item.due_date || null }));
+    .map((item) => ({
+      title: stripOrderPrefix(item.display_title || item.content || '').slice(0, 80),
+      date: item.due_date || null,
+    }));
 
   return {
     today,
@@ -123,7 +139,7 @@ function validatePrepareResponse(parsed, task, snapshot, digest) {
   const today = snapshot.meta.today;
   const target = digest.task.date;
   const existing = new Set(
-    (digest.task.existing_subtasks || []).map((s) => normalizeTitle(s.title))
+    (digest.task.existing_subtasks || []).map((s) => normalizeTitle(stripOrderPrefix(s.title)))
   );
 
   const raw = Array.isArray(parsed?.preparations) ? parsed.preparations : [];
@@ -132,9 +148,9 @@ function validatePrepareResponse(parsed, task, snapshot, digest) {
 
   for (const entry of raw) {
     if (subtasks.length >= digest.max_prep) break;
-    const title = String(entry?.title || '').trim().slice(0, 160);
-    if (title.length < 3) continue;
-    const normalized = normalizeTitle(title);
+    const cleanTitle = stripOrderPrefix(entry?.title).slice(0, 160);
+    if (cleanTitle.length < 3) continue;
+    const normalized = normalizeTitle(cleanTitle);
     if (!normalized || seen.has(normalized)) continue;
 
     const date = String(entry?.date || '').trim();
@@ -142,7 +158,11 @@ function validatePrepareResponse(parsed, task, snapshot, digest) {
     if (!isValidIsoDate(date) || date < today || date > windowEnd) continue;
 
     seen.add(normalized);
-    subtasks.push({ title, date, reason: String(entry?.reason || '').trim().slice(0, 200) || null });
+    subtasks.push({
+      title: numberedTitle(cleanTitle, subtasks.length),
+      date,
+      reason: String(entry?.reason || '').trim().slice(0, 200) || null,
+    });
   }
 
   if (subtasks.length === 0) return { items: [], dropped: raw.length };
@@ -259,7 +279,7 @@ let decomposeCache = new Map();
 function buildDecomposeDigest(task, snapshot, { maxItems = 5 } = {}) {
   const existing = snapshot.tasks
     .filter((item) => item.parent_id === task.id)
-    .map((item) => String(item.display_title || item.content || '').slice(0, 120));
+    .map((item) => stripOrderPrefix(item.display_title || item.content || '').slice(0, 120));
 
   return {
     today: snapshot.meta.today,
@@ -298,19 +318,21 @@ function buildDecomposePrompt(digest) {
 
 function validateDecomposeResponse(parsed, task, digest) {
   const raw = Array.isArray(parsed?.subtasks) ? parsed.subtasks : [];
-  const existing = new Set((digest.task.existing_subtasks || []).map(normalizeTitle));
+  const existing = new Set(
+    (digest.task.existing_subtasks || []).map((title) => normalizeTitle(stripOrderPrefix(title)))
+  );
   const seen = new Set([...existing].filter(Boolean));
   const titles = [];
 
   for (const entry of raw) {
     if (titles.length >= digest.max_items) break;
     const value = typeof entry === 'string' ? entry : entry?.title;
-    const title = String(value || '').trim().slice(0, 160);
-    if (title.length < 3) continue;
-    const normalized = normalizeTitle(title);
+    const cleanTitle = stripOrderPrefix(value).slice(0, 160);
+    if (cleanTitle.length < 3) continue;
+    const normalized = normalizeTitle(cleanTitle);
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
-    titles.push(title);
+    titles.push(numberedTitle(cleanTitle, titles.length));
   }
 
   // Un découpage d'un seul morceau n'apporte rien.
@@ -402,6 +424,8 @@ async function generateDecomposition(snapshot, taskId, { force = false } = {}) {
 module.exports = {
   SYSTEM_PROMPT,
   DECOMPOSE_SYSTEM_PROMPT,
+  stripOrderPrefix,
+  numberedTitle,
   prepWindow,
   buildPrepareDigest,
   buildPreparePrompt,
