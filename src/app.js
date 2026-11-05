@@ -669,8 +669,15 @@ function createApp() {
 
       const checkin = normalizeCheckin(req.body?.checkin);
       const force = req.body?.force === true;
+      const exclude = Array.isArray(req.body?.exclude)
+        ? req.body.exclude.map((title) => String(title)).slice(0, 80)
+        : [];
       const { snapshot } = await getSnapshot({ force: false });
-      const result = await generateTaskSuggestions(snapshot, date, { checkin, force });
+      const result = await generateTaskSuggestions(snapshot, date, {
+        checkin,
+        force,
+        exclude,
+      });
 
       return res.json({
         ok: true,

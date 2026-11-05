@@ -51,6 +51,8 @@
     daySuggestions: [],
     suggestionsLoading: false,
     suggestionsError: null,
+    suggestionsStrategy: null,
+    suggestionHistory: {},
     reminderPlans: {},
     remindersBusy: false,
     reminderSyncTimer: null,
@@ -1196,6 +1198,103 @@
     }
   }
 
+  function planMetaFor(task, proposal = null) {
+    const title = String(
+      task?.display_title || task?.content || proposal?.action?.content || proposal?.title || ''
+    ).slice(0, 160);
+    const size = proposal?.size || 'M';
+    const minutes = { L: 60, M: 30, S: 15 }[size] || 30;
+    const haystack = `${title} ${(task?.labels || []).join(' ')}`;
+    const context = /\b(appel|appeler|t[ée]l[ée]phone|tel|phone|sms|whatsapp)\b/i.test(haystack)
+      ? 'phone'
+      : /\b(ordi|ordinateur|computer|mail|email|excel|word|code|dev|site|web)\b/i.test(haystack)
+        ? 'computer'
+        : 'other';
+    const priority = Math.min(4, Math.max(1, Number(task?.priority || proposal?.action?.priority) || 1));
+    return {
+      id: String(task?.id || proposal?.target?.id || ''),
+      title,
+      priority,
+      priority_label: task?.priority_label || `P${5 - priority}`,
+      size,
+      minutes,
+      context,
+      overdue: Boolean(task?.is_overdue),
+      is_prep: false,
+      parent_title: null,
+    };
+  }
+
+  /** Ajoute une tâche en bas du plan figé (si la journée est déjà organisée). */
+  function addTaskToDayPlan(date, taskId, meta) {
+    if (!date || !taskId) return false;
+    const plan = restoreDayPlan(date);
+    if (!plan || !plan.data) return false;
+    const data = plan.data;
+    const settings = data.schedule || state.scheduleSettings;
+    const itemMeta = meta || {};
+
+    let added = false;
+    data.variants = (data.variants || []).map((variant) => {
+      if (!(variant.items || []).some((item) => item.id === taskId)) {
+        variant.items = [
+          ...(variant.items || []),
+          {
+            id: String(taskId),
+            title: itemMeta.title || '',
+            start: '',
+            end: '',
+            minutes: itemMeta.minutes || 30,
+            context: itemMeta.context || 'other',
+            overflow: false,
+          },
+        ];
+        added = true;
+      }
+      recalcVariant(variant, settings);
+      return variant;
+    });
+    if (!added) return false;
+
+    if (!(data.tasks || []).some((task) => task.id === String(taskId))) {
+      data.tasks = [
+        ...(data.tasks || []),
+        {
+          id: String(taskId),
+          title: itemMeta.title || '',
+          priority_label: itemMeta.priority_label || 'P4',
+          size: itemMeta.size || 'M',
+          minutes: itemMeta.minutes || 30,
+          context: itemMeta.context || 'other',
+          overdue: Boolean(itemMeta.overdue),
+          is_prep: Boolean(itemMeta.is_prep),
+          parent_title: itemMeta.parent_title || null,
+        },
+      ];
+    }
+    data.execution = [
+      ...(data.execution || []),
+      {
+        id: String(taskId),
+        why: null,
+        minutes: itemMeta.minutes || 30,
+        context: itemMeta.context || 'other',
+      },
+    ];
+    data.priority = [...new Set([...(data.priority || []), String(taskId)])];
+
+    saveDayPlan(date, data, plan.variant);
+    if (state.dayOrder.data?.date === date) {
+      state.dayOrder.data = data;
+      state.dayOrder.variant = plan.variant;
+      renderDayOrder();
+    }
+    const activeVariant =
+      data.variants.find((variant) => variant.key === plan.variant) || data.variants[0];
+    if (activeVariant) scheduleReminderSync(date, activeVariant, settings);
+    return true;
+  }
+
   function moveDayOrderItem(index, delta) {
     const data = state.dayOrder.data;
     if (!data) return;
@@ -1680,6 +1779,7 @@
     state.dayError = null;
     state.daySuggestions = [];
     state.suggestionsError = null;
+    state.suggestionsStrategy = null;
 
     // On restaure le plan enregistré : la liste reste fixe tant que
     // l'utilisateur ne clique pas sur « Réorganiser ».
@@ -1724,12 +1824,30 @@
     renderDayPlan();
 
     try {
+      const history = Array.isArray(state.suggestionHistory[date])
+        ? state.suggestionHistory[date]
+        : [];
+      const exclude = [
+        ...new Set([...history, ...state.daySuggestions.map((item) => item.title)]),
+      ];
       const result = await apiJson('/api/day/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, checkin: getCheckin(date) }),
+        body: JSON.stringify({
+          date,
+          checkin: getCheckin(date),
+          exclude,
+          force: true,
+        }),
       });
       state.daySuggestions = Array.isArray(result.proposals) ? result.proposals : [];
+      state.suggestionsStrategy = result.strategy || null;
+      state.suggestionHistory[date] = [
+        ...new Set([
+          ...history,
+          ...state.daySuggestions.map((item) => item.title),
+        ]),
+      ].slice(-50);
       state.suggestionsLoading = false;
       renderDayPlan();
       toast(
@@ -1943,6 +2061,10 @@
     } else if (state.suggestionsError) {
       els.dayPlan.append(
         h('p', { class: 'day-status is-error' }, state.suggestionsError)
+      );
+    } else if (state.daySuggestions.length === 0 && state.suggestionsStrategy) {
+      els.dayPlan.append(
+        h('p', { class: 'empty-line' }, state.suggestionsStrategy)
       );
     } else if (state.daySuggestions.length > 0) {
       const suggestions = state.daySuggestions.filter(
@@ -2506,7 +2628,31 @@
         proposal.type === 'delete_task';
       if (leavesDay) {
         removeTaskFromDayPlan(planDate, proposal.target.id);
+      } else if (
+        ['set_due_date', 'reschedule_overdue'].includes(proposal.type) &&
+        newDueDate === planDate
+      ) {
+        const task = (state.data?.tasks || []).find(
+          (item) => item.id === proposal.target.id
+        );
+        addTaskToDayPlan(
+          planDate,
+          proposal.target.id,
+          planMetaFor(task, proposal)
+        );
       }
+    }
+
+    if (
+      proposal.type === 'create_task' &&
+      result.effects?.created &&
+      newDueDate === planDate
+    ) {
+      addTaskToDayPlan(
+        planDate,
+        result.effects.created,
+        planMetaFor(null, proposal)
+      );
     }
     if (state.dayPlan) {
       state.dayPlan.proposals = (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id);

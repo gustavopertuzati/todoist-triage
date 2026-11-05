@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 24.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 25.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -712,6 +712,28 @@ Quand une tâche issue d'une suggestion est créée, une ligne est ajoutée dans
 du conteneur est éphémère : la progression peut être perdue à un redéploiement. Le
 fichier local reste la référence pour l'agent.
 
+## Itération 25 — suggestions multiples et ajout en bas du plan
+
+### Plusieurs suggestions, sans doublons
+
+- Le générateur fait maintenant jusqu'à **deux passes** : si l'IA ne rend qu'une ou deux
+  idées, elle est relancée en excluant celles déjà proposées.
+- Le client envoie la liste des titres **déjà suggérés/acceptés** (`exclude`) : les
+  relances proposent donc de nouvelles tâches au lieu de répéter les mêmes.
+- Les suggestions restent variées (iTheorie, calories, sport, n8n, AWS, JobOps, plantes…)
+  et peuvent viser aujourd'hui ou les 30 prochains jours.
+
+### Ajout automatique en bas du plan
+
+Quand une proposition **place** une tâche sur le jour sélectionné (ou crée une nouvelle
+tâche pour ce jour) :
+
+- si la journée a déjà un **plan organisé**, la tâche est ajoutée **en bas** de la liste ;
+- tous les horaires sont recalculés (pauses/déjeuner inclus) et le plan est sauvegardé ;
+- les rappels actifs sont resynchronisés ;
+- si la journée n'a pas encore été organisée, aucun plan n'est créé : la tâche reste
+  simplement dans Todoist.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -931,7 +953,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 24 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 25 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

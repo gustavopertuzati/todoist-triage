@@ -40,6 +40,9 @@ function buildSuggestPrompt(digest, maxTasks) {
     '"due_soon", "tasks", "checkin" et "can_add".',
     '',
     'Règles :',
+    '- Propose plusieurs idées différentes (au moins 3 si possible), pas une seule.',
+    '- Varie les objectifs/projets quand c’est pertinent.',
+    '- Ne propose pas les titres listés dans "exclude" (déjà suggérés ou créés).',
     '- Chaque tâche doit faire avancer un projet/objectif réel de "life_context", pas une tâche générique.',
     '- Ajoute "life_area" : le nom exact du projet/objectif de life_context concerné',
     '  (ex. « Étudier AWS Developer Associate », « Suivi calorique », « n8n »).',
@@ -53,6 +56,9 @@ function buildSuggestPrompt(digest, maxTasks) {
     '- Priorité 1 (P1) à 4 (P4) ; taille L, M ou S.',
     '- Si un projet est bloqué, propose une petite action qui débloque concrètement.',
     '- Évite les tâches de communication personnelle non demandées (mail, WhatsApp, appels).',
+    digest.exclude?.length
+      ? `- À NE PAS PROPOSER (déjà suggérées/créées) : ${digest.exclude.join(' ; ')}.`
+      : '',
     '',
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase courte expliquant tes suggestions",',
@@ -64,7 +70,7 @@ function buildSuggestPrompt(digest, maxTasks) {
   ].join('\n');
 }
 
-function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3) {
+function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3, exclude = []) {
   const activeProjects = (snapshot.projects || []).filter((project) => !project.is_archived);
   const projectById = new Map(activeProjects.map((project) => [project.id, project]));
   const existingTitles = new Set(
@@ -95,6 +101,11 @@ function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3) {
     return room;
   };
 
+  const excluded = new Set(
+    (Array.isArray(exclude) ? exclude : [])
+      .map((title) => normalizeTitle(title))
+      .filter(Boolean)
+  );
   const raw = Array.isArray(parsed?.tasks) ? parsed.tasks : [];
   const items = [];
   const seen = new Set();
@@ -104,7 +115,14 @@ function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3) {
     const title = String(entry?.title || '').trim().slice(0, 160);
     if (title.length < 3) continue;
     const normalized = normalizeTitle(title);
-    if (!normalized || existingTitles.has(normalized) || seen.has(normalized)) continue;
+    if (
+      !normalized ||
+      existingTitles.has(normalized) ||
+      excluded.has(normalized) ||
+      seen.has(normalized)
+    ) {
+      continue;
+    }
 
     const project = projectById.get(String(entry?.project_id || ''));
     if (!project) continue;
@@ -179,15 +197,22 @@ function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3) {
 async function generateTaskSuggestions(
   snapshot,
   date,
-  { checkin = null, force = false } = {}
+  { checkin = null, force = false, exclude = [] } = {}
 ) {
   if (!config.aiEnabled) {
     throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
   }
 
+  const cleanExclude = [...new Set(
+    (Array.isArray(exclude) ? exclude : [])
+      .map((title) => String(title || '').trim())
+      .filter(Boolean)
+  )].slice(0, 80);
+
   const digest = {
     ...buildDayDigest(snapshot, date, normalizeCheckin(checkin)),
     life_context: readLifeContext(),
+    exclude: cleanExclude,
   };
   const signature = signatureOf(digest);
   const cached = cache.get(String(date));
@@ -198,28 +223,71 @@ async function generateTaskSuggestions(
 
   if (fresh && !force) return { ...cached, cached: true };
 
-  const { data, usage, model } = await chatJson({
+  const first = await chatJson({
     system: SYSTEM_PROMPT,
     user: buildSuggestPrompt(digest, config.aiMaxNewTasks),
   });
 
-  const { items, summary, dropped } = validateTaskSuggestions(
-    data,
+  const firstValidation = validateTaskSuggestions(
+    first.data,
     snapshot,
     date,
     digest,
-    config.aiMaxNewTasks
+    config.aiMaxNewTasks,
+    cleanExclude
   );
 
-  let finalSummary = summary;
+  let candidates = Array.isArray(first.data?.tasks) ? first.data.tasks : [];
+  let summary = firstValidation.summary;
+  let second = null;
+
+  // Le modèle s'arrête parfois à une seule idée : on relance une fois en lui
+  // demandant explicitement de compléter avec d'autres tâches.
+  if (firstValidation.items.length < Math.min(3, config.aiMaxNewTasks)) {
+    const already = [
+      ...cleanExclude,
+      ...firstValidation.items.map((item) => item.title),
+    ];
+    const complementDigest = { ...digest, exclude: already };
+    try {
+      second = await chatJson({
+        system: SYSTEM_PROMPT,
+        user: buildSuggestPrompt(complementDigest, config.aiMaxNewTasks),
+      });
+      if (Array.isArray(second.data?.tasks)) {
+        candidates = [...candidates, ...second.data.tasks];
+      }
+      if (second.data?.summary) summary = second.data.summary;
+    } catch (error) {
+      console.warn('[suggestions] complément impossible :', error?.code || error?.message);
+    }
+  }
+
+  const { items, summary: validatedSummary, dropped } = validateTaskSuggestions(
+    { ...first.data, tasks: candidates },
+    snapshot,
+    date,
+    digest,
+    config.aiMaxNewTasks,
+    cleanExclude
+  );
+
+  let finalSummary = summary || validatedSummary;
   if (items.length === 0 && !finalSummary) {
-    finalSummary = 'Rien de pertinent à créer pour cette journée.';
+    finalSummary = 'Aucune nouvelle tâche pertinente trouvée pour l’instant.';
   }
   if (dropped > 0 && items.length > 0) {
     finalSummary = `${finalSummary ? `${finalSummary} ` : ''}(${dropped} suggestion(s) écartée(s).)`;
   }
 
-  const entry = { signature, items, summary: finalSummary, generatedAt: Date.now(), usage, model };
+  const entry = {
+    signature,
+    items,
+    summary: finalSummary,
+    generatedAt: Date.now(),
+    usage: first.usage,
+    model: first.model,
+  };
   cache.set(String(date), entry);
   if (items.length > 0) rememberItems(items);
 
