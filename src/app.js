@@ -501,12 +501,18 @@ function createApp() {
       }
 
       const force = req.body?.force === true;
+      const schedule = {
+        phoneStart: req.body?.phoneStart,
+        otherStart: req.body?.otherStart,
+        end: req.body?.end,
+      };
       const { snapshot } = await getSnapshot({ force: false });
-      const result = await generateDayOrder(snapshot, date, { force });
+      const result = await generateDayOrder(snapshot, date, { force, schedule });
 
       return res.json({
         ok: true,
         date,
+        schedule: result.schedule,
         tasks: result.tasks,
         priority: result.priority,
         execution: result.execution,
@@ -546,8 +552,13 @@ function createApp() {
         });
       }
 
+      const schedule = {
+        phoneStart: req.body?.phoneStart,
+        otherStart: req.body?.otherStart,
+        end: req.body?.end,
+      };
       const { snapshot } = await getSnapshot({ force: false });
-      const order = await generateDayOrder(snapshot, date, { force: false });
+      const order = await generateDayOrder(snapshot, date, { force: false, schedule });
       const variants = order.variants || [];
       const variant =
         variants.find((item) => item.key === req.body?.variant) || variants[0] || null;

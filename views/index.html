@@ -99,6 +99,20 @@
             <span class="pill pill-readonly">Lecture seule</span>
           </div>
           <div class="widget-tools">
+            <div class="day-hours" aria-label="Horaires de la journée">
+              <label class="day-hour">
+                <span>Début tél.</span>
+                <input id="day-start" type="time" value="09:00" step="300" />
+              </label>
+              <label class="day-hour">
+                <span>Début autres</span>
+                <input id="day-other-start" type="time" value="11:00" step="300" />
+              </label>
+              <label class="day-hour">
+                <span>Fin</span>
+                <input id="day-end" type="time" value="17:00" step="300" />
+              </label>
+            </div>
             <button id="day-order-btn" class="btn btn-secondary btn-small" type="button">
               🔀 Réorganiser la journée
             </button>

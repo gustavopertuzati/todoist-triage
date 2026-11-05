@@ -74,6 +74,36 @@ function formatMinutes(total) {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }
 
+function parseTime(value, fallback) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ''));
+  if (!match) return fallback;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return fallback;
+  return hours * 60 + minutes;
+}
+
+/** Normalise les horaires reçus du client (HH:MM). */
+function normalizeSchedule(input = {}) {
+  const rawPhone = parseTime(input.phoneStart ?? input.start, 9 * 60);
+  const rawOther = parseTime(input.otherStart, 11 * 60);
+  const rawEnd = parseTime(input.end, 17 * 60);
+
+  let phoneStart = rawPhone;
+  let end = rawEnd;
+  if (phoneStart >= end) phoneStart = 9 * 60;
+  if (end <= phoneStart) end = 17 * 60;
+
+  let otherStart = Math.max(rawOther, phoneStart);
+  if (otherStart >= end) otherStart = Math.max(phoneStart, end - 60);
+
+  return {
+    phoneStart: formatMinutes(phoneStart),
+    otherStart: formatMinutes(otherStart),
+    end: formatMinutes(end),
+  };
+}
+
 let cache = new Map(); // date -> { signature, tasks, priority, execution, summary, ... }
 
 function signatureOf(value) {
@@ -143,9 +173,10 @@ function priorityOrder(tasks) {
   );
 }
 
-function buildDayOrderDigest(tasks, date) {
+function buildDayOrderDigest(tasks, date, schedule = null) {
   return {
     date,
+    schedule: normalizeSchedule(schedule || {}),
     tasks: tasks.map((task) => ({
       id: task.id,
       title: task.title,
@@ -243,15 +274,13 @@ function validateOrderResponse(parsed, tasks) {
   };
 }
 
-const DAY_END = 17 * 60;
-
-function scheduleVariant(key, label, ordered, { phoneStart, otherStart }) {
+function scheduleVariant(key, label, ordered, { phoneStart, otherStart, dayEnd }) {
   const phoneMinutes = ordered
     .filter((task) => task.context === 'phone')
     .reduce((sum, task) => sum + task.minutes, 0);
   let phoneCursor = phoneStart;
-  // Les tâches non-téléphone ne commencent jamais avant 11h ni avant la fin
-  // réelle des tâches téléphone, pour éviter les chevauchements.
+  // Les tâches non-téléphone ne commencent jamais avant leur horaire ni avant
+  // la fin réelle des tâches téléphone, pour éviter les chevauchements.
   let otherCursor = Math.max(otherStart, phoneStart + phoneMinutes);
   let overflow = 0;
   const items = [];
@@ -265,7 +294,7 @@ function scheduleVariant(key, label, ordered, { phoneStart, otherStart }) {
     if (phone) phoneCursor = end;
     else otherCursor = end;
 
-    const over = Math.max(0, end - DAY_END);
+    const over = Math.max(0, end - dayEnd);
     overflow += over;
     starts.push(start);
     ends.push(end);
@@ -292,8 +321,13 @@ function scheduleVariant(key, label, ordered, { phoneStart, otherStart }) {
 }
 
 /** Trois planifications + une variante décalée (ordre et heure de départ). */
-function buildScheduleVariants(tasks, execution) {
+function buildScheduleVariants(tasks, execution, options = {}) {
   if (tasks.length === 0) return [];
+  const schedule = normalizeSchedule(options);
+  const phoneStart = parseTime(schedule.phoneStart, 9 * 60);
+  const otherStart = parseTime(schedule.otherStart, 11 * 60);
+  const dayEnd = parseTime(schedule.end, 17 * 60);
+
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const executionTasks = execution
     .map((entry) => byId.get(entry.id))
@@ -308,25 +342,30 @@ function buildScheduleVariants(tasks, execution) {
 
   return [
     scheduleVariant('equilibre', 'Exécution', executionTasks, {
-      phoneStart: 9 * 60,
-      otherStart: 11 * 60,
+      phoneStart,
+      otherStart,
+      dayEnd,
     }),
     scheduleVariant('priorite', 'Priorité', priorityTasks, {
-      phoneStart: 9 * 60,
-      otherStart: 11 * 60,
+      phoneStart,
+      otherStart,
+      dayEnd,
     }),
     scheduleVariant('court', 'Courtes d’abord', shortTasks, {
-      phoneStart: 9 * 60,
-      otherStart: 11 * 60,
+      phoneStart,
+      otherStart,
+      dayEnd,
     }),
     scheduleVariant('decale', 'Départ décalé', executionTasks, {
-      phoneStart: 10 * 60,
-      otherStart: 11 * 60 + 30,
+      phoneStart: Math.min(phoneStart + 60, dayEnd - 60),
+      otherStart: Math.min(otherStart + 30, dayEnd - 30),
+      dayEnd,
     }),
   ];
 }
 
-async function generateDayOrder(snapshot, date, { force = false } = {}) {
+async function generateDayOrder(snapshot, date, { force = false, schedule = null } = {}) {
+  const normalizedSchedule = normalizeSchedule(schedule || {});
   const tasks = listDayTasks(snapshot, date);
   const priority = priorityOrder(tasks).map((task) => task.id);
   const fallbackExecution = priority.map((id) => {
@@ -346,6 +385,7 @@ async function generateDayOrder(snapshot, date, { force = false } = {}) {
       priority,
       execution: [],
       variants: [],
+      schedule: normalizedSchedule,
       changed: 0,
       summary: 'Aucune tâche prévue ce jour-là.',
       cached: false,
@@ -359,7 +399,8 @@ async function generateDayOrder(snapshot, date, { force = false } = {}) {
       tasks,
       priority,
       execution: fallbackExecution,
-      variants: buildScheduleVariants(tasks, fallbackExecution),
+      variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
+      schedule: normalizedSchedule,
       changed: 0,
       summary: 'IA désactivée : ordre de priorité utilisé.',
       cached: false,
@@ -367,7 +408,7 @@ async function generateDayOrder(snapshot, date, { force = false } = {}) {
     };
   }
 
-  const digest = buildDayOrderDigest(tasks, date);
+  const digest = buildDayOrderDigest(tasks, date, normalizedSchedule);
   const signature = signatureOf(digest);
   const cached = cache.get(String(date));
   const fresh =
@@ -396,7 +437,8 @@ async function generateDayOrder(snapshot, date, { force = false } = {}) {
       tasks,
       priority,
       execution: fallbackExecution,
-      variants: buildScheduleVariants(tasks, fallbackExecution),
+      variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
+      schedule: normalizedSchedule,
       changed: 0,
       summary: 'IA indisponible : ordre de priorité utilisé.',
       cached: false,
@@ -413,7 +455,7 @@ async function generateDayOrder(snapshot, date, { force = false } = {}) {
     task.minutes = item.minutes;
     task.context = item.context;
   }
-  const variants = buildScheduleVariants(tasks, execution);
+  const variants = buildScheduleVariants(tasks, execution, normalizedSchedule);
   const entry = {
     signature,
     date,
@@ -421,6 +463,7 @@ async function generateDayOrder(snapshot, date, { force = false } = {}) {
     priority,
     execution,
     variants,
+    schedule: normalizedSchedule,
     changed,
     summary: summary || 'Ordre proposé selon les priorités et les dépendances.',
     generatedAt: Date.now(),
@@ -443,6 +486,7 @@ module.exports = {
   buildDayOrderDigest,
   buildOrderPrompt,
   validateOrderResponse,
+  normalizeSchedule,
   buildScheduleVariants,
   estimateMinutes,
   detectContext,

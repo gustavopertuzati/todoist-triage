@@ -48,6 +48,8 @@
     },
     reminderPlans: {},
     remindersBusy: false,
+    scheduleSettings: { phoneStart: '09:00', otherStart: '11:00', end: '17:00' },
+    scheduleTimer: null,
     taskDetail: {
       open: false,
       taskId: null,
@@ -82,7 +84,11 @@
     widgetSummary: document.getElementById('widget-summary'),
     widgetLists: document.getElementById('widget-lists'),
     dayOrderBtn: document.getElementById('day-order-btn'),
+    dayOrderHint: document.getElementById('day-order-hint'),
     dayOrder: document.getElementById('day-order'),
+    dayStart: document.getElementById('day-start'),
+    dayOtherStart: document.getElementById('day-other-start'),
+    dayEnd: document.getElementById('day-end'),
     proposalsCount: document.getElementById('proposals-count'),
     capacity: document.getElementById('capacity'),
     dayPlan: document.getElementById('day-plan'),
@@ -172,6 +178,44 @@
   }
   const IGNORED_KEY = 'todoist-triage:ignored-proposals';
   const REMINDERS_KEY = 'todoist-triage:reminders';
+  const SCHEDULE_KEY = 'todoist-triage:schedule';
+
+  function loadScheduleSettings() {
+    const fallback = { phoneStart: '09:00', otherStart: '11:00', end: '17:00' };
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SCHEDULE_KEY) || '{}');
+      return {
+        phoneStart: /^\d{2}:\d{2}$/.test(parsed.phoneStart) ? parsed.phoneStart : fallback.phoneStart,
+        otherStart: /^\d{2}:\d{2}$/.test(parsed.otherStart) ? parsed.otherStart : fallback.otherStart,
+        end: /^\d{2}:\d{2}$/.test(parsed.end) ? parsed.end : fallback.end,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  function saveScheduleSettings() {
+    try {
+      localStorage.setItem(SCHEDULE_KEY, JSON.stringify(state.scheduleSettings));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function syncScheduleInputs() {
+    if (els.dayStart) els.dayStart.value = state.scheduleSettings.phoneStart;
+    if (els.dayOtherStart) els.dayOtherStart.value = state.scheduleSettings.otherStart;
+    if (els.dayEnd) els.dayEnd.value = state.scheduleSettings.end;
+  }
+
+  function readScheduleInputs() {
+    state.scheduleSettings = {
+      phoneStart: els.dayStart?.value || '09:00',
+      otherStart: els.dayOtherStart?.value || '11:00',
+      end: els.dayEnd?.value || '17:00',
+    };
+    saveScheduleSettings();
+  }
 
   function loadReminderPlans() {
     try {
@@ -777,11 +821,23 @@
       const result = await apiJson('/api/day/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, force: alreadyLoaded }),
+        body: JSON.stringify({
+          date,
+          force: alreadyLoaded,
+          ...state.scheduleSettings,
+        }),
       });
+      if (result.schedule) {
+        state.scheduleSettings = result.schedule;
+        saveScheduleSettings();
+        syncScheduleInputs();
+      }
       state.dayOrder.data = result;
       state.dayOrder.loading = false;
       state.dayOrder.mode = 'execution';
+      if (els.dayOrderHint) {
+        els.dayOrderHint.textContent = 'Priorité et ordre d’exécution.';
+      }
       renderDayOrder();
       toast('Ordre de la journée prêt.', 'ok');
       if (els.dayOrder && typeof els.dayOrder.scrollIntoView === 'function') {
@@ -795,17 +851,25 @@
     }
   }
 
-  async function applyReminders({ date, variant, clear = false, silent = false }) {
+  async function applyReminders({
+    date,
+    variant,
+    clear = false,
+    silent = false,
+    settings = null,
+  }) {
     if (state.remindersBusy) return;
     state.remindersBusy = true;
     const plan = state.reminderPlans[date];
     const known = plan && Array.isArray(plan.mapping) ? plan.mapping : [];
+    // Manuel : on utilise les horaires affichés. Auto-refresh : ceux du plan.
+    const usedSettings = settings || state.scheduleSettings;
 
     try {
       const result = await apiJson('/api/day/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, variant, known, clear }),
+        body: JSON.stringify({ date, variant, known, clear, ...usedSettings }),
       });
 
       if (clear) {
@@ -814,6 +878,7 @@
         state.reminderPlans[date] = {
           variant: result.variant || variant,
           mapping: Array.isArray(result.mapping) ? result.mapping : [],
+          settings: usedSettings,
           updatedAt: new Date().toISOString(),
         };
       }
@@ -846,7 +911,12 @@
   async function refreshActiveReminders(date) {
     const plan = state.reminderPlans[date];
     if (!plan) return;
-    await applyReminders({ date, variant: plan.variant, silent: true });
+    await applyReminders({
+      date,
+      variant: plan.variant,
+      settings: plan.settings || state.scheduleSettings,
+      silent: true,
+    });
   }
 
   /** Prévisualisation locale immédiate pendant que l'IA calcule. */
@@ -3760,6 +3830,19 @@
   els.logoutBtn.addEventListener('click', logout);
   els.dayOrderBtn.addEventListener('click', loadDayOrder);
 
+  for (const input of [els.dayStart, els.dayOtherStart, els.dayEnd]) {
+    input?.addEventListener('change', () => {
+      readScheduleInputs();
+      if (els.dayOrderHint) {
+        els.dayOrderHint.textContent = 'Horaires modifiés — recalcul de l’ordre…';
+      }
+      if (state.dayOrder.data?.date === currentFocusDate()) {
+        clearTimeout(state.scheduleTimer);
+        state.scheduleTimer = setTimeout(() => loadDayOrder(), 800);
+      }
+    });
+  }
+
   // Assistant « Notes & idées ».
   els.assistantFab.addEventListener('click', () => setAssistantOpen(!state.assistant.open));
   els.assistantClose.addEventListener('click', () => setAssistantOpen(false));
@@ -3789,6 +3872,8 @@
   state.checkins = loadCheckins();
   state.feedback = loadFeedback();
   state.reminderPlans = loadReminderPlans();
+  state.scheduleSettings = loadScheduleSettings();
+  syncScheduleInputs();
   if ('serviceWorker' in navigator) {
     // `updateViaCache: 'none'` : le navigateur ne réutilise pas un vieux sw.js
     // en cache HTTP, sinon les mises à jour de l'app peuvent rester bloquées.

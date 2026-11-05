@@ -9,6 +9,7 @@ const {
   buildDayOrderDigest,
   buildOrderPrompt,
   validateOrderResponse,
+  normalizeSchedule,
   buildScheduleVariants,
 } = require('../src/dayOrder');
 
@@ -198,6 +199,64 @@ test('buildScheduleVariants place le téléphone à 9h et le reste à 11h', () =
   const decale = variants.find((variant) => variant.key === 'decale');
   assert.equal(decale.items[0].start, '10:00');
   assert.equal(decale.items[1].start, '11:30');
+});
+
+test('normalizeSchedule valide et corrige les horaires', () => {
+  assert.deepEqual(normalizeSchedule({ phoneStart: '08:30', otherStart: '10:00', end: '16:00' }), {
+    phoneStart: '08:30',
+    otherStart: '10:00',
+    end: '16:00',
+  });
+  assert.deepEqual(normalizeSchedule({ phoneStart: '18:00', otherStart: '11:00', end: '17:00' }), {
+    phoneStart: '09:00',
+    otherStart: '11:00',
+    end: '17:00',
+  });
+  assert.deepEqual(normalizeSchedule({}), {
+    phoneStart: '09:00',
+    otherStart: '11:00',
+    end: '17:00',
+  });
+});
+
+test('buildScheduleVariants respecte des horaires personnalisés', () => {
+  const tasks = [
+    {
+      id: 'phone',
+      title: 'Appel',
+      priority: 4,
+      priority_label: 'P1',
+      minutes: 30,
+      context: 'phone',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+    {
+      id: 'other',
+      title: 'Ranger',
+      priority: 2,
+      priority_label: 'P3',
+      minutes: 60,
+      context: 'other',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+  ];
+  const execution = [
+    { id: 'phone', why: null, minutes: 30, context: 'phone' },
+    { id: 'other', why: null, minutes: 60, context: 'other' },
+  ];
+  const equilibre = buildScheduleVariants(tasks, execution, {
+    phoneStart: '10:00',
+    otherStart: '12:00',
+    end: '16:00',
+  }).find((variant) => variant.key === 'equilibre');
+  assert.equal(equilibre.items[0].start, '10:00');
+  assert.equal(equilibre.items[0].end, '10:30');
+  assert.equal(equilibre.items[1].start, '12:00');
+  assert.equal(equilibre.items[1].end, '13:00');
 });
 
 test('les tâches non-téléphone ne chevauchent pas une longue plage téléphone', () => {

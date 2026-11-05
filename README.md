@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 18.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 19.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -540,6 +540,27 @@ Todoist, sans infrastructure push.
 Route : `POST /api/day/reminders` — implémentation `src/reminders.js` (Sync API Todoist)
 et `src/dayOrder.js` (durées, plans).
 
+## Itération 19 — horaires personnalisables
+
+Avant de réorganiser la journée, trois horaires sont modifiables dans le widget :
+
+- **Début téléphone** (09:00 par défaut) ;
+- **Début autres tâches** (11:00 par défaut) ;
+- **Fin de journée** (17:00 par défaut).
+
+Ils sont mémorisés dans le navigateur (`localStorage`) et utilisés pour :
+
+- les quatre planifications (Exécution, Priorité, Courtes d'abord, Départ décalé) ;
+- les créneaux affichés (`10:00–10:45`, etc.) ;
+- les rappels Todoist natifs.
+
+Modifier un horaire relance automatiquement le calcul de l'ordre et des créneaux. Les
+rappels déjà actifs gardent leurs anciens horaires jusqu'à **« Mettre à jour les
+rappels »** ; un clic applique alors les nouveaux horaires.
+
+Le serveur valide/normalise les valeurs (`HH:MM`), garantit `début < fin` et empêche les
+chevauchements entre tâches téléphone et autres tâches.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -753,7 +774,7 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 18 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 19 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -762,8 +783,8 @@ en sous-étapes datées, **numérotées**, **renumérotées** après suppression
 le widget du jour**, **sélection des préparations à créer**, **exploration des sous-tâches**
 avec ajout manuel et **découpage contextualisé** selon le niveau, **ordre logique récursif**
 des sous-tâches, **réorganisation de la journée** par priorité et ordre d'exécution,
-**planifications horaires et rappels Todoist natifs par tâche**, **nettoyage approfondi
-progressif** et **carnet de notes éditable** persistant pour OpenCode. Les itérations
-suivantes (rituel du matin avec rattrapage
+**planifications horaires et rappels Todoist natifs par tâche**, **horaires de journée
+personnalisables**, **nettoyage approfondi progressif** et **carnet de notes éditable**
+persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
 automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
 implémentées et seront abordées après retour d'usage.
