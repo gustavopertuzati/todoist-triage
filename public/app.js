@@ -962,15 +962,18 @@
         els.dayOrderHint.textContent = 'Priorité et ordre d’exécution.';
       }
       renderDayOrder();
-      toast('Ordre de la journée prêt.', 'ok');
+
+      const selectedVariant =
+        (result.variants || []).find((item) => item.key === state.dayOrder.variant) ||
+        (result.variants || [])[0] ||
+        null;
+      // Inscrit les horaires dans les titres Todoist.
+      await applyPlanTimes(date, selectedVariant);
+      toast('Ordre de la journée prêt, horaires inscrits dans les titres.', 'ok');
 
       // Le plan est maintenant figé ; si des rappels sont actifs, on les recale
       // uniquement parce que l'utilisateur vient de réorganiser.
       if (state.reminderPlans[date]) {
-        const selectedVariant =
-          (result.variants || []).find((item) => item.key === state.dayOrder.variant) ||
-          (result.variants || [])[0] ||
-          null;
         await applyReminders({
           date,
           variant: state.dayOrder.variant,
@@ -1149,21 +1152,40 @@
     return variant;
   }
 
+  async function applyPlanTimes(date, variant) {
+    const items = (variant?.items || [])
+      .filter((item) => item.id && item.start && item.end)
+      .map((item) => ({ taskId: item.id, start: item.start, end: item.end }));
+    if (items.length === 0) return;
+    try {
+      await apiJson('/api/day/times', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ date, items }),
+      });
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      console.warn('[horaires] écriture des titres impossible:', error?.code || error?.message);
+    }
+  }
+
   function scheduleReminderSync(date, variant, settings) {
-    if (!state.reminderPlans[date]) return;
     clearTimeout(state.reminderSyncTimer);
     state.reminderSyncTimer = setTimeout(() => {
-      applyReminders({
-        date,
-        variant: variant.key,
-        settings,
-        silent: true,
-        items: variant.items.map((item) => ({
-          taskId: item.id,
+      applyPlanTimes(date, variant);
+      if (state.reminderPlans[date]) {
+        applyReminders({
           date,
-          time: item.start,
-        })),
-      });
+          variant: variant.key,
+          settings,
+          silent: true,
+          items: variant.items.map((item) => ({
+            taskId: item.id,
+            date,
+            time: item.start,
+          })),
+        });
+      }
     }, 900);
   }
 
@@ -1509,6 +1531,11 @@
                       saveDayPlan(focus, state.dayOrder.data, item.key);
                     }
                     renderDayOrder();
+                    scheduleReminderSync(
+                      focus,
+                      item,
+                      state.dayOrder.data?.schedule || state.scheduleSettings
+                    );
                   },
                 },
                 item.label

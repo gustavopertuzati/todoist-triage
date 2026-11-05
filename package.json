@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 25 : suggestions multiples sans doublons + ajout en bas du plan organisé).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 26 : horaires inscrits dans les titres + remplacement propre des rappels).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

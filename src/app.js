@@ -16,7 +16,7 @@ const express = require('express');
 const { config, checkConfig } = require('./config');
 const auth = require('./auth');
 const { getSnapshot, getDeepSnapshot, clearCache } = require('./exportService');
-const { TodoistError, createTask, getTask } = require('./todoist');
+const { TodoistError, createTask, getTask, updateTask } = require('./todoist');
 const { findProposal } = require('./proposals');
 const { applyProposal, ProposalError } = require('./applyProposal');
 const {
@@ -31,6 +31,7 @@ const { generatePreparation, generateDecomposition } = require('./prepare');
 const { generateSubtaskOrder } = require('./subtaskOrder');
 const { generateDayOrder } = require('./dayOrder');
 const { generateTaskSuggestions } = require('./taskSuggestions');
+const { titleWithTime, isValidClock } = require('./taskTitles');
 const { replaceReminders } = require('./reminders');
 const { appendLifeProgress } = require('./lifeContext');
 const {
@@ -526,6 +527,59 @@ function createApp() {
         cached: Boolean(result.cached),
         usage: result.usage || null,
       });
+    })
+  );
+
+  /**
+   * Inscrit les horaires du plan dans le titre des tâches Todoist.
+   * Écriture explicite, uniquement après une réorganisation.
+   */
+  app.post(
+    '/api/day/times',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.writesEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'WRITES_DISABLED',
+            message: 'Les écritures Todoist sont désactivées sur ce serveur.',
+          },
+        });
+      }
+
+      const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 80) : [];
+      if (items.length === 0) {
+        return res.json({ ok: true, updated: 0 });
+      }
+
+      const { snapshot } = await getSnapshot({ force: false });
+      const byId = new Map((snapshot.tasks || []).map((task) => [task.id, task]));
+      let updated = 0;
+      const errors = [];
+
+      for (const item of items) {
+        const task = byId.get(String(item?.taskId || ''));
+        if (!task) continue;
+        const start = String(item?.start || '');
+        const end = String(item?.end || '');
+        if (!isValidClock(start) || !isValidClock(end)) continue;
+
+        const content = titleWithTime(task.content, start, end);
+        if (!content || content === task.content) continue;
+        try {
+          await updateTask(task.id, { content });
+          updated += 1;
+        } catch (error) {
+          errors.push({ taskId: task.id, code: error?.code || 'ERROR' });
+        }
+      }
+
+      if (updated > 0) clearCache();
+      return res.json({ ok: true, updated, errors });
     })
   );
 

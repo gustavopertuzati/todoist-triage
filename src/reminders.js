@@ -41,35 +41,40 @@ async function replaceReminders({ items, known = [], timezone = 'Europe/Paris' }
   const existing = await listReminders();
   const existingById = new Map(existing.map((reminder) => [String(reminder.id), reminder]));
 
-  // Réutilise un rappel existant au même moment pour la même tâche.
-  const reused = new Map(); // taskId -> reminder
-  for (const item of wanted) {
-    const match = existing.find(
-      (reminder) =>
-        String(reminder.item_id) === String(item.taskId) &&
-        sameDue(reminder, item.date, item.time)
-    );
-    if (match) reused.set(String(item.taskId), match);
+  const wantedTaskIds = new Set(wanted.map((item) => String(item.taskId)));
+  const deleteIds = new Set();
+
+  // Supprime TOUS les anciens rappels absolus des tâches replanifiées, pour
+  // laisser la place au nouvel horaire (même si l'ancien n'était pas dans le
+  // mapping local).
+  for (const reminder of existing) {
+    if (reminder.type !== 'absolute') continue;
+    if (wantedTaskIds.has(String(reminder.item_id))) {
+      deleteIds.add(String(reminder.id));
+    }
+  }
+
+  // Et les rappels connus de tâches qui ne sont plus dans le plan.
+  for (const entry of knownList) {
+    const reminderId = String(entry?.reminderId || '');
+    if (!reminderId) continue;
+    const reminder = existingById.get(reminderId);
+    if (!reminder) continue;
+    if (entry.taskId && String(reminder.item_id) !== String(entry.taskId)) continue;
+    deleteIds.add(reminderId);
   }
 
   const commands = [];
   const deleteUuids = [];
   const addCommands = [];
-  const reusedIds = new Set([...reused.values()].map((reminder) => String(reminder.id)));
 
-  for (const entry of knownList) {
-    const reminderId = String(entry?.reminderId || '');
-    if (!reminderId || reusedIds.has(reminderId)) continue;
-    const reminder = existingById.get(reminderId);
-    if (!reminder) continue;
-    if (entry.taskId && String(reminder.item_id) !== String(entry.taskId)) continue;
+  for (const reminderId of deleteIds) {
     const uuid = crypto.randomUUID();
     commands.push({ type: 'reminder_delete', uuid, args: { id: reminderId } });
     deleteUuids.push(uuid);
   }
 
   for (const item of wanted) {
-    if (reused.has(String(item.taskId))) continue;
     const tempId = crypto.randomUUID();
     const uuid = crypto.randomUUID();
     commands.push({
@@ -100,15 +105,6 @@ async function replaceReminders({ items, known = [], timezone = 'Europe/Paris' }
   }
 
   const mapping = [];
-  for (const [taskId, reminder] of reused.entries()) {
-    const item = wanted.find((entry) => String(entry.taskId) === String(taskId));
-    mapping.push({
-      taskId: String(taskId),
-      reminderId: String(reminder.id),
-      date: item.date,
-      time: item.time,
-    });
-  }
   for (const add of addCommands) {
     const reminderId = tempMapping[add.tempId];
     if (!reminderId) continue;
@@ -122,8 +118,8 @@ async function replaceReminders({ items, known = [], timezone = 'Europe/Paris' }
 
   const deleted = deleteUuids.filter((uuid) => syncStatus[uuid] === 'ok').length;
   return {
-    created: mapping.length - reused.size,
-    reused: reused.size,
+    created: mapping.length,
+    reused: 0,
     deleted,
     mapping,
     errors,

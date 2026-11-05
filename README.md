@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 25.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 26.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -734,6 +734,35 @@ tâche pour ce jour) :
 - si la journée n'a pas encore été organisée, aucun plan n'est créé : la tâche reste
   simplement dans Todoist.
 
+## Itération 26 — horaires dans les titres et remplacement des rappels
+
+### Horaires inscrits dans les titres Todoist
+
+Quand tu réorganises une journée (ou déplaces une tâche dans le plan), les horaires sont
+écrits dans le titre de la tâche Todoist :
+
+```text
+1. Trier les cartons · 09:00–09:30
+```
+
+- format stable en **suffixe** ;
+- un ancien suffixe est retiré avant d'écrire le nouveau (pas de doublons) ;
+- fonctionne aussi après plusieurs réorganisations ;
+- route : `POST /api/day/times` ;
+- les titres sont mis à jour après « Réorganiser », un déplacement ▲/▼, un ajout ou un
+  report dans le plan.
+
+### Anciens rappels supprimés
+
+Lors d'une activation/mise à jour des rappels :
+
+- **tous les rappels absolus** des tâches replanifiées sont supprimés ;
+- les rappels connus de tâches sorties du plan sont aussi supprimés ;
+- de nouveaux rappels sont créés aux créneaux du plan.
+
+Cela évite les doublons et les anciens horaires. Attention : un rappel absolu personnel
+sur une tâche replanifiée sera aussi remplacé.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -929,6 +958,7 @@ src/renumber.js        renumérotation des sous-tâches après ajout/suppression
 src/dayOrder.js        ordre, durées, contextes et planifications horaires (IA)
 src/taskSuggestions.js suggestions de nouvelles tâches (IA, création sur validation)
 src/lifeContext.js     lecture de LIFE_CONTEXT.md + journal de progression
+src/taskTitles.js      horaires inscrits/retirés dans le titre des tâches
 src/reminders.js       rappels Todoist natifs (création, remplacement, suppression)
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
@@ -953,7 +983,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 25 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 26 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
