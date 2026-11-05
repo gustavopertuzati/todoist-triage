@@ -279,6 +279,8 @@ function scheduleVariant(key, label, ordered, { phoneStart, otherStart }) {
     });
   }
 
+  items.sort((a, b) => a.start.localeCompare(b.start));
+
   return {
     key,
     label,
