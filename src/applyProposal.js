@@ -202,6 +202,38 @@ function selectedPreparations(proposal, overrides) {
   return items;
 }
 
+async function applyCreate(proposal, overrides) {
+  const content = String(proposal.action?.content || '').trim().slice(0, 200);
+  if (content.length < 3) {
+    throw new ProposalError('TASK_TITLE_INVALID', 'Le titre de la nouvelle tâche est invalide.');
+  }
+  const dueDate = normalizeDueDate(overrides?.due_date || proposal.action?.due_date);
+  if (!dueDate) {
+    throw new ProposalError('DATE_INVALID', 'Date d’échéance invalide.');
+  }
+  const priority = Math.min(4, Math.max(1, Number(proposal.action?.priority) || 1));
+
+  const payload = { content, due_date: dueDate, priority };
+  if (proposal.action?.project_id) payload.project_id = proposal.action.project_id;
+  const created = await createTask(payload);
+
+  let verified = false;
+  try {
+    const fresh = await getTask(created?.id);
+    verified = Boolean(fresh?.id) && String(fresh.content || '') === content;
+  } catch {
+    verified = Boolean(created?.id);
+  }
+
+  return {
+    verified,
+    message: verified
+      ? `Tâche « ${content} » créée.`
+      : `Tâche envoyée, mais la relecture est incomplète (${content}).`,
+    effects: { created: created?.id || null, due_date: dueDate },
+  };
+}
+
 async function applyPrepare(proposal, overrides) {
   const items = selectedPreparations(proposal, overrides);
   if (items.length === 0) throw new ProposalError('PREP_EMPTY', 'Aucune préparation à créer.');
@@ -249,6 +281,8 @@ async function applyProposal({ proposal, overrides = null }) {
       return applySplit(proposal, overrides);
     case 'prepare_task':
       return applyPrepare(proposal, overrides);
+    case 'create_task':
+      return applyCreate(proposal, overrides);
     case 'delete_task':
       return applyDelete(proposal);
     case 'rename_task':

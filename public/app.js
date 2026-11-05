@@ -48,6 +48,9 @@
       mode: 'execution',
       variant: 'equilibre',
     },
+    daySuggestions: [],
+    suggestionsLoading: false,
+    suggestionsError: null,
     reminderPlans: {},
     remindersBusy: false,
     reminderSyncTimer: null,
@@ -231,6 +234,7 @@
   }
 
   function taskIsBlocked(proposal, date) {
+    if (proposal?.target?.kind !== 'task') return false;
     const taskId = proposal?.target?.id;
     if (!taskId) return false;
     return (
@@ -1161,6 +1165,37 @@
     }, 900);
   }
 
+  /** Retire une tâche du plan figé (report/validation) et recale les horaires. */
+  function removeTaskFromDayPlan(date, taskId) {
+    if (!date || !taskId) return;
+    const plan = restoreDayPlan(date);
+    if (!plan || !plan.data) return;
+    const data = plan.data;
+    const settings = data.schedule || state.scheduleSettings;
+
+    data.variants = (data.variants || []).map((variant) => {
+      variant.items = (variant.items || []).filter((item) => item.id !== taskId);
+      recalcVariant(variant, settings);
+      return variant;
+    });
+    data.tasks = (data.tasks || []).filter((task) => task.id !== taskId);
+    data.execution = (data.execution || []).filter((entry) => entry.id !== taskId);
+    data.priority = (data.priority || []).filter((id) => id !== taskId);
+
+    saveDayPlan(date, data, plan.variant);
+    if (state.dayOrder.data?.date === date) {
+      state.dayOrder.data = data;
+      state.dayOrder.variant = plan.variant;
+      renderDayOrder();
+    }
+
+    const activeVariant =
+      data.variants.find((variant) => variant.key === plan.variant) || data.variants[0];
+    if (activeVariant) {
+      scheduleReminderSync(date, activeVariant, settings);
+    }
+  }
+
   function moveDayOrderItem(index, delta) {
     const data = state.dayOrder.data;
     if (!data) return;
@@ -1643,6 +1678,8 @@
     state.selectedDate = date;
     state.dayLoading = true;
     state.dayError = null;
+    state.daySuggestions = [];
+    state.suggestionsError = null;
 
     // On restaure le plan enregistré : la liste reste fixe tant que
     // l'utilisateur ne clique pas sur « Réorganiser ».
@@ -1677,6 +1714,40 @@
       state.dayLoading = false;
       state.dayError = error.message || 'Impossible de charger cette journée.';
     }
+    renderDayPlan();
+  }
+
+  async function suggestTasks(date) {
+    if (state.suggestionsLoading) return;
+    state.suggestionsLoading = true;
+    state.suggestionsError = null;
+    renderDayPlan();
+
+    try {
+      const result = await apiJson('/api/day/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ date, checkin: getCheckin(date) }),
+      });
+      state.daySuggestions = Array.isArray(result.proposals) ? result.proposals : [];
+      state.suggestionsLoading = false;
+      renderDayPlan();
+      toast(
+        state.daySuggestions.length
+          ? `${state.daySuggestions.length} nouvelle(s) tâche(s) suggérée(s).`
+          : 'Rien de pertinent à créer pour cette journée.',
+        'ok'
+      );
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.suggestionsLoading = false;
+      state.suggestionsError = error.message || 'Impossible de suggérer des tâches.';
+      renderDayPlan();
+    }
+  }
+
+  function ignoreSuggestion(proposal) {
+    state.daySuggestions = state.daySuggestions.filter((item) => item.id !== proposal.id);
     renderDayPlan();
   }
 
@@ -1865,7 +1936,46 @@
       els.dayPlan.append(list);
     }
 
+    if (state.suggestionsLoading) {
+      els.dayPlan.append(
+        h('p', { class: 'day-status' }, '💡 Je cherche de nouvelles tâches utiles…')
+      );
+    } else if (state.suggestionsError) {
+      els.dayPlan.append(
+        h('p', { class: 'day-status is-error' }, state.suggestionsError)
+      );
+    } else if (state.daySuggestions.length > 0) {
+      const suggestions = state.daySuggestions.filter(
+        (p) =>
+          !state.ignored.has(p.id) &&
+          !state.applied.has(p.id) &&
+          !feedbackBlocks(p, date) &&
+          !taskIsBlocked(p, date)
+      );
+      if (suggestions.length > 0) {
+        els.dayPlan.append(
+          h('h3', { class: 'section-title' }, 'Nouvelles tâches suggérées')
+        );
+        const list = h('div', { class: 'proposals' });
+        for (const proposal of suggestions) list.append(proposalCard(proposal));
+        els.dayPlan.append(list);
+      }
+    }
+
     const reviews = h('div', { class: 'day-actions' });
+    if (state.data?.ai?.enabled !== false) {
+      reviews.append(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn btn-secondary btn-small',
+            onclick: () => suggestTasks(date),
+          },
+          state.suggestionsLoading ? '💡 Recherche…' : '💡 Suggérer de nouvelles tâches'
+        )
+      );
+    }
     if (isAnalyzed) {
       const pending = pendingDayItems();
       if (pending.length > 1) {
@@ -2058,6 +2168,7 @@
 
   function proposalCard(proposal) {
     const isDelete = proposal.type === 'delete_task';
+    const isCreate = proposal.type === 'create_task';
     const typeLabel = proposal.type_label || (isDelete ? 'Abandonner' : PROPOSAL_TYPE_META[proposal.type] || proposal.type);
     const card = h('article', { class: `proposal tone-${proposal.tone}` });
 
@@ -2238,7 +2349,13 @@
         proposal.type === 'prepare_task' ? selectedPrep : undefined
       );
     });
-    ignoreBtn.addEventListener('click', () => openIgnorePanel(card, proposal));
+    ignoreBtn.addEventListener('click', () => {
+      if (isCreate) {
+        ignoreSuggestion(proposal);
+      } else {
+        openIgnorePanel(card, proposal);
+      }
+    });
 
     const actions = h(
       'div',
@@ -2375,12 +2492,21 @@
   /** Consomme le retour d'une application (maj locale, capacité, render). */
   function consumeApplied(proposal, result) {
     state.applied.set(proposal.id, result);
-    if (proposal.target?.id) {
-      markTaskStatus(
-        'accepted',
-        proposal.target.id,
-        state.selectedDate || state.data?.meta?.today
-      );
+    state.daySuggestions = state.daySuggestions.filter((item) => item.id !== proposal.id);
+    const planDate = state.selectedDate || state.data?.meta?.today;
+    const newDueDate = result.effects?.due_date || proposal.action?.due_date || null;
+    if (proposal.target?.kind === 'task' && proposal.target.id) {
+      markTaskStatus('accepted', proposal.target.id, planDate);
+      // La tâche quitte la journée (report) ou est supprimée : on la retire du
+      // plan figé et on recale immédiatement tous les horaires.
+      const leavesDay =
+        (['set_due_date', 'reschedule_overdue'].includes(proposal.type) &&
+          newDueDate &&
+          newDueDate !== planDate) ||
+        proposal.type === 'delete_task';
+      if (leavesDay) {
+        removeTaskFromDayPlan(planDate, proposal.target.id);
+      }
     }
     if (state.dayPlan) {
       state.dayPlan.proposals = (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id);
@@ -2475,6 +2601,12 @@
       // La préparation crée des sous-tâches : on referme et on relit Todoist.
       if (proposal.type === 'prepare_task') {
         closePrepare();
+        await load({ force: true, silent: true });
+        return;
+      }
+
+      // Nouvelle tâche créée : on relit Todoist pour la voir apparaître.
+      if (proposal.type === 'create_task') {
         await load({ force: true, silent: true });
         return;
       }

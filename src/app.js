@@ -30,6 +30,7 @@ const {
 const { generatePreparation, generateDecomposition } = require('./prepare');
 const { generateSubtaskOrder } = require('./subtaskOrder');
 const { generateDayOrder } = require('./dayOrder');
+const { generateTaskSuggestions } = require('./taskSuggestions');
 const { replaceReminders } = require('./reminders');
 const {
   renumberNumberedChildren,
@@ -636,6 +637,47 @@ function createApp() {
         deleted: result.deleted,
         mapping: result.mapping,
         errors: result.errors,
+      });
+    })
+  );
+
+  /**
+   * Suggère de NOUVELLES tâches à créer pour une journée, à partir des projets,
+   * échéances, check-in et place restante. Aucune écriture avant validation.
+   */
+  app.post(
+    '/api/day/suggest',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.aiEnabled) {
+        return res.status(403).json({
+          error: { code: 'AI_DISABLED', message: 'L’IA n’est pas configurée sur ce serveur.' },
+        });
+      }
+
+      const date = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
+      if (!isValidIsoDate(date)) {
+        return res.status(400).json({
+          error: { code: 'BAD_DATE', message: 'Date invalide.' },
+        });
+      }
+
+      const checkin = normalizeCheckin(req.body?.checkin);
+      const force = req.body?.force === true;
+      const { snapshot } = await getSnapshot({ force: false });
+      const result = await generateTaskSuggestions(snapshot, date, { checkin, force });
+
+      return res.json({
+        ok: true,
+        date,
+        proposals: result.items,
+        strategy: result.summary || null,
+        cached: Boolean(result.cached),
+        usage: result.usage || null,
       });
     })
   );

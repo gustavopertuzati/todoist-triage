@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 22.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 23.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -646,6 +646,37 @@ Consignes imposées à l'IA :
 - Si des rappels sont actifs, ils sont mis à jour après le déplacement (léger debounce),
   en utilisant exactement les créneaux affichés.
 
+## Itération 23 — nouvelles tâches suggérées et plan recalculé après report
+
+### Suggérer de nouvelles tâches
+
+Dans le panneau de planification, un bouton **« 💡 Suggérer de nouvelles tâches »**
+demande à l'IA 1 à 3 tâches **à créer** pour la journée, en tenant compte :
+
+- des projets et de leur état (`project_context`) ;
+- des échéances proches (`due_soon`) ;
+- de la charge restante (`can_add`) ;
+- du check-in et du contexte.
+
+Chaque suggestion est une proposition `create_task` :
+
+- titre concret, projet existant, échéance du jour, priorité et taille ;
+- aucun doublon avec une tâche existante ;
+- aucune écriture avant validation ;
+- à la validation, la tâche est créée dans Todoist et relue.
+
+`AI_MAX_NEW_TASKS` (3 par défaut) limite le nombre de suggestions.
+
+### Le plan se recale après un report
+
+Quand une proposition **Reporter** (ou une suppression) est validée :
+
+- la tâche est retirée du plan de journée figé ;
+- les horaires de toutes les tâches restantes sont recalculés immédiatement, en
+  supprimant le trou et en gardant pauses/déjeuner ;
+- le plan sauvegardé est mis à jour ;
+- les rappels actifs sont resynchronisés avec les nouveaux créneaux.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -715,6 +746,7 @@ npm run dev
 | `AI_MAX_TOKENS` | non | `8000` | Budget de génération (raisonnement + JSON). |
 | `AI_REASONING_MAX_TOKENS` | non | `400` | Plafond du raisonnement du modèle. |
 | `AI_MAX_PROPOSALS` | non | `5` | Nombre maximum de propositions pour un jour donné. |
+| `AI_MAX_NEW_TASKS` | non | `3` | Nombre maximum de nouvelles tâches suggérées pour une journée. |
 | `AI_TIMEOUT_MS` | non | `90000` | Délai maximal d'un appel au modèle. |
 | `AI_CACHE_TTL_MINUTES` | non | `30` | Durée de cache des propositions IA. |
 | `AI_ENABLED` | non | `true` | `false` désactive l'IA même si la clé est présente. |
@@ -837,6 +869,7 @@ src/prepare.js         préparation et découpage assisté d'une tâche (IA)
 src/subtaskOrder.js    ordre logique récursif des sous-tâches (IA)
 src/renumber.js        renumérotation des sous-tâches après ajout/suppression
 src/dayOrder.js        ordre, durées, contextes et planifications horaires (IA)
+src/taskSuggestions.js suggestions de nouvelles tâches (IA, création sur validation)
 src/reminders.js       rappels Todoist natifs (création, remplacement, suppression)
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
@@ -861,7 +894,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 22 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 23 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
