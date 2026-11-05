@@ -82,7 +82,7 @@ const config = {
   aiMaxTokens: readInt('AI_MAX_TOKENS', 8000, { min: 1000, max: 32000 }),
   aiReasoningMaxTokens: readInt('AI_REASONING_MAX_TOKENS', 400, { min: 0, max: 8000 }),
   aiMaxProposals: readInt('AI_MAX_PROPOSALS', 5, { min: 1, max: 40 }),
-  aiMaxNewTasks: readInt('AI_MAX_NEW_TASKS', 3, { min: 1, max: 6 }),
+  aiMaxNewTasks: readInt('AI_MAX_NEW_TASKS', 5, { min: 1, max: 8 }),
   aiCacheTtlMs: readInt('AI_CACHE_TTL_MINUTES', 30, { min: 0, max: 1440 }) * 60000,
   aiEnabled:
     Boolean((process.env.OPENROUTER_API_KEY || '').trim()) &&

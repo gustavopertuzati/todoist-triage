@@ -32,6 +32,7 @@ const { generateSubtaskOrder } = require('./subtaskOrder');
 const { generateDayOrder } = require('./dayOrder');
 const { generateTaskSuggestions } = require('./taskSuggestions');
 const { replaceReminders } = require('./reminders');
+const { appendLifeProgress } = require('./lifeContext');
 const {
   renumberNumberedChildren,
   nextNumberedTitle,
@@ -1111,6 +1112,22 @@ function createApp() {
         }
       }
 
+      // Une nouvelle tâche issue d'une suggestion est aussi une progression :
+      // on l'ajoute au journal de LIFE_CONTEXT.md pour la réutiliser plus tard.
+      let progressSaved = false;
+      if (proposal.type === 'create_task' && result.effects?.created) {
+        const progress = appendLifeProgress({
+          title: proposal.action?.content,
+          projectName:
+            proposal.action?.life_area ||
+            proposal.target?.project_name ||
+            proposal.target?.name,
+          dueDate: result.effects?.due_date || proposal.action?.due_date,
+          taskId: result.effects.created,
+        });
+        progressSaved = progress.saved;
+      }
+
       // La donnée a changé : on vide le cache de lecture et on retire seulement
       // la proposition appliquée, sans toucher au reste du lot.
       clearCache();
@@ -1123,6 +1140,7 @@ function createApp() {
         verified: result.verified,
         message: result.message,
         effects: result.effects,
+        progress_saved: progressSaved,
       });
     })
   );

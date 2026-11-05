@@ -38,6 +38,7 @@ test('validateTaskSuggestions crée des propositions valides', () => {
         {
           title: 'Trier les cartons de la cave',
           project_id: 'p1',
+          life_area: 'Ranger la maison',
           due_date: DATE,
           size: 'M',
           priority: 4,
@@ -56,20 +57,21 @@ test('validateTaskSuggestions crée des propositions valides', () => {
   assert.equal(item.type, 'create_task');
   assert.equal(item.action.content, 'Trier les cartons de la cave');
   assert.equal(item.action.project_id, 'p1');
+  assert.equal(item.action.life_area, 'Ranger la maison');
   assert.equal(item.action.priority, 4);
   assert.equal(item.target.project_name, 'Maison');
   assert.equal(item.editable.includes('due_date'), true);
 });
 
-test('validateTaskSuggestions rejette doublons, projets inconnus et mauvaises dates', () => {
+test('validateTaskSuggestions rejette doublons, projets inconnus et dates trop lointaines', () => {
   const { items } = validateTaskSuggestions(
     {
       tasks: [
         { title: 'Ranger la cave', project_id: 'p1', due_date: DATE, size: 'M' },
         { title: 'Tâche inconnue', project_id: 'nope', due_date: DATE, size: 'M' },
-        { title: 'Mauvaise date', project_id: 'p1', due_date: '2026-11-06', size: 'M' },
+        { title: 'Trop loin', project_id: 'p1', due_date: '2027-01-01', size: 'M' },
         { title: 'Sans projet', due_date: DATE, size: 'M' },
-        { title: 'Bonjour', project_id: 'p2', due_date: DATE, size: 'M' },
+        { title: 'Demain', project_id: 'p2', due_date: '2026-11-06', size: 'S' },
       ],
     },
     snapshot(),
@@ -77,9 +79,8 @@ test('validateTaskSuggestions rejette doublons, projets inconnus et mauvaises da
     digest,
     3
   );
-  // « Bonjour » est trop vague mais accepté par le validateur technique ;
-  // les vrais critères de qualité restent dans le prompt.
-  assert.deepEqual(items.map((item) => item.action.content), ['Bonjour']);
+  assert.deepEqual(items.map((item) => item.action.content), ['Demain']);
+  assert.equal(items[0].action.due_date, '2026-11-06');
 });
 
 test('validateTaskSuggestions respecte la place et le maximum', () => {
@@ -107,4 +108,6 @@ test('buildSuggestPrompt interdit les doublons et les tâches vagues', () => {
   assert.match(prompt, /NOUVELLES tâches/);
   assert.match(prompt, /Ne duplique aucune tâche existante/);
   assert.match(prompt, /project_context/);
+  assert.match(prompt, /life_context/);
+  assert.match(prompt, /date future/);
 });

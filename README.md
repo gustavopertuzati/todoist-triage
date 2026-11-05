@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 23.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 24.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -665,7 +665,7 @@ Chaque suggestion est une proposition `create_task` :
 - aucune écriture avant validation ;
 - à la validation, la tâche est créée dans Todoist et relue.
 
-`AI_MAX_NEW_TASKS` (3 par défaut) limite le nombre de suggestions.
+`AI_MAX_NEW_TASKS` (5 par défaut) limite le nombre de suggestions.
 
 ### Le plan se recale après un report
 
@@ -676,6 +676,41 @@ Quand une proposition **Reporter** (ou une suppression) est validée :
   supprimant le trou et en gardant pauses/déjeuner ;
 - le plan sauvegardé est mis à jour ;
 - les rappels actifs sont resynchronisés avec les nouveaux créneaux.
+
+## Itération 24 — suggestions ancrées dans LIFE_CONTEXT.md et journal de progression
+
+### Les suggestions lisent le contexte de vie
+
+Le digest des suggestions contient maintenant **`life_context`**, lu depuis
+`LIFE_CONTEXT.md`. L'IA doit :
+
+- cibler un projet/objectif réel du fichier ;
+- remplir `life_area` avec le nom exact de cet objectif ;
+- proposer **plusieurs** tâches (jusqu'à 5 par défaut) ;
+- répartir les dates entre **aujourd'hui** et **les 30 prochains jours** selon
+  l'avancement et les blocages ;
+- éviter les tâches de communication non demandées.
+
+Vérifié : suggestions générées pour OpenCode, JobOps, n8n, AWS et le permis, avec
+`life_area` correspondant et un jalon futur.
+
+### Progression enregistrée dans le fichier des objectifs
+
+Quand une tâche issue d'une suggestion est créée, une ligne est ajoutée dans
+`LIFE_CONTEXT.md`, section **« Journal des tâches créées »** :
+
+```md
+- [ ] **Étudier AWS Developer Associate** — Ouvrir le cours et regarder 10 min sur IAM
+  (échéance 2026-11-05) · créée 2026-11-05 · id <taskId>
+```
+
+- l'ajout est **idempotent** par identifiant Todoist ;
+- les 200 dernières lignes sont conservées ;
+- le fichier reste lisible par l'agent pour la suite.
+
+**Limite :** en local, le fichier est persistant. Sur Orkestr, le système de fichiers
+du conteneur est éphémère : la progression peut être perdue à un redéploiement. Le
+fichier local reste la référence pour l'agent.
 
 ## Carnet « Notes & idées » pour OpenCode
 
@@ -746,7 +781,8 @@ npm run dev
 | `AI_MAX_TOKENS` | non | `8000` | Budget de génération (raisonnement + JSON). |
 | `AI_REASONING_MAX_TOKENS` | non | `400` | Plafond du raisonnement du modèle. |
 | `AI_MAX_PROPOSALS` | non | `5` | Nombre maximum de propositions pour un jour donné. |
-| `AI_MAX_NEW_TASKS` | non | `3` | Nombre maximum de nouvelles tâches suggérées pour une journée. |
+| `AI_MAX_NEW_TASKS` | non | `5` | Nombre maximum de nouvelles tâches suggérées pour une journée. |
+| `LIFE_CONTEXT_FILE` | non | `LIFE_CONTEXT.md` | Fichier de contexte de vie/progression. |
 | `AI_TIMEOUT_MS` | non | `90000` | Délai maximal d'un appel au modèle. |
 | `AI_CACHE_TTL_MINUTES` | non | `30` | Durée de cache des propositions IA. |
 | `AI_ENABLED` | non | `true` | `false` désactive l'IA même si la clé est présente. |
@@ -870,6 +906,7 @@ src/subtaskOrder.js    ordre logique récursif des sous-tâches (IA)
 src/renumber.js        renumérotation des sous-tâches après ajout/suppression
 src/dayOrder.js        ordre, durées, contextes et planifications horaires (IA)
 src/taskSuggestions.js suggestions de nouvelles tâches (IA, création sur validation)
+src/lifeContext.js     lecture de LIFE_CONTEXT.md + journal de progression
 src/reminders.js       rappels Todoist natifs (création, remplacement, suppression)
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/exportService.js   orchestration + cache mémoire
@@ -894,7 +931,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 23 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 24 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
