@@ -2790,3 +2790,36 @@ button:disabled {
   color: var(--ink);
   font-weight: 700;
 }
+
+.day-order-variants {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.day-order-variants .chips {
+  margin: 0;
+  padding: 0;
+}
+
+.day-order-time {
+  color: var(--today);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.day-order-minutes {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.day-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}

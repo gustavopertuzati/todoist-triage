@@ -226,11 +226,23 @@ async function completedSince(sinceIso, untilIso, { maxItems = 3000 } = {}) {
   return { items, truncated };
 }
 
+/** Requête Sync générique (lecture de ressources ou commandes). */
+async function syncRequest(form) {
+  return requestJson('/sync', { method: 'POST', form });
+}
+
+/** Envoie des commandes Sync (rappels, etc.) en un seul appel. */
+async function syncCommands(commands) {
+  return syncRequest({ commands: JSON.stringify(commands) });
+}
+
 module.exports = {
   TodoistError,
   fullSync,
   completedSince,
   parseRetryAfter,
+  syncRequest,
+  syncCommands,
 
   // Écritures (utilisées uniquement après validation explicite d'une proposition).
   createTask: (fields) => requestJson('/tasks', { method: 'POST', json: fields }),

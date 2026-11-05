@@ -30,6 +30,7 @@ const {
 const { generatePreparation, generateDecomposition } = require('./prepare');
 const { generateSubtaskOrder } = require('./subtaskOrder');
 const { generateDayOrder } = require('./dayOrder');
+const { replaceReminders } = require('./reminders');
 const {
   renumberNumberedChildren,
   nextNumberedTitle,
@@ -509,9 +510,88 @@ function createApp() {
         tasks: result.tasks,
         priority: result.priority,
         execution: result.execution,
+        variants: result.variants || [],
         strategy: result.summary || null,
         cached: Boolean(result.cached),
         usage: result.usage || null,
+      });
+    })
+  );
+
+  /**
+   * Active / met à jour les rappels Todoist natifs d'une planification.
+   * `known` = rappels créés précédemment par l'app (mapping côté navigateur).
+   */
+  app.post(
+    '/api/day/reminders',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.writesEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'WRITES_DISABLED',
+            message: 'Les écritures Todoist sont désactivées sur ce serveur.',
+          },
+        });
+      }
+
+      const date = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
+      if (!isValidIsoDate(date)) {
+        return res.status(400).json({
+          error: { code: 'BAD_DATE', message: 'Date invalide.' },
+        });
+      }
+
+      const { snapshot } = await getSnapshot({ force: false });
+      const order = await generateDayOrder(snapshot, date, { force: false });
+      const variants = order.variants || [];
+      const variant =
+        variants.find((item) => item.key === req.body?.variant) || variants[0] || null;
+      if (!variant) {
+        return res.status(400).json({
+          error: { code: 'NO_PLAN', message: 'Aucune planification disponible ce jour-là.' },
+        });
+      }
+
+      const clear = req.body?.clear === true;
+      const items = clear
+        ? []
+        : (variant.items || []).map((item) => ({
+            taskId: item.id,
+            date,
+            time: item.start,
+          }));
+
+      const known = Array.isArray(req.body?.known)
+        ? req.body.known
+            .filter((entry) => entry && entry.reminderId)
+            .slice(0, 100)
+            .map((entry) => ({
+              taskId: entry.taskId ? String(entry.taskId) : null,
+              reminderId: String(entry.reminderId),
+            }))
+        : [];
+
+      const result = await replaceReminders({
+        items,
+        known,
+        timezone: snapshot.meta.timezone,
+      });
+
+      return res.json({
+        ok: true,
+        date,
+        variant: variant.key,
+        schedule: variant,
+        created: result.created,
+        reused: result.reused,
+        deleted: result.deleted,
+        mapping: result.mapping,
+        errors: result.errors,
       });
     })
   );

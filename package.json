@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 17 : réorganisation de la journée par priorité et ordre d'exécution).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 18 : planifications horaires et rappels Todoist natifs par tâche).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

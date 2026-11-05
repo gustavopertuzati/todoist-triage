@@ -9,6 +9,7 @@ const {
   buildDayOrderDigest,
   buildOrderPrompt,
   validateOrderResponse,
+  buildScheduleVariants,
 } = require('../src/dayOrder');
 
 const TODAY = '2026-11-05';
@@ -108,8 +109,8 @@ test('validateOrderResponse applique l’ordre et complète les oublis', () => {
     tasks
   );
   assert.deepEqual(execution, [
-    { id: 'b', why: 'urgent' },
-    { id: 'a', why: null },
+    { id: 'b', why: 'urgent', minutes: 30, context: 'other' },
+    { id: 'a', why: null, minutes: 30, context: 'other' },
   ]);
   assert.match(summary, /Priorité/);
 });
@@ -124,7 +125,114 @@ test('validateOrderResponse ignore les inconnus et les doublons', () => {
     tasks
   );
   assert.deepEqual(execution, [
-    { id: 'a', why: null },
-    { id: 'b', why: null },
+    { id: 'a', why: null, minutes: 30, context: 'other' },
+    { id: 'b', why: null, minutes: 30, context: 'other' },
   ]);
+});
+
+test('les durées et contextes par défaut sont exploitables', () => {
+  const tasks = listDayTasks(
+    snapshot([
+      task({
+        id: 'phone',
+        display_title: 'Appeler le dentiste',
+        priority: 4,
+        priority_label: 'P1',
+        duration: { amount: 20, unit: 'minute' },
+      }),
+      task({
+        id: 'home',
+        display_title: 'Ranger la cave',
+        priority: 2,
+        priority_label: 'P3',
+        duration: { amount: 1, unit: 'hour' },
+      }),
+    ]),
+    TODAY
+  );
+  const phone = tasks.find((item) => item.id === 'phone');
+  const home = tasks.find((item) => item.id === 'home');
+  assert.equal(phone.context, 'phone');
+  assert.equal(home.context, 'other');
+  assert.equal(phone.minutes, 20);
+  assert.equal(home.minutes, 60);
+});
+
+test('buildScheduleVariants place le téléphone à 9h et le reste à 11h', () => {
+  const tasks = [
+    {
+      id: 'phone',
+      title: 'Appeler',
+      priority: 4,
+      priority_label: 'P1',
+      minutes: 20,
+      context: 'phone',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+    {
+      id: 'cave',
+      title: 'Ranger la cave',
+      priority: 2,
+      priority_label: 'P3',
+      minutes: 60,
+      context: 'other',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+  ];
+  const execution = [
+    { id: 'phone', why: null, minutes: 20, context: 'phone' },
+    { id: 'cave', why: null, minutes: 60, context: 'other' },
+  ];
+  const variants = buildScheduleVariants(tasks, execution);
+  const equilibre = variants.find((variant) => variant.key === 'equilibre');
+  assert.equal(equilibre.items[0].start, '09:00');
+  assert.equal(equilibre.items[0].end, '09:20');
+  assert.equal(equilibre.items[1].start, '11:00');
+  assert.equal(equilibre.items[1].end, '12:00');
+  assert.equal(equilibre.overflow_minutes, 0);
+
+  const decale = variants.find((variant) => variant.key === 'decale');
+  assert.equal(decale.items[0].start, '10:00');
+  assert.equal(decale.items[1].start, '11:30');
+});
+
+test('les tâches non-téléphone ne chevauchent pas une longue plage téléphone', () => {
+  const tasks = [
+    {
+      id: 'phone',
+      title: 'Appels',
+      priority: 4,
+      priority_label: 'P1',
+      minutes: 180,
+      context: 'phone',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+    {
+      id: 'other',
+      title: 'Ranger',
+      priority: 1,
+      priority_label: 'P4',
+      minutes: 60,
+      context: 'other',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+  ];
+  const execution = [
+    { id: 'phone', why: null, minutes: 180, context: 'phone' },
+    { id: 'other', why: null, minutes: 60, context: 'other' },
+  ];
+  const equilibre = buildScheduleVariants(tasks, execution).find(
+    (variant) => variant.key === 'equilibre'
+  );
+  assert.equal(equilibre.items[0].start, '09:00');
+  assert.equal(equilibre.items[0].end, '12:00');
+  assert.equal(equilibre.items[1].start, '12:00');
 });

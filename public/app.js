@@ -38,7 +38,16 @@
       error: null,
     },
     cleanup: { depth: 0, scan: null, loading: false },
-    dayOrder: { date: null, loading: false, error: null, data: null, mode: 'execution' },
+    dayOrder: {
+      date: null,
+      loading: false,
+      error: null,
+      data: null,
+      mode: 'execution',
+      variant: 'equilibre',
+    },
+    reminderPlans: {},
+    remindersBusy: false,
     taskDetail: {
       open: false,
       taskId: null,
@@ -162,6 +171,24 @@
     );
   }
   const IGNORED_KEY = 'todoist-triage:ignored-proposals';
+  const REMINDERS_KEY = 'todoist-triage:reminders';
+
+  function loadReminderPlans() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(REMINDERS_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveReminderPlans() {
+    try {
+      localStorage.setItem(REMINDERS_KEY, JSON.stringify(state.reminderPlans));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
 
   function loadIgnoredProposals() {
     try {
@@ -470,6 +497,7 @@
       if (force) state.cleanup = { depth: 0, scan: null, loading: false };
       render();
       ensureDefaultDay();
+      refreshActiveReminders(data.meta.today);
       els.loading.hidden = true;
       els.content.hidden = false;
       if (force && !silent) toast('Données rafraîchies depuis Todoist.', 'ok');
@@ -767,6 +795,60 @@
     }
   }
 
+  async function applyReminders({ date, variant, clear = false, silent = false }) {
+    if (state.remindersBusy) return;
+    state.remindersBusy = true;
+    const plan = state.reminderPlans[date];
+    const known = plan && Array.isArray(plan.mapping) ? plan.mapping : [];
+
+    try {
+      const result = await apiJson('/api/day/reminders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ date, variant, known, clear }),
+      });
+
+      if (clear) {
+        delete state.reminderPlans[date];
+      } else {
+        state.reminderPlans[date] = {
+          variant: result.variant || variant,
+          mapping: Array.isArray(result.mapping) ? result.mapping : [],
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      saveReminderPlans();
+      renderDayOrder();
+
+      if (!silent) {
+        if (result.errors && result.errors.length > 0) {
+          toast(
+            `Rappels partiellement créés (${result.errors.length} erreur(s)).`,
+            'error'
+          );
+        } else if (clear) {
+          toast('Rappels Todoist désactivés pour cette journée.', 'ok');
+        } else {
+          toast(
+            `Rappels actifs : ${result.created || 0} créé(s), ${result.reused || 0} déjà en place.`,
+            'ok'
+          );
+        }
+      }
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      if (!silent) toast(error.message || 'Impossible de créer les rappels.', 'error');
+    } finally {
+      state.remindersBusy = false;
+    }
+  }
+
+  async function refreshActiveReminders(date) {
+    const plan = state.reminderPlans[date];
+    if (!plan) return;
+    await applyReminders({ date, variant: plan.variant, silent: true });
+  }
+
   /** Prévisualisation locale immédiate pendant que l'IA calcule. */
   function localDayOrderTasks(date) {
     const today = state.data?.meta?.today;
@@ -800,7 +882,7 @@
       });
   }
 
-  function dayOrderRow(task, index, why) {
+  function dayOrderRow(task, index, why, slot = null) {
     const sizeLabel = { L: 'Gros', M: 'Moyen', S: 'Petit' };
     return h(
       'div',
@@ -813,9 +895,20 @@
         h(
           'div',
           { class: 'day-order-title-line' },
+          slot
+            ? h(
+                'span',
+                { class: 'day-order-time' },
+                `${slot.start}–${slot.end}`
+              )
+            : null,
           h('span', { class: 'day-order-title' }, task.title),
           task.size
             ? h('span', { class: `pill size-${task.size}` }, sizeLabel[task.size] || task.size)
+            : null,
+          slot ? h('span', { class: 'day-order-minutes' }, `${slot.minutes} min`) : null,
+          slot?.overflow
+            ? h('span', { class: 'pill pill-danger' }, 'Après 17h')
             : null,
           task.overdue ? h('span', { class: 'pill pill-danger' }, 'En retard') : null,
           task.is_prep
@@ -891,31 +984,32 @@
 
     const tasks = Array.isArray(data.tasks) ? data.tasks : [];
     const byId = new Map(tasks.map((task) => [task.id, task]));
-    const mode = state.dayOrder.mode === 'priority' ? 'priority' : 'execution';
+    const variants = Array.isArray(data.variants) ? data.variants : [];
+    const variant =
+      variants.find((item) => item.key === state.dayOrder.variant) ||
+      variants[0] ||
+      null;
+    if (variant) state.dayOrder.variant = variant.key;
 
-    const ordered = (() => {
-      if (mode === 'priority') {
-        return (data.priority || []).map((id) => ({ id, why: null }));
-      }
-      return (data.execution || []).map((entry) => ({
-        id: typeof entry === 'string' ? entry : entry.id,
-        why: typeof entry === 'string' ? null : entry.why,
-      }));
-    })();
-
-    const toggle = (value, label) =>
-      h(
-        'button',
-        {
-          type: 'button',
-          class: `chip${mode === value ? ' is-active' : ''}`,
-          onclick: () => {
-            state.dayOrder.mode = value;
-            renderDayOrder();
-          },
-        },
-        label
-      );
+    const whyById = new Map(
+      (data.execution || []).map((entry) => [
+        typeof entry === 'string' ? entry : entry.id,
+        typeof entry === 'string' ? null : entry.why,
+      ])
+    );
+    const ordered = variant
+      ? [...variant.items]
+          .sort((a, b) => a.start.localeCompare(b.start))
+          .map((slot) => ({
+            id: slot.id,
+            why: whyById.get(slot.id) || null,
+            slot,
+          }))
+      : (data.execution || []).map((entry) => ({
+          id: typeof entry === 'string' ? entry : entry.id,
+          why: typeof entry === 'string' ? null : entry.why,
+          slot: null,
+        }));
 
     els.dayOrder.hidden = false;
     clear(els.dayOrder);
@@ -929,10 +1023,37 @@
           focus === state.data?.meta?.today
             ? 'Ordre du jour'
             : `Ordre du ${formatDate(focus)}`
-        ),
-        h('div', { class: 'chips' }, toggle('priority', 'Priorité'), toggle('execution', 'Exécution'))
+        )
       )
     );
+
+    if (variants.length > 0) {
+      els.dayOrder.append(
+        h(
+          'div',
+          { class: 'day-order-variants' },
+          h('span', { class: 'fine-print' }, 'Planification :'),
+          h(
+            'div',
+            { class: 'chips' },
+            variants.map((item) =>
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: `chip${variant && item.key === variant.key ? ' is-active' : ''}`,
+                  onclick: () => {
+                    state.dayOrder.variant = item.key;
+                    renderDayOrder();
+                  },
+                },
+                item.label
+              )
+            )
+          )
+        )
+      );
+    }
 
     if (data.strategy) {
       els.dayOrder.append(h('p', { class: 'day-strategy' }, `🧠 ${data.strategy}`));
@@ -947,9 +1068,56 @@
     for (const [index, entry] of ordered.entries()) {
       const task = byId.get(entry.id);
       if (!task) continue;
-      list.append(dayOrderRow(task, index, entry.why));
+      list.append(dayOrderRow(task, index, entry.why, entry.slot));
     }
     els.dayOrder.append(list);
+
+    if (variant) {
+      const plan = state.reminderPlans[focus];
+      const active = Boolean(plan && plan.variant === variant.key);
+      const actions = h('div', { class: 'day-order-actions' });
+      const remindBtn = h(
+        'button',
+        { type: 'button', class: 'btn btn-primary btn-small' },
+        active ? '✅ Mettre à jour les rappels' : '🔔 Activer les rappels'
+      );
+      remindBtn.addEventListener('click', () =>
+        applyReminders({ date: focus, variant: variant.key })
+      );
+      actions.append(remindBtn);
+
+      if (plan) {
+        const offBtn = h(
+          'button',
+          { type: 'button', class: 'btn btn-ghost btn-small' },
+          'Désactiver'
+        );
+        offBtn.addEventListener('click', () =>
+          applyReminders({ date: focus, variant: variant.key, clear: true })
+        );
+        actions.append(offBtn);
+      }
+      els.dayOrder.append(actions);
+
+      if (plan) {
+        els.dayOrder.append(
+          h(
+            'p',
+            { class: 'fine-print' },
+            `Rappels Todoist actifs sur cette journée (${plan.mapping.length}).`
+          )
+        );
+      }
+      if (variant.overflow_minutes > 0) {
+        els.dayOrder.append(
+          h(
+            'p',
+            { class: 'day-status is-warn' },
+            `Dépassement de ${variant.overflow_minutes} min après 17h : envisage de reporter une tâche.`
+          )
+        );
+      }
+    }
   }
 
   function buildListBlock(title, count, items, tone = 'muted', note = null) {
@@ -1136,6 +1304,9 @@
     renderWidget();
     renderPlanner();
     await loadDay(date, { analyze, force });
+    if (date !== state.data?.meta?.today && state.reminderPlans[date]) {
+      refreshActiveReminders(date);
+    }
   }
 
   async function loadDay(date, { analyze = false, force = false } = {}) {
@@ -3617,6 +3788,7 @@
   state.ignored = loadIgnoredProposals();
   state.checkins = loadCheckins();
   state.feedback = loadFeedback();
+  state.reminderPlans = loadReminderPlans();
   if ('serviceWorker' in navigator) {
     // `updateViaCache: 'none'` : le navigateur ne réutilise pas un vieux sw.js
     // en cache HTTP, sinon les mises à jour de l'app peuvent rester bloquées.
