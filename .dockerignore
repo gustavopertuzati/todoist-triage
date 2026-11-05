@@ -7,6 +7,7 @@ npm-debug.log*
 !.env.example
 test
 *.md
+!LIFE_CONTEXT.md
 .vscode
 .idea
 .DS_Store
