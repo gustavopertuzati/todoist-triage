@@ -18,6 +18,7 @@ const crypto = require('node:crypto');
 const { config } = require('./config');
 const { chatJson, AiError } = require('./ai');
 const { weekdayName, estimateTaskSize, SIZE_LABELS } = require('./capacity');
+const { addDaysIso } = require('./dates');
 const { targetFromTask } = require('./proposals');
 const { computeAllowed, describeCheckin, normalizeCheckin } = require('./checkin');
 const { buildProfile, normalizeFeedback, describeForPrompt, REASON_TEXT } = require('./feedback');
@@ -121,6 +122,20 @@ function buildDayDigest(snapshot, date, checkin, profile) {
     .sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.age_days || 0) - (a.age_days || 0))
     .slice(0, 30);
 
+  // Tâches qui arrivent dans les 14 jours : utiles pour anticiper/préparer un
+  // projet, mais à ne pas sortir de leur échéance sans raison.
+  const soonLimit = addDaysIso(date, 14);
+  const upcoming = active
+    .filter(
+      (task) =>
+        task.due_date &&
+        task.due_date > date &&
+        task.due_date <= soonLimit &&
+        !task.is_overdue
+    )
+    .sort((a, b) => a.due_date.localeCompare(b.due_date) || (b.priority || 0) - (a.priority || 0))
+    .slice(0, 25);
+
   const seen = new Set();
   const tasks = [];
   const titleById = new Map(
@@ -128,7 +143,7 @@ function buildDayDigest(snapshot, date, checkin, profile) {
   );
   const taskById = new Map(active.map((task) => [task.id, task]));
 
-  for (const task of [...overdue, ...undated]) {
+  for (const task of [...overdue, ...undated, ...upcoming]) {
     if (seen.has(task.id)) continue;
     if (never.has(task.id)) continue; // ne jamais reproposer
     // Un parent qui a des sous-tâches est un conteneur : on ne le propose pas
@@ -139,8 +154,12 @@ function buildDayDigest(snapshot, date, checkin, profile) {
       id: task.id,
       title: String(task.display_title || task.content || '').slice(0, 120),
       project: task.project_name || null,
+      project_id: task.project_id || null,
       priority: task.priority_label,
       due: task.due_date || null,
+      due_in_days: task.due_date
+        ? Math.max(0, Math.round((new Date(`${task.due_date}T12:00:00Z`) - new Date(`${date}T12:00:00Z`)) / 86400000))
+        : null,
       days_overdue: task.days_overdue || null,
       age_days: task.age_days,
       labels: (task.labels || []).slice(0, 3),
@@ -199,9 +218,27 @@ function buildDayDigest(snapshot, date, checkin, profile) {
     todoist_filters: (snapshot.filters || [])
       .slice(0, 20)
       .map((filter) => ({ name: filter.name, query: filter.query })),
-    projects: snapshot.projects
+    project_context: snapshot.projects
       .filter((project) => !project.is_archived)
-      .map((project) => ({ id: project.id, name: project.name })),
+      .map((project) => ({
+        id: project.id,
+        name: project.name,
+        is_inbox: Boolean(project.is_inbox),
+        verdict: project.diagnosis?.verdict || null,
+        score: project.diagnosis?.score ?? null,
+        tasks: project.stats?.tasks ?? null,
+        overdue: project.stats?.overdue ?? null,
+        no_due: project.stats?.no_due ?? null,
+        completed_lookback: project.stats?.completed_lookback ?? null,
+        description: String(project.description || '').slice(0, 180) || null,
+      })),
+    due_soon: upcoming.slice(0, 15).map((task) => ({
+      id: task.id,
+      title: String(task.display_title || task.content || '').slice(0, 100),
+      project: task.project_name || null,
+      due: task.due_date,
+      priority: task.priority_label,
+    })),
     tasks,
   };
 }
@@ -324,6 +361,17 @@ function buildUserPrompt(digest) {
     `- Au maximum ${digest.max_proposals} ajout(s).`,
     '- Les tâches listées sont des tâches « feuilles » (sans sous-tâches). Si une tâche a',
     '  "parent", tu peux la regrouper avec ses sœurs sur un même jour.',
+    '',
+    'Projets et échéances (TRÈS IMPORTANT) :',
+    '- Utilise "project_context" : tiens compte du projet, de son verdict et de son état',
+    '  (dormant, en retard, à dater…). Une tâche qui débloque un projet en difficulté passe avant.',
+    '- Une tâche due aujourd’hui ou en retard est prioritaire.',
+    '- Une tâche due plus tard (voir "due_in_days" et "due_soon") ne doit pas être sortie de',
+    '  son échéance sans raison. Tu peux la proposer aujourd’hui seulement si c’est une petite',
+    '  préparation utile, si elle débloque le projet, ou si la journée a vraiment de la place.',
+    '- Dans ce cas, explique-le dans "reason" (ex. « préparation pour la tâche due vendredi »).',
+    '- Ne propose pas une tâche d’un projet sans lien avec les priorités du jour si la place',
+    '  est déjà occupée par des échéances proches.',
     '',
     'Scissions : uniquement pour une tâche SANS sous-tâches (une tâche fourre-tout).',
     'N’essaie JAMAIS de scinder une tâche qui a déjà des sous-tâches (voir "has_subtasks").',

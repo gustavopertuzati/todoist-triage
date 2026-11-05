@@ -18,6 +18,8 @@
     diagnosisFilter: 'all',
     applied: new Map(),
     ignored: new Set(),
+    acceptedTasks: {},
+    ignoredTasks: {},
     selectedDate: null,
     dayPlan: null,
     dayLoading: false,
@@ -48,6 +50,7 @@
     },
     reminderPlans: {},
     remindersBusy: false,
+    reminderSyncTimer: null,
     scheduleSettings: {
       phoneStart: '09:00',
       otherStart: '11:00',
@@ -190,6 +193,51 @@
   const REMINDERS_KEY = 'todoist-triage:reminders';
   const SCHEDULE_KEY = 'todoist-triage:schedule';
   const DAY_PLANS_KEY = 'todoist-triage:day-plans';
+  const ACCEPTED_TASKS_KEY = 'todoist-triage:accepted-tasks';
+  const IGNORED_TASKS_KEY = 'todoist-triage:ignored-tasks';
+
+  function loadTaskMap(key) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveTaskMap(key, map) {
+    try {
+      const entries = Object.entries(map)
+        .sort((a, b) => String(b[0]).localeCompare(String(a[0])))
+        .slice(0, 30);
+      localStorage.setItem(key, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function taskStatusDate() {
+    return state.selectedDate || state.data?.meta?.today || null;
+  }
+
+  function markTaskStatus(kind, taskId, date = taskStatusDate()) {
+    if (!taskId || !date) return;
+    const key = kind === 'accepted' ? ACCEPTED_TASKS_KEY : IGNORED_TASKS_KEY;
+    const map = kind === 'accepted' ? state.acceptedTasks : state.ignoredTasks;
+    const list = Array.isArray(map[date]) ? map[date] : [];
+    if (!list.includes(taskId)) list.push(taskId);
+    map[date] = list;
+    saveTaskMap(key, map);
+  }
+
+  function taskIsBlocked(proposal, date) {
+    const taskId = proposal?.target?.id;
+    if (!taskId) return false;
+    return (
+      (state.acceptedTasks[date] || []).includes(taskId) ||
+      (state.ignoredTasks[date] || []).includes(taskId)
+    );
+  }
 
   function loadDayPlans() {
     try {
@@ -913,11 +961,22 @@
       // Le plan est maintenant figé ; si des rappels sont actifs, on les recale
       // uniquement parce que l'utilisateur vient de réorganiser.
       if (state.reminderPlans[date]) {
+        const selectedVariant =
+          (result.variants || []).find((item) => item.key === state.dayOrder.variant) ||
+          (result.variants || [])[0] ||
+          null;
         await applyReminders({
           date,
           variant: state.dayOrder.variant,
           settings: result.schedule || state.scheduleSettings,
           silent: true,
+          items: selectedVariant
+            ? selectedVariant.items.map((item) => ({
+                taskId: item.id,
+                date,
+                time: item.start,
+              }))
+            : null,
         });
       }
       if (els.dayOrder && typeof els.dayOrder.scrollIntoView === 'function') {
@@ -937,6 +996,7 @@
     clear = false,
     silent = false,
     settings = null,
+    items = null,
   }) {
     if (state.remindersBusy) return;
     state.remindersBusy = true;
@@ -944,12 +1004,14 @@
     const known = plan && Array.isArray(plan.mapping) ? plan.mapping : [];
     // Manuel : on utilise les horaires affichés. Auto-refresh : ceux du plan.
     const usedSettings = settings || state.scheduleSettings;
+    const payload = { date, variant, known, clear, ...usedSettings };
+    if (Array.isArray(items)) payload.items = items;
 
     try {
       const result = await apiJson('/api/day/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, variant, known, clear, ...usedSettings }),
+        body: JSON.stringify(payload),
       });
 
       if (clear) {
@@ -1032,7 +1094,94 @@
       });
   }
 
-  function dayOrderRow(task, index, why, slot = null) {
+  function parseClock(value, fallback) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ''));
+    if (!match) return fallback;
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  function formatClock(minutes) {
+    const value = Math.max(0, Math.round(minutes));
+    return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+  }
+
+  /** Recalcule les horaires d'un plan après un déplacement manuel. */
+  function recalcVariant(variant, settings) {
+    const phoneStart = parseClock(settings?.phoneStart, 9 * 60);
+    const otherStart = parseClock(settings?.otherStart, 11 * 60);
+    const dayEnd = parseClock(settings?.end, 17 * 60);
+    const lunchStart = parseClock(settings?.lunchStart, 12 * 60);
+    const lunchEnd = parseClock(settings?.lunchEnd, 13 * 60);
+    const breakMinutes = Number.isFinite(Number(settings?.breakMinutes))
+      ? Math.max(0, Number(settings.breakMinutes))
+      : 10;
+
+    let cursor = phoneStart;
+    let overflow = 0;
+    const starts = [];
+    const ends = [];
+
+    for (const item of variant.items) {
+      const earliest = item.context === 'phone' ? phoneStart : otherStart;
+      let start = Math.max(cursor, earliest);
+      if (lunchEnd > lunchStart && start < lunchEnd && start + item.minutes > lunchStart) {
+        start = lunchEnd;
+      }
+      const end = start + item.minutes;
+      cursor = end + breakMinutes;
+      starts.push(start);
+      ends.push(end);
+      item.start = formatClock(start);
+      item.end = formatClock(end);
+      item.overflow = end > dayEnd;
+      overflow += Math.max(0, end - dayEnd);
+    }
+
+    variant.overflow_minutes = overflow;
+    variant.start = starts.length ? formatClock(Math.min(...starts)) : null;
+    variant.end = ends.length ? formatClock(Math.max(...ends)) : null;
+    return variant;
+  }
+
+  function scheduleReminderSync(date, variant, settings) {
+    if (!state.reminderPlans[date]) return;
+    clearTimeout(state.reminderSyncTimer);
+    state.reminderSyncTimer = setTimeout(() => {
+      applyReminders({
+        date,
+        variant: variant.key,
+        settings,
+        silent: true,
+        items: variant.items.map((item) => ({
+          taskId: item.id,
+          date,
+          time: item.start,
+        })),
+      });
+    }, 900);
+  }
+
+  function moveDayOrderItem(index, delta) {
+    const data = state.dayOrder.data;
+    if (!data) return;
+    const variant =
+      (data.variants || []).find((item) => item.key === state.dayOrder.variant) ||
+      (data.variants || [])[0];
+    if (!variant) return;
+    const target = index + delta;
+    if (target < 0 || target >= variant.items.length) return;
+
+    const items = [...variant.items];
+    [items[index], items[target]] = [items[target], items[index]];
+    variant.items = items;
+    const settings = data.schedule || state.scheduleSettings;
+    recalcVariant(variant, settings);
+    saveDayPlan(data.date, data, variant.key);
+    renderDayOrder();
+    scheduleReminderSync(data.date, variant, settings);
+  }
+
+  function dayOrderRow(task, index, why, slot = null, controls = null) {
     const sizeLabel = { L: 'Gros', M: 'Moyen', S: 'Petit' };
     return h(
       'div',
@@ -1070,7 +1219,35 @@
             : null
         ),
         why ? h('span', { class: 'day-order-why' }, why) : null
-      )
+      ),
+      controls
+        ? h(
+            'div',
+            { class: 'day-order-move' },
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'icon-btn day-order-move-btn',
+                'aria-label': 'Monter la tâche',
+                disabled: !controls.canUp,
+                onclick: controls.onUp,
+              },
+              '▲'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'icon-btn day-order-move-btn',
+                'aria-label': 'Descendre la tâche',
+                disabled: !controls.canDown,
+                onclick: controls.onDown,
+              },
+              '▼'
+            )
+          )
+        : null
     );
   }
 
@@ -1221,7 +1398,14 @@
     for (const [index, entry] of ordered.entries()) {
       const task = byId.get(entry.id);
       if (!task) continue;
-      list.append(dayOrderRow(task, index, entry.why, entry.slot));
+      list.append(
+        dayOrderRow(task, index, entry.why, entry.slot, {
+          canUp: index > 0,
+          canDown: index < ordered.length - 1,
+          onUp: () => moveDayOrderItem(index, -1),
+          onDown: () => moveDayOrderItem(index, 1),
+        })
+      );
     }
     els.dayOrder.append(list);
 
@@ -1239,6 +1423,11 @@
           date: focus,
           variant: variant.key,
           settings: data.schedule || state.scheduleSettings,
+          items: variant.items.map((item) => ({
+            taskId: item.id,
+            date: focus,
+            time: item.start,
+          })),
         })
       );
       actions.append(remindBtn);
@@ -1633,19 +1822,22 @@
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p, date)
+        !feedbackBlocks(p, date) &&
+        !taskIsBlocked(p, date)
     );
     const splits = (plan.splits || []).filter(
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p, date)
+        !feedbackBlocks(p, date) &&
+        !taskIsBlocked(p, date)
     );
     const renames = (plan.renames || []).filter(
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p, date)
+        !feedbackBlocks(p, date) &&
+        !taskIsBlocked(p, date)
     );
 
     if (proposals.length === 0 && splits.length === 0 && renames.length === 0) {
@@ -2094,14 +2286,11 @@
 
     const record = (entry, message) => {
       recordFeedback(taskId, { title, kind, ...entry });
+      // On ne relance PAS une analyse complète : la carte disparaît simplement
+      // et la tâche reste bloquée pour cette journée.
+      markTaskStatus('ignored', taskId, date);
       toast(message || 'Merci, l’IA en tiendra compte.', 'ok');
       removeProposalLocally(proposal);
-      // « Je la garde aujourd'hui » → on relance une analyse pour proposer
-      // des manières d'adapter plutôt qu'un report.
-      if (kind === 'defer' && entry.reason && entry.reason !== 'can_wait') {
-        toast('Compris : je cherche comment l’adapter pour aujourd’hui…', 'ok');
-        selectDay(date, { analyze: true, force: true });
-      }
     };
 
     // Raccourcis propres au type de proposition.
@@ -2186,6 +2375,13 @@
   /** Consomme le retour d'une application (maj locale, capacité, render). */
   function consumeApplied(proposal, result) {
     state.applied.set(proposal.id, result);
+    if (proposal.target?.id) {
+      markTaskStatus(
+        'accepted',
+        proposal.target.id,
+        state.selectedDate || state.data?.meta?.today
+      );
+    }
     if (state.dayPlan) {
       state.dayPlan.proposals = (state.dayPlan.proposals || []).filter((p) => p.id !== proposal.id);
       state.dayPlan.splits = (state.dayPlan.splits || []).filter((p) => p.id !== proposal.id);
@@ -2219,7 +2415,8 @@
       (p) =>
         !state.ignored.has(p.id) &&
         !state.applied.has(p.id) &&
-        !feedbackBlocks(p, date)
+        !feedbackBlocks(p, date) &&
+        !taskIsBlocked(p, date)
     );
   }
 
@@ -2380,7 +2577,8 @@
       (proposal) =>
         !state.ignored.has(proposal.id) &&
         !state.applied.has(proposal.id) &&
-        !feedbackBlocks(proposal, today)
+        !feedbackBlocks(proposal, today) &&
+        !taskIsBlocked(proposal, today)
     );
 
     els.proposalsCount.textContent = String(visible.length);
@@ -3964,6 +4162,8 @@
 
   // Démarrage.
   state.ignored = loadIgnoredProposals();
+  state.acceptedTasks = loadTaskMap(ACCEPTED_TASKS_KEY);
+  state.ignoredTasks = loadTaskMap(IGNORED_TASKS_KEY);
   state.checkins = loadCheckins();
   state.feedback = loadFeedback();
   state.reminderPlans = loadReminderPlans();

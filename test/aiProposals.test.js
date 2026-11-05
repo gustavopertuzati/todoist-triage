@@ -106,6 +106,21 @@ test('buildDayDigest est déterministe et expose la place pour ajouter', () => {
   assert.equal(digest.date, DAY);
   assert.deepEqual(digest.can_add, RULE);
   assert.equal(digest.max_proposals, 5);
+  assert.ok(Array.isArray(digest.project_context));
+  assert.ok(Array.isArray(digest.due_soon));
+});
+
+test('buildDayDigest inclut les tâches à venir et leur échéance', () => {
+  const snapshot = snapshotWith([
+    task({ id: 'soon', due_date: LATER }), // 5 jours après DAY
+    task({ id: 'far', due_date: '2027-01-01' }),
+  ]);
+  const digest = buildDayDigest(snapshot, DAY, GOOD);
+  const soon = digest.tasks.find((item) => item.id === 'soon');
+  assert.equal(soon.due_in_days, 5);
+  assert.equal(soon.due, LATER);
+  assert.ok(!digest.tasks.some((item) => item.id === 'far'));
+  assert.ok(digest.project_context.length > 0);
 });
 
 test('validateDayResponse ne garde que la journée visée et respecte la charge', () => {

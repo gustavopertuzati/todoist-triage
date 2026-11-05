@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 21.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 22.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -610,6 +610,42 @@ règles de prudence (pas de WhatsApp/mail, pas de contrôle du téléphone sans 
 `AGENTS.md` demande à l'agent de lire ce fichier avant toute priorisation. Le fichier reste
 privé et n'est pas exposé par l'application.
 
+## Itération 22 — projets, ignore sans rechargement, ordre manuel
+
+### Des propositions ancrées dans les projets et les échéances
+
+Le digest envoyé à l'IA contient maintenant :
+
+- `project_context` : nom, verdict, score, nombre de tâches, retards, tâches sans date,
+  activité récente et description de chaque projet ;
+- `due_soon` : les tâches qui arrivent dans les 14 jours ;
+- les tâches candidates incluent aussi celles dues prochainement, avec `due_in_days`.
+
+Consignes imposées à l'IA :
+
+- une tâche due aujourd'hui ou en retard est prioritaire ;
+- une tâche due plus tard n'est pas sortie de son échéance sans raison ;
+- elle peut être proposée en avance seulement si c'est une petite préparation utile, si
+  elle débloque un projet, ou si la journée a vraiment de la place ;
+- une tâche qui débloque un projet dormant/en retard passe avant.
+
+### Ignorer sans recharger
+
+- Ignorer une proposition **retire seulement la carte** : plus de rechargement complet ni
+  de nouvelle analyse.
+- Les tâches **ignorées** et **acceptées** sont mémorisées par date dans le navigateur.
+- Une tâche déjà acceptée ou ignorée n'est plus reproposée pour ce jour, même après une
+  nouvelle analyse ou un rechargement.
+
+### Réorganiser à la main
+
+- Chaque ligne de l'ordre du jour a des boutons **▲ / ▼**.
+- Le déplacement recalcule **immédiatement** les horaires de toutes les tâches, avec les
+  pauses et la pause déjeuner.
+- L'ordre manuel est sauvegardé avec le plan et reste après rechargement.
+- Si des rappels sont actifs, ils sont mis à jour après le déplacement (léger debounce),
+  en utilisant exactement les créneaux affichés.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -825,7 +861,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 21 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 22 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -837,7 +873,9 @@ des sous-tâches, **réorganisation de la journée** par priorité et ordre d'ex
 **planifications horaires et rappels Todoist natifs par tâche**, **horaires de journée
 personnalisables**, **pauses entre tâches et pause déjeuner**, **plan de journée figé**
 tant que l'utilisateur ne reclique pas, **notes redimensionnables**, **contexte de vie**
-pour l'agent, **nettoyage approfondi progressif** et **carnet de notes éditable**
-persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
+pour l'agent, **propositions ancrées dans les projets et échéances**, **ignore sans
+rechargement**, **réorganisation manuelle avec recalcul des horaires**, **nettoyage
+approfondi progressif** et **carnet de notes éditable** persistant pour OpenCode. Les
+itérations suivantes (rituel du matin avec rattrapage
 automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
 implémentées et seront abordées après retour d'usage.

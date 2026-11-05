@@ -555,33 +555,60 @@ function createApp() {
         });
       }
 
-      const schedule = {
-        phoneStart: req.body?.phoneStart,
-        otherStart: req.body?.otherStart,
-        end: req.body?.end,
-        breakMinutes: req.body?.breakMinutes,
-        lunchStart: req.body?.lunchStart,
-        lunchEnd: req.body?.lunchEnd,
-      };
-      const { snapshot } = await getSnapshot({ force: false });
-      const order = await generateDayOrder(snapshot, date, { force: false, schedule });
-      const variants = order.variants || [];
-      const variant =
-        variants.find((item) => item.key === req.body?.variant) || variants[0] || null;
-      if (!variant) {
-        return res.status(400).json({
-          error: { code: 'NO_PLAN', message: 'Aucune planification disponible ce jour-là.' },
-        });
-      }
-
       const clear = req.body?.clear === true;
-      const items = clear
-        ? []
-        : (variant.items || []).map((item) => ({
-            taskId: item.id,
+      const { snapshot } = await getSnapshot({ force: false });
+      let variant = null;
+      let items = [];
+
+      if (!clear && Array.isArray(req.body?.items)) {
+        // Plan personnalisé (ordre déplacé à la main) : on utilise les créneaux
+        // exacts envoyés par le client, sans relancer l'IA.
+        const custom = req.body.items
+          .filter(
+            (item) =>
+              item &&
+              item.taskId &&
+              item.date === date &&
+              /^\d{2}:\d{2}$/.test(String(item.time || ''))
+          )
+          .slice(0, 60)
+          .map((item) => ({
+            taskId: String(item.taskId),
             date,
-            time: item.start,
+            time: String(item.time),
           }));
+        if (custom.length === 0) {
+          return res.status(400).json({
+            error: { code: 'NO_ITEMS', message: 'Aucun créneau à rappeler.' },
+          });
+        }
+        items = custom;
+      } else {
+        const schedule = {
+          phoneStart: req.body?.phoneStart,
+          otherStart: req.body?.otherStart,
+          end: req.body?.end,
+          breakMinutes: req.body?.breakMinutes,
+          lunchStart: req.body?.lunchStart,
+          lunchEnd: req.body?.lunchEnd,
+        };
+        const order = await generateDayOrder(snapshot, date, { force: false, schedule });
+        const variants = order.variants || [];
+        variant =
+          variants.find((item) => item.key === req.body?.variant) || variants[0] || null;
+        if (!variant) {
+          return res.status(400).json({
+            error: { code: 'NO_PLAN', message: 'Aucune planification disponible ce jour-là.' },
+          });
+        }
+        items = clear
+          ? []
+          : (variant.items || []).map((item) => ({
+              taskId: item.id,
+              date,
+              time: item.start,
+            }));
+      }
 
       const known = Array.isArray(req.body?.known)
         ? req.body.known
@@ -602,8 +629,8 @@ function createApp() {
       return res.json({
         ok: true,
         date,
-        variant: variant.key,
-        schedule: variant,
+        variant: variant ? variant.key : String(req.body?.variant || 'custom'),
+        schedule: variant || null,
         created: result.created,
         reused: result.reused,
         deleted: result.deleted,

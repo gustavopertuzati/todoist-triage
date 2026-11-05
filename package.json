@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 21 : plan de journée figé, notes redimensionnables, contexte de vie pour l'agent).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 22 : propositions ancrées dans les projets/échéances, ignore sans rechargement, réorganisation manuelle).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

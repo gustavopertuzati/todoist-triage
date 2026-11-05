@@ -2775,13 +2775,31 @@ button:disabled {
 
 .day-order-item {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: start;
   padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
+}
+
+.day-order-move {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.day-order-move-btn {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.day-order-move-btn:disabled {
+  opacity: 0.3;
 }
 
 .day-order-rank {
