@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 19.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 20.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -561,6 +561,24 @@ rappels »** ; un clic applique alors les nouveaux horaires.
 Le serveur valide/normalise les valeurs (`HH:MM`), garantit `début < fin` et empêche les
 chevauchements entre tâches téléphone et autres tâches.
 
+## Itération 20 — pauses entre les tâches et pause déjeuner
+
+Le planning n'enchaîne plus les tâches comme un robot :
+
+- **Pause entre les tâches** : 10 min par défaut, réglable de 0 à 120 min.
+- **Pause déjeuner** : 12:00–13:00 par défaut, début et fin modifiables.
+
+Règles de calcul :
+
+- après chaque tâche, le curseur avance de la pause ;
+- une tâche qui commencerait pendant le déjeuner, ou qui le chevaucherait, est décalée
+  après la pause déjeuner ;
+- les pauses sont comptées dans la journée : elles peuvent créer un dépassement après
+  l'heure de fin, signalé dans l'interface.
+
+Les horaires et pauses restent mémorisés dans le navigateur et s'appliquent aux quatre
+planifications ainsi qu'aux rappels Todoist natifs.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -774,7 +792,7 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 19 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 20 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -784,7 +802,8 @@ le widget du jour**, **sélection des préparations à créer**, **exploration d
 avec ajout manuel et **découpage contextualisé** selon le niveau, **ordre logique récursif**
 des sous-tâches, **réorganisation de la journée** par priorité et ordre d'exécution,
 **planifications horaires et rappels Todoist natifs par tâche**, **horaires de journée
-personnalisables**, **nettoyage approfondi progressif** et **carnet de notes éditable**
-persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
+personnalisables**, **pauses entre tâches et pause déjeuner**, **nettoyage approfondi
+progressif** et **carnet de notes éditable** persistant pour OpenCode. Les itérations
+suivantes (rituel du matin avec rattrapage
 automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
 implémentées et seront abordées après retour d'usage.

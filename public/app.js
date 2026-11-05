@@ -48,7 +48,14 @@
     },
     reminderPlans: {},
     remindersBusy: false,
-    scheduleSettings: { phoneStart: '09:00', otherStart: '11:00', end: '17:00' },
+    scheduleSettings: {
+      phoneStart: '09:00',
+      otherStart: '11:00',
+      end: '17:00',
+      breakMinutes: 10,
+      lunchStart: '12:00',
+      lunchEnd: '13:00',
+    },
     scheduleTimer: null,
     taskDetail: {
       open: false,
@@ -89,6 +96,9 @@
     dayStart: document.getElementById('day-start'),
     dayOtherStart: document.getElementById('day-other-start'),
     dayEnd: document.getElementById('day-end'),
+    dayBreak: document.getElementById('day-break'),
+    dayLunchStart: document.getElementById('day-lunch-start'),
+    dayLunchEnd: document.getElementById('day-lunch-end'),
     proposalsCount: document.getElementById('proposals-count'),
     capacity: document.getElementById('capacity'),
     dayPlan: document.getElementById('day-plan'),
@@ -181,13 +191,27 @@
   const SCHEDULE_KEY = 'todoist-triage:schedule';
 
   function loadScheduleSettings() {
-    const fallback = { phoneStart: '09:00', otherStart: '11:00', end: '17:00' };
+    const fallback = {
+      phoneStart: '09:00',
+      otherStart: '11:00',
+      end: '17:00',
+      breakMinutes: 10,
+      lunchStart: '12:00',
+      lunchEnd: '13:00',
+    };
     try {
       const parsed = JSON.parse(localStorage.getItem(SCHEDULE_KEY) || '{}');
+      const time = (value, def) => (/^\d{2}:\d{2}$/.test(value) ? value : def);
+      const breakMinutes = Number(parsed.breakMinutes);
       return {
-        phoneStart: /^\d{2}:\d{2}$/.test(parsed.phoneStart) ? parsed.phoneStart : fallback.phoneStart,
-        otherStart: /^\d{2}:\d{2}$/.test(parsed.otherStart) ? parsed.otherStart : fallback.otherStart,
-        end: /^\d{2}:\d{2}$/.test(parsed.end) ? parsed.end : fallback.end,
+        phoneStart: time(parsed.phoneStart, fallback.phoneStart),
+        otherStart: time(parsed.otherStart, fallback.otherStart),
+        end: time(parsed.end, fallback.end),
+        breakMinutes: Number.isFinite(breakMinutes)
+          ? Math.min(120, Math.max(0, Math.round(breakMinutes)))
+          : fallback.breakMinutes,
+        lunchStart: time(parsed.lunchStart, fallback.lunchStart),
+        lunchEnd: time(parsed.lunchEnd, fallback.lunchEnd),
       };
     } catch {
       return fallback;
@@ -206,13 +230,22 @@
     if (els.dayStart) els.dayStart.value = state.scheduleSettings.phoneStart;
     if (els.dayOtherStart) els.dayOtherStart.value = state.scheduleSettings.otherStart;
     if (els.dayEnd) els.dayEnd.value = state.scheduleSettings.end;
+    if (els.dayBreak) els.dayBreak.value = String(state.scheduleSettings.breakMinutes);
+    if (els.dayLunchStart) els.dayLunchStart.value = state.scheduleSettings.lunchStart;
+    if (els.dayLunchEnd) els.dayLunchEnd.value = state.scheduleSettings.lunchEnd;
   }
 
   function readScheduleInputs() {
+    const breakMinutes = Number(els.dayBreak?.value);
     state.scheduleSettings = {
       phoneStart: els.dayStart?.value || '09:00',
       otherStart: els.dayOtherStart?.value || '11:00',
       end: els.dayEnd?.value || '17:00',
+      breakMinutes: Number.isFinite(breakMinutes)
+        ? Math.min(120, Math.max(0, Math.round(breakMinutes)))
+        : 10,
+      lunchStart: els.dayLunchStart?.value || '12:00',
+      lunchEnd: els.dayLunchEnd?.value || '13:00',
     };
     saveScheduleSettings();
   }
@@ -3830,7 +3863,14 @@
   els.logoutBtn.addEventListener('click', logout);
   els.dayOrderBtn.addEventListener('click', loadDayOrder);
 
-  for (const input of [els.dayStart, els.dayOtherStart, els.dayEnd]) {
+  for (const input of [
+    els.dayStart,
+    els.dayOtherStart,
+    els.dayEnd,
+    els.dayBreak,
+    els.dayLunchStart,
+    els.dayLunchEnd,
+  ]) {
     input?.addEventListener('change', () => {
       readScheduleInputs();
       if (els.dayOrderHint) {

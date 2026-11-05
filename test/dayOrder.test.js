@@ -198,24 +198,34 @@ test('buildScheduleVariants place le téléphone à 9h et le reste à 11h', () =
 
   const decale = variants.find((variant) => variant.key === 'decale');
   assert.equal(decale.items[0].start, '10:00');
-  assert.equal(decale.items[1].start, '11:30');
+  // 11:30 + 60 min chevaucherait la pause déjeuner (12:00–13:00).
+  assert.equal(decale.items[1].start, '13:00');
 });
 
-test('normalizeSchedule valide et corrige les horaires', () => {
+test('normalizeSchedule valide et corrige les horaires et pauses', () => {
   assert.deepEqual(normalizeSchedule({ phoneStart: '08:30', otherStart: '10:00', end: '16:00' }), {
     phoneStart: '08:30',
     otherStart: '10:00',
     end: '16:00',
+    breakMinutes: 10,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
   });
   assert.deepEqual(normalizeSchedule({ phoneStart: '18:00', otherStart: '11:00', end: '17:00' }), {
     phoneStart: '09:00',
     otherStart: '11:00',
     end: '17:00',
+    breakMinutes: 10,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
   });
   assert.deepEqual(normalizeSchedule({}), {
     phoneStart: '09:00',
     otherStart: '11:00',
     end: '17:00',
+    breakMinutes: 10,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
   });
 });
 
@@ -255,8 +265,9 @@ test('buildScheduleVariants respecte des horaires personnalisés', () => {
   }).find((variant) => variant.key === 'equilibre');
   assert.equal(equilibre.items[0].start, '10:00');
   assert.equal(equilibre.items[0].end, '10:30');
-  assert.equal(equilibre.items[1].start, '12:00');
-  assert.equal(equilibre.items[1].end, '13:00');
+  // Début demandé à 12:00 = pendant la pause déjeuner → repoussé à 13:00.
+  assert.equal(equilibre.items[1].start, '13:00');
+  assert.equal(equilibre.items[1].end, '14:00');
 });
 
 test('les tâches non-téléphone ne chevauchent pas une longue plage téléphone', () => {
@@ -293,5 +304,48 @@ test('les tâches non-téléphone ne chevauchent pas une longue plage téléphon
   );
   assert.equal(equilibre.items[0].start, '09:00');
   assert.equal(equilibre.items[0].end, '12:00');
-  assert.equal(equilibre.items[1].start, '12:00');
+  assert.equal(equilibre.items[1].start, '13:00');
+});
+
+test('les pauses entre tâches et la pause déjeuner sont respectées', () => {
+  const tasks = [
+    {
+      id: 'a',
+      title: 'A',
+      priority: 4,
+      priority_label: 'P1',
+      minutes: 30,
+      context: 'other',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+    {
+      id: 'b',
+      title: 'B',
+      priority: 3,
+      priority_label: 'P2',
+      minutes: 30,
+      context: 'other',
+      overdue: false,
+      is_prep: false,
+      parent_title: null,
+    },
+  ];
+  const execution = [
+    { id: 'a', why: null, minutes: 30, context: 'other' },
+    { id: 'b', why: null, minutes: 30, context: 'other' },
+  ];
+  const equilibre = buildScheduleVariants(tasks, execution, {
+    otherStart: '11:00',
+    end: '17:00',
+    breakMinutes: 10,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+  }).find((variant) => variant.key === 'equilibre');
+
+  assert.equal(equilibre.items[0].start, '11:00');
+  assert.equal(equilibre.items[0].end, '11:30');
+  // 10 min de pause, puis la tâche suivante tombe dans le déjeuner.
+  assert.equal(equilibre.items[1].start, '13:00');
 });

@@ -83,11 +83,15 @@ function parseTime(value, fallback) {
   return hours * 60 + minutes;
 }
 
-/** Normalise les horaires reçus du client (HH:MM). */
+/** Normalise les horaires et pauses reçus du client. */
 function normalizeSchedule(input = {}) {
   const rawPhone = parseTime(input.phoneStart ?? input.start, 9 * 60);
   const rawOther = parseTime(input.otherStart, 11 * 60);
   const rawEnd = parseTime(input.end, 17 * 60);
+  const rawBreak = Number(input.breakMinutes);
+  const breakMinutes = Number.isFinite(rawBreak)
+    ? Math.min(120, Math.max(0, Math.round(rawBreak)))
+    : 10;
 
   let phoneStart = rawPhone;
   let end = rawEnd;
@@ -97,11 +101,30 @@ function normalizeSchedule(input = {}) {
   let otherStart = Math.max(rawOther, phoneStart);
   if (otherStart >= end) otherStart = Math.max(phoneStart, end - 60);
 
+  let lunchStart = parseTime(input.lunchStart, 12 * 60);
+  let lunchEnd = parseTime(input.lunchEnd, 13 * 60);
+  if (lunchEnd <= lunchStart) {
+    lunchStart = 12 * 60;
+    lunchEnd = 13 * 60;
+  }
+
   return {
     phoneStart: formatMinutes(phoneStart),
     otherStart: formatMinutes(otherStart),
     end: formatMinutes(end),
+    breakMinutes,
+    lunchStart: formatMinutes(lunchStart),
+    lunchEnd: formatMinutes(lunchEnd),
   };
+}
+
+/** Décale une tâche pour ne jamais chevaucher la pause déjeuner. */
+function avoidLunch(start, minutes, lunchStart, lunchEnd) {
+  if (lunchEnd <= lunchStart) return start;
+  const end = start + minutes;
+  if (start >= lunchStart && start < lunchEnd) return lunchEnd;
+  if (start < lunchStart && end > lunchStart) return lunchEnd;
+  return start;
 }
 
 let cache = new Map(); // date -> { signature, tasks, priority, execution, summary, ... }
@@ -274,25 +297,26 @@ function validateOrderResponse(parsed, tasks) {
   };
 }
 
-function scheduleVariant(key, label, ordered, { phoneStart, otherStart, dayEnd }) {
-  const phoneMinutes = ordered
-    .filter((task) => task.context === 'phone')
-    .reduce((sum, task) => sum + task.minutes, 0);
-  let phoneCursor = phoneStart;
-  // Les tâches non-téléphone ne commencent jamais avant leur horaire ni avant
-  // la fin réelle des tâches téléphone, pour éviter les chevauchements.
-  let otherCursor = Math.max(otherStart, phoneStart + phoneMinutes);
+function scheduleVariant(
+  key,
+  label,
+  ordered,
+  { phoneStart, otherStart, dayEnd, breakMinutes, lunchStart, lunchEnd }
+) {
+  const phoneTasks = ordered.filter((task) => task.context === 'phone');
+  const otherTasks = ordered.filter((task) => task.context !== 'phone');
+  let cursor = phoneStart;
   let overflow = 0;
   const items = [];
   const starts = [];
   const ends = [];
 
-  for (const task of ordered) {
-    const phone = task.context === 'phone';
-    const start = Math.max(phone ? phoneCursor : otherCursor, phone ? phoneStart : otherStart);
+  const place = (task) => {
+    let start = avoidLunch(cursor, task.minutes, lunchStart, lunchEnd);
+    // Une pause déjeuner peut décaler le début ; on ne repasse jamais avant.
+    start = Math.max(start, cursor);
     const end = start + task.minutes;
-    if (phone) phoneCursor = end;
-    else otherCursor = end;
+    cursor = end + breakMinutes;
 
     const over = Math.max(0, end - dayEnd);
     overflow += over;
@@ -306,7 +330,11 @@ function scheduleVariant(key, label, ordered, { phoneStart, otherStart, dayEnd }
       context: task.context,
       overflow: over > 0,
     });
-  }
+  };
+
+  for (const task of phoneTasks) place(task);
+  cursor = Math.max(cursor, otherStart);
+  for (const task of otherTasks) place(task);
 
   items.sort((a, b) => a.start.localeCompare(b.start));
 
@@ -327,6 +355,9 @@ function buildScheduleVariants(tasks, execution, options = {}) {
   const phoneStart = parseTime(schedule.phoneStart, 9 * 60);
   const otherStart = parseTime(schedule.otherStart, 11 * 60);
   const dayEnd = parseTime(schedule.end, 17 * 60);
+  const lunchStart = parseTime(schedule.lunchStart, 12 * 60);
+  const lunchEnd = parseTime(schedule.lunchEnd, 13 * 60);
+  const breakMinutes = schedule.breakMinutes;
 
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const executionTasks = execution
@@ -345,21 +376,33 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       phoneStart,
       otherStart,
       dayEnd,
+      breakMinutes,
+      lunchStart,
+      lunchEnd,
     }),
     scheduleVariant('priorite', 'Priorité', priorityTasks, {
       phoneStart,
       otherStart,
       dayEnd,
+      breakMinutes,
+      lunchStart,
+      lunchEnd,
     }),
     scheduleVariant('court', 'Courtes d’abord', shortTasks, {
       phoneStart,
       otherStart,
       dayEnd,
+      breakMinutes,
+      lunchStart,
+      lunchEnd,
     }),
     scheduleVariant('decale', 'Départ décalé', executionTasks, {
       phoneStart: Math.min(phoneStart + 60, dayEnd - 60),
       otherStart: Math.min(otherStart + 30, dayEnd - 30),
       dayEnd,
+      breakMinutes,
+      lunchStart,
+      lunchEnd,
     }),
   ];
 }

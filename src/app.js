@@ -505,6 +505,9 @@ function createApp() {
         phoneStart: req.body?.phoneStart,
         otherStart: req.body?.otherStart,
         end: req.body?.end,
+        breakMinutes: req.body?.breakMinutes,
+        lunchStart: req.body?.lunchStart,
+        lunchEnd: req.body?.lunchEnd,
       };
       const { snapshot } = await getSnapshot({ force: false });
       const result = await generateDayOrder(snapshot, date, { force, schedule });
@@ -556,6 +559,9 @@ function createApp() {
         phoneStart: req.body?.phoneStart,
         otherStart: req.body?.otherStart,
         end: req.body?.end,
+        breakMinutes: req.body?.breakMinutes,
+        lunchStart: req.body?.lunchStart,
+        lunchEnd: req.body?.lunchEnd,
       };
       const { snapshot } = await getSnapshot({ force: false });
       const order = await generateDayOrder(snapshot, date, { force: false, schedule });
