@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 20 : pauses entre les tâches et pause déjeuner dans les planifications).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 21 : plan de journée figé, notes redimensionnables, contexte de vie pour l'agent).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 20.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 21.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -579,6 +579,37 @@ Règles de calcul :
 Les horaires et pauses restent mémorisés dans le navigateur et s'appliquent aux quatre
 planifications ainsi qu'aux rappels Todoist natifs.
 
+## Itération 21 — plan figé, notes redimensionnables, contexte de vie
+
+### Le plan de journée reste figé
+
+Une fois la journée réorganisée, le plan est **enregistré dans le navigateur** (date par
+date) :
+
+- il reste affiché après un rechargement ou en revenant sur le jour ;
+- la variante choisie (Exécution, Priorité, Courtes, Décalé) est conservée ;
+- les horaires affichés ne changent plus automatiquement quand une tâche est ajoutée ou
+  quand les réglages d'horaires sont modifiés ;
+- seul un clic sur **« 🔀 Réorganiser » / « ↻ Recalculer l'ordre »** recalcule le plan ;
+- si des rappels sont actifs, ils sont recalés **uniquement après ce clic**.
+
+Les réglages d'horaires restent modifiables sans casser le plan affiché : le prochain
+recalcul les applique.
+
+### Zone de notes redimensionnable
+
+Les zones de texte du carnet (ajout et édition) ont une poignée native en bas à droite
+(`resize: both`) : on peut les agrandir ou les réduire horizontalement et verticalement.
+
+### Contexte de vie pour l'agent
+
+`LIFE_CONTEXT.md` contient les projets en cours, leur avancement et leurs blocages
+(OpenCode, JobOps, n8n, AWS, calories, sport, permis, plantes, puzzle), ainsi que les
+règles de prudence (pas de WhatsApp/mail, pas de contrôle du téléphone sans demande).
+
+`AGENTS.md` demande à l'agent de lire ce fichier avant toute priorisation. Le fichier reste
+privé et n'est pas exposé par l'application.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -777,6 +808,8 @@ src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
 public/                CSS, JS, manifest PWA, icônes et service worker
 test/                  tests unitaires (node:test)
+LIFE_CONTEXT.md        contexte de vie/projets lu par l'agent OpenCode
+AGENTS.md              consignes de travail de l'agent
 ```
 
 ## Sécurité
@@ -792,7 +825,7 @@ test/                  tests unitaires (node:test)
 
 ## Périmètre
 
-Itérations 1 à 20 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 21 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -802,8 +835,9 @@ le widget du jour**, **sélection des préparations à créer**, **exploration d
 avec ajout manuel et **découpage contextualisé** selon le niveau, **ordre logique récursif**
 des sous-tâches, **réorganisation de la journée** par priorité et ordre d'exécution,
 **planifications horaires et rappels Todoist natifs par tâche**, **horaires de journée
-personnalisables**, **pauses entre tâches et pause déjeuner**, **nettoyage approfondi
-progressif** et **carnet de notes éditable** persistant pour OpenCode. Les itérations
-suivantes (rituel du matin avec rattrapage
+personnalisables**, **pauses entre tâches et pause déjeuner**, **plan de journée figé**
+tant que l'utilisateur ne reclique pas, **notes redimensionnables**, **contexte de vie**
+pour l'agent, **nettoyage approfondi progressif** et **carnet de notes éditable**
+persistant pour OpenCode. Les itérations suivantes (rituel du matin avec rattrapage
 automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
 implémentées et seront abordées après retour d'usage.

@@ -189,6 +189,42 @@
   const IGNORED_KEY = 'todoist-triage:ignored-proposals';
   const REMINDERS_KEY = 'todoist-triage:reminders';
   const SCHEDULE_KEY = 'todoist-triage:schedule';
+  const DAY_PLANS_KEY = 'todoist-triage:day-plans';
+
+  function loadDayPlans() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(DAY_PLANS_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveDayPlan(date, data, variant) {
+    try {
+      const plans = loadDayPlans();
+      plans[date] = {
+        data,
+        variant: variant || 'equilibre',
+        settings: data?.schedule || null,
+        savedAt: new Date().toISOString(),
+      };
+      // On garde les 30 jours les plus récents.
+      const entries = Object.entries(plans).sort((a, b) =>
+        String(b[1].savedAt || '').localeCompare(String(a[1].savedAt || ''))
+      );
+      const kept = Object.fromEntries(entries.slice(0, 30));
+      localStorage.setItem(DAY_PLANS_KEY, JSON.stringify(kept));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function restoreDayPlan(date) {
+    const plan = loadDayPlans()[date];
+    if (!plan || !plan.data) return null;
+    return plan;
+  }
 
   function loadScheduleSettings() {
     const fallback = {
@@ -574,7 +610,6 @@
       if (force) state.cleanup = { depth: 0, scan: null, loading: false };
       render();
       ensureDefaultDay();
-      refreshActiveReminders(data.meta.today);
       els.loading.hidden = true;
       els.content.hidden = false;
       if (force && !silent) toast('Données rafraîchies depuis Todoist.', 'ok');
@@ -868,11 +903,23 @@
       state.dayOrder.data = result;
       state.dayOrder.loading = false;
       state.dayOrder.mode = 'execution';
+      saveDayPlan(date, result, state.dayOrder.variant);
       if (els.dayOrderHint) {
         els.dayOrderHint.textContent = 'Priorité et ordre d’exécution.';
       }
       renderDayOrder();
       toast('Ordre de la journée prêt.', 'ok');
+
+      // Le plan est maintenant figé ; si des rappels sont actifs, on les recale
+      // uniquement parce que l'utilisateur vient de réorganiser.
+      if (state.reminderPlans[date]) {
+        await applyReminders({
+          date,
+          variant: state.dayOrder.variant,
+          settings: result.schedule || state.scheduleSettings,
+          silent: true,
+        });
+      }
       if (els.dayOrder && typeof els.dayOrder.scrollIntoView === 'function') {
         els.dayOrder.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
@@ -1147,6 +1194,9 @@
                   class: `chip${variant && item.key === variant.key ? ' is-active' : ''}`,
                   onclick: () => {
                     state.dayOrder.variant = item.key;
+                    if (state.dayOrder.data) {
+                      saveDayPlan(focus, state.dayOrder.data, item.key);
+                    }
                     renderDayOrder();
                   },
                 },
@@ -1185,7 +1235,11 @@
         active ? '✅ Mettre à jour les rappels' : '🔔 Activer les rappels'
       );
       remindBtn.addEventListener('click', () =>
-        applyReminders({ date: focus, variant: variant.key })
+        applyReminders({
+          date: focus,
+          variant: variant.key,
+          settings: data.schedule || state.scheduleSettings,
+        })
       );
       actions.append(remindBtn);
 
@@ -1400,16 +1454,21 @@
     state.selectedDate = date;
     state.dayLoading = true;
     state.dayError = null;
-    if (state.dayOrder.data?.date !== date) {
-      state.dayOrder.data = null;
-      state.dayOrder.error = null;
-    }
+
+    // On restaure le plan enregistré : la liste reste fixe tant que
+    // l'utilisateur ne clique pas sur « Réorganiser ».
+    const saved = restoreDayPlan(date);
+    state.dayOrder = {
+      date,
+      loading: false,
+      error: null,
+      data: saved ? saved.data : null,
+      variant: saved?.variant || 'equilibre',
+      mode: 'execution',
+    };
     renderWidget();
     renderPlanner();
     await loadDay(date, { analyze, force });
-    if (date !== state.data?.meta?.today && state.reminderPlans[date]) {
-      refreshActiveReminders(date);
-    }
   }
 
   async function loadDay(date, { analyze = false, force = false } = {}) {
@@ -3874,11 +3933,7 @@
     input?.addEventListener('change', () => {
       readScheduleInputs();
       if (els.dayOrderHint) {
-        els.dayOrderHint.textContent = 'Horaires modifiés — recalcul de l’ordre…';
-      }
-      if (state.dayOrder.data?.date === currentFocusDate()) {
-        clearTimeout(state.scheduleTimer);
-        state.scheduleTimer = setTimeout(() => loadDayOrder(), 800);
+        els.dayOrderHint.textContent = 'Horaires modifiés — reclique sur Réorganiser.';
       }
     });
   }

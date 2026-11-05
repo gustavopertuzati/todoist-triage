@@ -2257,7 +2257,10 @@ button:disabled {
 
 .assistant-text {
   min-height: 72px;
-  resize: vertical;
+  max-height: 50vh;
+  max-width: 100%;
+  resize: both;
+  overflow: auto;
 }
 
 .assistant-actions {
