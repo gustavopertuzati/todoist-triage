@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 28 : heures dans l'échéance des tâches, titres nettoyés).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 29 : écrans plein viewport, aperçu ngrok).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

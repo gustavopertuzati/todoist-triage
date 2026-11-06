@@ -2607,7 +2607,33 @@ button:disabled {
 }
 
 .widget-task-tools {
-  margin-top: 8px;
+  margin-top: 4px;
+}
+
+.widget-lists .plain-item {
+  align-items: center;
+  padding: 3px 0;
+  gap: 8px;
+}
+
+.widget-lists .plain-item-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.widget-lists .plain-item-title {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.widget-lists .plain-item-meta {
+  font-size: 11.5px;
+}
+
+.widget-lists .widget-task-tools {
+  margin: 0 0 0 auto;
 }
 
 .prep-meta {
@@ -2622,9 +2648,9 @@ button:disabled {
 }
 
 .widget-task-tools .btn {
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 12.5px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
 }
 
 .plain-item {
@@ -2869,4 +2895,117 @@ button:disabled {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* ==========================================================================
+   Itération 29 — écrans plein viewport
+   ========================================================================== */
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.page {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#content {
+  height: calc(100dvh - 148px);
+  min-height: 0;
+  overflow: hidden;
+  gap: 10px;
+}
+
+.screens-nav {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  -webkit-overflow-scrolling: touch;
+}
+
+.screen-tab {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.screen-tab:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.screen-tab.is-active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.screen {
+  position: relative;
+  display: none;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 2px 12px;
+  overscroll-behavior: contain;
+}
+
+.screen.is-active {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.screen .hero {
+  padding: 0 2px;
+}
+
+.screen .hero h1 {
+  margin-top: 2px;
+  font-size: clamp(24px, 5vw, 30px);
+}
+
+.screen .hero-sub {
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+
+.screen .kpis {
+  gap: 8px;
+}
+
+.screen .kpi {
+  min-height: 0;
+  padding: 10px 12px;
+}
+
+.screen .panel {
+  padding: 14px;
+}
+
+.screen .panel-head {
+  margin-bottom: 6px;
+}
+
+@media (max-width: 480px) {
+  #content {
+    height: calc(100dvh - 124px);
+  }
+
+  .screen.is-active {
+    gap: 12px;
+  }
 }

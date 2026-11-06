@@ -65,6 +65,7 @@
       lunchEnd: '13:00',
     },
     startAdjusted: false,
+    screen: 'today',
     scheduleTimer: null,
     taskDetail: {
       open: false,
@@ -101,6 +102,7 @@
     widgetLists: document.getElementById('widget-lists'),
     dayOrderBtn: document.getElementById('day-order-btn'),
     dayOrderHint: document.getElementById('day-order-hint'),
+    dayOrderEmpty: document.getElementById('day-order-empty'),
     dayOrder: document.getElementById('day-order'),
     dayStart: document.getElementById('day-start'),
     dayOtherStart: document.getElementById('day-other-start'),
@@ -951,6 +953,28 @@
     renderDayOrder();
   }
 
+  const SCREENS = ['today', 'tasks', 'order', 'plan', 'clean', 'projects'];
+
+  function setScreen(name) {
+    if (!SCREENS.includes(name)) return;
+    state.screen = name;
+    for (const panel of document.querySelectorAll('[data-screen-panel]')) {
+      panel.classList.toggle('is-active', panel.dataset.screenPanel === name);
+    }
+    for (const tab of document.querySelectorAll('[data-screen-tab]')) {
+      const active = tab.dataset.screenTab === name;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', String(active));
+    }
+    const panel = document.querySelector(`[data-screen-panel="${name}"]`);
+    if (panel) panel.scrollTop = 0;
+    try {
+      localStorage.setItem('todoist-triage:screen', name);
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
   function currentFocusDate() {
     return state.selectedDate || state.data?.meta?.today || null;
   }
@@ -998,6 +1022,7 @@
         null;
       // Inscrit les horaires dans les titres Todoist.
       await applyPlanTimes(date, selectedVariant);
+      setScreen('order');
       toast('Ordre de la journée prêt, heures ajoutées aux échéances.', 'ok');
 
       // Le plan est maintenant figé ; si des rappels sont actifs, on les recale
@@ -1449,6 +1474,8 @@
         ? '↻ Recalculer l’ordre'
         : '🔀 Réorganiser la journée';
 
+    if (els.dayOrderEmpty) els.dayOrderEmpty.hidden = true;
+
     if (state.dayOrder.error) {
       els.dayOrder.hidden = false;
       clear(els.dayOrder);
@@ -1491,6 +1518,7 @@
     if (!sameDay) {
       els.dayOrder.hidden = true;
       clear(els.dayOrder);
+      if (els.dayOrderEmpty) els.dayOrderEmpty.hidden = false;
       return;
     }
 
@@ -1723,12 +1751,6 @@
         tools.append(prepareBtn);
       }
       body.append(tools);
-
-      if (task.subtask_count) {
-        body.append(
-          h('span', { class: 'plain-item-meta' }, `${task.subtask_count} sous-tâche(s)`)
-        );
-      }
     }
 
     return h(
@@ -1810,7 +1832,10 @@
               state.selectedDate === day.date ? ' is-selected' : ''
             }`,
             'aria-pressed': String(state.selectedDate === day.date),
-            onclick: () => selectDay(day.date),
+            onclick: () => {
+              setScreen('plan');
+              selectDay(day.date);
+            },
           },
           h('span', { class: 'capacity-date' }, formatDayChip(day.date, today)),
           h('span', { class: 'capacity-load' }, parts.length ? parts.join(' · ') : 'libre'),
@@ -4462,6 +4487,10 @@
   els.logoutBtn.addEventListener('click', logout);
   els.dayOrderBtn.addEventListener('click', loadDayOrder);
 
+  for (const tab of document.querySelectorAll('[data-screen-tab]')) {
+    tab.addEventListener('click', () => setScreen(tab.dataset.screenTab));
+  }
+
   for (const input of [
     els.dayStart,
     els.dayOtherStart,
@@ -4511,6 +4540,13 @@
   state.reminderPlans = loadReminderPlans();
   state.scheduleSettings = loadScheduleSettings();
   syncScheduleInputs();
+  try {
+    const savedScreen = localStorage.getItem('todoist-triage:screen');
+    if (SCREENS.includes(savedScreen)) state.screen = savedScreen;
+  } catch {
+    /* stockage indisponible */
+  }
+  setScreen(state.screen);
   if ('serviceWorker' in navigator) {
     // `updateViaCache: 'none'` : le navigateur ne réutilise pas un vieux sw.js
     // en cache HTTP, sinon les mises à jour de l'app peuvent rester bloquées.

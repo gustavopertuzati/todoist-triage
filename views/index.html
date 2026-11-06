@@ -75,6 +75,16 @@
       </section>
 
       <div id="content" hidden>
+        <nav class="screens-nav" aria-label="Sections de l’application">
+          <button type="button" class="screen-tab is-active" data-screen-tab="today">Aujourd’hui</button>
+          <button type="button" class="screen-tab" data-screen-tab="tasks">Tâches</button>
+          <button type="button" class="screen-tab" data-screen-tab="order">Ordre</button>
+          <button type="button" class="screen-tab" data-screen-tab="plan">Planifier</button>
+          <button type="button" class="screen-tab" data-screen-tab="clean">Nettoyage</button>
+          <button type="button" class="screen-tab" data-screen-tab="projects">Projets</button>
+        </nav>
+
+        <section class="screen is-active" data-screen-panel="today">
         <section class="hero">
           <p id="today-label" class="eyebrow"></p>
           <h1>Ton Todoist, en clair.</h1>
@@ -98,48 +108,76 @@
             </div>
             <span class="pill pill-readonly">Lecture seule</span>
           </div>
-          <div class="widget-tools">
-            <div class="day-hours" aria-label="Horaires de la journée">
-              <label class="day-hour">
-                <span>Début tél.</span>
-                <input id="day-start" type="time" value="09:00" step="300" />
-              </label>
-              <label class="day-hour">
-                <span>Début autres</span>
-                <input id="day-other-start" type="time" value="11:00" step="300" />
-              </label>
-              <label class="day-hour">
-                <span>Fin</span>
-                <input id="day-end" type="time" value="17:00" step="300" />
-              </label>
-              <label class="day-hour">
-                <span>Pause (min)</span>
-                <input id="day-break" type="number" min="0" max="120" step="5" value="10" />
-              </label>
-              <label class="day-hour">
-                <span>Midi début</span>
-                <input id="day-lunch-start" type="time" value="12:00" step="300" />
-              </label>
-              <label class="day-hour">
-                <span>Midi fin</span>
-                <input id="day-lunch-end" type="time" value="13:00" step="300" />
-              </label>
-            </div>
-            <button id="day-order-btn" class="btn btn-secondary btn-small" type="button">
-              🔀 Réorganiser la journée
-            </button>
-            <span id="day-order-hint" class="fine-print">Priorité et ordre d’exécution.</span>
-          </div>
-          <div id="day-order" class="day-order" aria-live="polite" hidden></div>
           <div id="widget-summary" class="widget-summary"></div>
-          <div id="widget-lists" class="widget-lists"></div>
           <p class="fine-print">
             Rien n’a été modifié dans Todoist par cette page. Les modifications passent
             uniquement par les <strong>propositions</strong> que tu valides individuellement
             ci-dessous.
           </p>
         </section>
+        </section>
 
+        <section class="screen" data-screen-panel="tasks">
+          <section class="panel" aria-labelledby="tasks-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="tasks-title">Tâches du jour</h2>
+                <p class="panel-sub">Échéances, retards et signaux du jour sélectionné.</p>
+              </div>
+              <span class="pill pill-readonly">Lecture seule</span>
+            </div>
+            <div id="widget-lists" class="widget-lists"></div>
+          </section>
+        </section>
+
+        <section class="screen" data-screen-panel="order">
+          <section class="panel" aria-labelledby="order-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="order-title">Ordre du jour</h2>
+                <p class="panel-sub">Le plan figé, les horaires et les rappels.</p>
+              </div>
+            </div>
+            <div class="widget-tools">
+              <div class="day-hours" aria-label="Horaires de la journée">
+                <label class="day-hour">
+                  <span>Début tél.</span>
+                  <input id="day-start" type="time" value="09:00" step="300" />
+                </label>
+                <label class="day-hour">
+                  <span>Début autres</span>
+                  <input id="day-other-start" type="time" value="11:00" step="300" />
+                </label>
+                <label class="day-hour">
+                  <span>Fin</span>
+                  <input id="day-end" type="time" value="17:00" step="300" />
+                </label>
+                <label class="day-hour">
+                  <span>Pause (min)</span>
+                  <input id="day-break" type="number" min="0" max="120" step="5" value="10" />
+                </label>
+                <label class="day-hour">
+                  <span>Midi début</span>
+                  <input id="day-lunch-start" type="time" value="12:00" step="300" />
+                </label>
+                <label class="day-hour">
+                  <span>Midi fin</span>
+                  <input id="day-lunch-end" type="time" value="13:00" step="300" />
+                </label>
+              </div>
+              <button id="day-order-btn" class="btn btn-secondary btn-small" type="button">
+                🔀 Réorganiser la journée
+              </button>
+              <span id="day-order-hint" class="fine-print">Priorité et ordre d’exécution.</span>
+            </div>
+            <p id="day-order-empty" class="empty-line">
+              Aucun ordre généré pour l’instant. Clique sur « Réorganiser la journée ».
+            </p>
+            <div id="day-order" class="day-order" aria-live="polite" hidden></div>
+          </section>
+        </section>
+
+        <section class="screen" data-screen-panel="plan">
         <section class="panel" aria-labelledby="planner-title">
           <div class="panel-head">
             <div>
@@ -156,7 +194,9 @@
           <div id="day-plan" class="day-plan"></div>
           <div id="week-recap" class="week-recap" hidden></div>
         </section>
+        </section>
 
+        <section class="screen" data-screen-panel="clean">
         <section class="panel" aria-labelledby="proposals-title">
           <div class="panel-head">
             <div>
@@ -178,7 +218,9 @@
           <div id="proposals-list" class="proposals"></div>
           <div id="trash" class="trash" hidden></div>
         </section>
+        </section>
 
+        <section class="screen" data-screen-panel="projects">
         <section class="panel" aria-labelledby="insights-title">
           <div class="panel-head">
             <div>
@@ -233,6 +275,7 @@
           </p>
           <p>Non affilié à Todoist. Version <span id="footer-version"></span>.</p>
         </footer>
+        </section>
       </div>
     </main>
 
