@@ -18,6 +18,7 @@ const { buildDayDigest, rememberItems } = require('./aiProposals');
 const { normalizeCheckin } = require('./checkin');
 const { addDaysIso, isValidIsoDate } = require('./dates');
 const { readLifeContext } = require('./lifeContext');
+const { stripTimeMarker } = require('./taskTitles');
 
 const SYSTEM_PROMPT = [
   'Tu proposes quelques nouvelles tâches concrètes pour une journée.',
@@ -51,7 +52,8 @@ function buildSuggestPrompt(digest, maxTasks) {
     '- Propose majoritairement pour aujourd’hui (' + digest.date + '),',
     '  et 1 à 2 tâches à une date future (max ' + addDaysIso(digest.date, 30) + ')',
     '  si c’est un jalon utile pour l’avancement du projet.',
-    '- Ne duplique aucune tâche existante (même sens, même titre).',
+    '- Ne duplique aucune tâche existante, et ne propose JAMAIS une tâche déjà',
+    '  complétée aujourd’hui (voir "completed_today"), même reformulée.',
     '- Respecte la place restante "can_add" et "agenda" (L/M/S).',
     '- Priorité 1 (P1) à 4 (P4) ; taille L, M ou S.',
     '- Si un projet est bloqué, propose une petite action qui débloque concrètement.',
@@ -76,9 +78,15 @@ function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3, e
   const existingTitles = new Set(
     (snapshot.tasks || [])
       .filter((task) => !task.project_archived)
-      .map((task) => normalizeTitle(task.display_title || task.content))
+      .map((task) => normalizeTitle(stripTimeMarker(task.display_title || task.content)))
       .filter(Boolean)
   );
+  // Une tâche déjà terminée aujourd'hui ne doit pas être reproposée, même
+  // reformulée (ex. « enregistrer mes 3 repas »).
+  for (const item of (snapshot.completed && snapshot.completed.today) || []) {
+    const normalized = normalizeTitle(stripTimeMarker(item.title));
+    if (normalized) existingTitles.add(normalized);
+  }
 
   const horizonEnd = addDaysIso(date, 30);
   const rooms = new Map();

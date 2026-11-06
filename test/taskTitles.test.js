@@ -9,18 +9,19 @@ const {
   isValidClock,
 } = require('../src/taskTitles');
 
-test('titleWithTime ajoute un suffixe horaire', () => {
-  assert.equal(titleWithTime('1. Trier les cartons', '09:00', '09:30'), '1. Trier les cartons · 09:00–09:30');
+test('titleWithTime ajoute l’heure de début', () => {
+  assert.equal(titleWithTime('1. Trier les cartons', '09:00', '09:30'), '1. Trier les cartons · 09:00');
 });
 
 test('titleWithTime remplace un ancien horaire sans le doubler', () => {
   const first = titleWithTime('Trier', '09:00', '09:30');
   const second = titleWithTime(first, '10:00', '10:45');
-  assert.equal(second, 'Trier · 10:00–10:45');
+  assert.equal(second, 'Trier · 10:00');
 });
 
-test('stripTimeMarker enlève un ancien suffixe ou préfixe', () => {
+test('stripTimeMarker enlève un ancien suffixe (heure ou tranche) ou préfixe', () => {
   assert.equal(stripTimeMarker('Tâche · 09:00–09:30'), 'Tâche');
+  assert.equal(stripTimeMarker('Tâche · 09:00'), 'Tâche');
   assert.equal(stripTimeMarker('09:00–09:30 · Tâche'), 'Tâche');
   assert.equal(stripTimeMarker('Tâche sans horaire'), 'Tâche sans horaire');
 });

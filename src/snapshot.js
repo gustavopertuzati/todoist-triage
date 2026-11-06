@@ -12,10 +12,12 @@ const {
   parseDateConvention,
   daysBetweenIso,
   isValidIsoDate,
+  todayInTimeZone,
 } = require('./dates');
 const { diagnoseProject, buildProjectDiagnosis } = require('./diagnosis');
-const { buildProposals } = require('./proposals');
+const { buildProposals, normalizeTitle } = require('./proposals');
 const { buildAgenda } = require('./capacity');
+const { stripTimeMarker } = require('./taskTitles');
 
 const PRIORITY_LABELS = { 4: 'P1', 3: 'P2', 2: 'P3', 1: 'P4' };
 
@@ -168,6 +170,8 @@ function buildSnapshot({
   cleanupMaxTotal = 25,
   cleanupIncludeSubtasks = false,
   cleanupCrossProject = false,
+  cleanupRecurringMinAgeDays = 30,
+  cleanupRecurringMaxCompletions = 2,
   scan = null,
   generatedAt = new Date().toISOString(),
   appVersion = null,
@@ -237,8 +241,27 @@ function buildSnapshot({
 
   const completedAvailable = completed !== null && completed !== undefined;
   const completedByProject = new Map();
+  const completedByTitle = new Map();
+  const completedToday = [];
   for (const item of completedAvailable ? asArray(completed.items) : []) {
     const projectId = item.project_id ? String(item.project_id) : null;
+    const title = stripTimeMarker(item.content || '');
+    const normalized = normalizeTitle(title);
+    if (normalized) {
+      completedByTitle.set(normalized, (completedByTitle.get(normalized) || 0) + 1);
+    }
+    if (item.completed_at) {
+      const completedDay = todayInTimeZone(timezone, new Date(item.completed_at));
+      if (completedDay === today) {
+        completedToday.push({
+          id: item.id ? String(item.id) : null,
+          title: title.slice(0, 160),
+          project_id: projectId,
+          project_name: projectId ? projectNameById.get(projectId) || null : null,
+          completed_at: item.completed_at,
+        });
+      }
+    }
     if (!projectId) continue;
     const entry = completedByProject.get(projectId) || { count: 0, last_at: null };
     entry.count += 1;
@@ -395,6 +418,10 @@ function buildSnapshot({
       cleanupMaxTotal,
       includeSubtasks: cleanupIncludeSubtasks,
       crossProjectDuplicates: cleanupCrossProject,
+      completedByTitle,
+      recurringMinAgeDays: cleanupRecurringMinAgeDays,
+      recurringMaxCompletions: cleanupRecurringMaxCompletions,
+      completedLookbackDays,
     },
   });
 
@@ -430,6 +457,7 @@ function buildSnapshot({
     completed_lookback_total: completedAvailable
       ? asArray(completed.items).length
       : null,
+    completed_today_total: completedToday.length,
     priority: {
       p1: priorityCounts[4],
       p2: priorityCounts[3],
@@ -494,6 +522,7 @@ function buildSnapshot({
       total: completedAvailable ? asArray(completed.items).length : null,
       truncated: Boolean(completedAvailable && completed.truncated),
       by_project: Object.fromEntries(completedByProject),
+      today: completedToday.slice(0, 200),
     },
     orphan_tasks: orphanTasks.map((task) => task.id),
   };

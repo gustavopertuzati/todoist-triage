@@ -83,6 +83,28 @@ test('validateTaskSuggestions rejette doublons, projets inconnus et dates trop l
   assert.equal(items[0].action.due_date, '2026-11-06');
 });
 
+test('validateTaskSuggestions ne repropose pas une tâche déjà faite aujourd’hui', () => {
+  const snap = snapshot();
+  snap.completed = { today: [{ title: 'Enregistrer mes 3 repas dans Lose It!' }] };
+  const { items } = validateTaskSuggestions(
+    {
+      tasks: [
+        {
+          title: 'Enregistrer mes 3 repas dans Lose It!',
+          project_id: 'p1',
+          due_date: DATE,
+          size: 'S',
+        },
+      ],
+    },
+    snap,
+    DATE,
+    digest,
+    3
+  );
+  assert.equal(items.length, 0);
+});
+
 test('validateTaskSuggestions respecte la place et le maximum', () => {
   const many = Array.from({ length: 6 }, (_, i) => ({
     title: `Nouvelle tâche ${i}`,

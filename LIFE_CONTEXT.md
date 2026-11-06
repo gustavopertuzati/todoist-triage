@@ -1,6 +1,6 @@
 # Contexte de vie — à relire par l'agent
 
-Dernière mise à jour : **2026-11-05**
+Dernière mise à jour : **2026-11-06**
 
 Ce fichier donne à l'agent le contexte réel des projets en cours, de leur avancement et de
 leurs blocages. Il doit être lu **avant** de proposer un plan, une priorisation ou des
@@ -18,6 +18,8 @@ actions, et servir à éviter les conseils déconnectés de la réalité.
 
 ### Suivre les candidatures sur JobOps — 40 %
 
+- Projet personnel hébergé en local pour aider à trouver du travail :
+  **<https://github.com/DaKheera47/job-ops>** (voir la doc du dépôt).
 - Beaucoup de refus. Impression que les IA de recrutement reconnaissent les candidatures
   générées par IA.
 - À travailler : trouver une manière de percer leurs filtres sans mentir ni spammer.
@@ -27,6 +29,26 @@ actions, et servir à éviter les conseils déconnectés de la réalité.
 - Les PoCs faits pour Richard ont été supprimés ; démotivation de repartir de zéro.
 - Un historique Claude/Gemini existe : possibilité de reprendre à partir de là.
 - Blocage : motivation + reconstruction.
+
+#### Workflows n8n déjà structurés (à reconstruire / documenter)
+
+1. **Gestion et retrait du courrier (fiduciaire)**
+   - Déclencheur : webhook ou surveillance d'un dossier dès réception d'un PDF numérisé.
+   - OCR / agent IA : identifier le client/mandat, le type de document (facture, impôts,
+     pli officiel) et les dates d'échéance.
+   - Notification client WhatsApp/email : prévenir de la réception, proposer le retrait
+     ou l'envoi du scan.
+   - Suivi du statut : « en attente de retrait » → « retiré » après validation au guichet.
+
+2. **Alerte et gestion globale des erreurs**
+   - Error Trigger sur tous les workflows actifs.
+   - Rapport : nom du workflow, ID d'exécution, nœud en échec, horodatage local.
+   - Notification multi-canal : email SMTP/Gmail détaillé + alerte mobile
+     WhatsApp/Telegram.
+
+3. **Intégrations webhooks & API WhatsApp Meta**
+   - Connexion Meta Business, validation des webhooks officiels.
+   - Routage des messages entrants vers la fiduciaire ou les assistants intelligents.
 
 ### Étudier AWS Developer Associate & LangChain4j/Spring AI — 1 %
 

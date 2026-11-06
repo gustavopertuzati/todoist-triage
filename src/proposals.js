@@ -14,6 +14,7 @@
 
 const crypto = require('node:crypto');
 const { addDaysIso, isValidIsoDate } = require('./dates');
+const { stripTimeMarker } = require('./taskTitles');
 
 const TYPE_META = {
   reschedule_overdue: { label: 'Reporter', tone: 'danger', score: 80 },
@@ -85,9 +86,21 @@ function makeDeleteProposal(task, kind, rationale) {
     action_label: 'Supprimer',
     source: 'cleanup',
     tone: 'danger',
-    score: kind === 'orphan' ? 55 : kind === 'duplicate' ? 50 : 45,
+    score:
+      kind === 'orphan'
+        ? 55
+        : kind === 'duplicate'
+          ? 50
+          : kind === 'rare_recurring'
+            ? 44
+            : 45,
     cleanup_kind: kind,
-    title: kind === 'duplicate' ? 'Supprimer un doublon' : 'Supprimer une tâche abandonnée',
+    title:
+      kind === 'duplicate'
+        ? 'Supprimer un doublon'
+        : kind === 'rare_recurring'
+          ? 'Supprimer une tâche récurrente peu accomplie'
+          : 'Supprimer une tâche abandonnée',
     rationale,
     target: {
       kind: 'task',
@@ -127,6 +140,10 @@ function buildCleanupTasks({ tasks, projects, limits }) {
     cleanupMaxTotal = 25,
     includeSubtasks = false,
     crossProjectDuplicates = false,
+    completedByTitle = new Map(),
+    recurringMinAgeDays = 30,
+    recurringMaxCompletions = 2,
+    completedLookbackDays = 90,
   } = limits;
   const projectIds = new Set(projects.map((project) => project.id));
   const result = [];
@@ -195,7 +212,110 @@ function buildCleanupTasks({ tasks, projects, limits }) {
     result.push(makeDeleteProposal(task, 'orphan', 'Tâche rattachée à un projet absent du compte.'));
   }
 
+  // Tâches récurrentes très peu accomplies : proposer de les supprimer pour
+  // alléger la charge mentale (une proposition de renommage est ajoutée à part).
+  const recurring = tasks
+    .filter(
+      (task) =>
+        task.due_is_recurring &&
+        !task.parent_id &&
+        (task.subtask_count || 0) === 0 &&
+        (task.age_days || 0) >= recurringMinAgeDays
+    )
+    .map((task) => ({
+      task,
+      completed:
+        completedByTitle.get(normalizeTitle(stripTimeMarker(task.display_title || task.content || ''))) ||
+        0,
+    }))
+    .filter((entry) => entry.completed <= recurringMaxCompletions)
+    .sort((a, b) => a.completed - b.completed || (b.task.age_days || 0) - (a.task.age_days || 0))
+    .slice(0, cleanupMaxPerKind);
+
+  for (const { task, completed } of recurring) {
+    result.push(
+      makeDeleteProposal(
+        task,
+        'rare_recurring',
+        `Tâche récurrente créée il y a ${task.age_days || 0} j, terminée seulement ${completed} fois sur ${completedLookbackDays} j. La supprimer ou la renommer pour alléger.`
+      )
+    );
+  }
+
   return result.slice(0, cleanupMaxTotal);
+}
+
+/** Propose un titre plus court pour alléger une récurrence peu accomplie. */
+function shortenTitle(value) {
+  const original = stripTimeMarker(value).trim();
+  if (!original) return null;
+
+  let candidate = original
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const beforePunctuation = candidate.split(/\s*[—–:]\s*/)[0].trim();
+  if (beforePunctuation.length >= 12) candidate = beforePunctuation;
+  if (candidate.length > 52) {
+    candidate = candidate.slice(0, 52).replace(/\s+\S*$/, '').trim();
+  }
+  if (candidate.length < 3 || candidate === original) return null;
+  return candidate;
+}
+
+function buildRecurringRenames({ tasks, limits }) {
+  const {
+    completedByTitle = new Map(),
+    recurringMinAgeDays = 30,
+    recurringMaxCompletions = 2,
+    cleanupMaxPerKind = 10,
+  } = limits;
+
+  const result = [];
+  const recurring = tasks
+    .filter(
+      (task) =>
+        task.due_is_recurring &&
+        !task.parent_id &&
+        (task.subtask_count || 0) === 0 &&
+        (task.age_days || 0) >= recurringMinAgeDays
+    )
+    .map((task) => ({
+      task,
+      completed:
+        completedByTitle.get(normalizeTitle(stripTimeMarker(task.display_title || task.content || ''))) ||
+        0,
+      short: shortenTitle(task.display_title || task.content || ''),
+    }))
+    .filter(
+      (entry) => entry.completed <= recurringMaxCompletions && entry.short
+    )
+    .sort((a, b) => a.completed - b.completed || (b.task.age_days || 0) - (a.task.age_days || 0))
+    .slice(0, cleanupMaxPerKind);
+
+  for (const { task, short, completed } of recurring) {
+    result.push({
+      id: makeId('rename_task', task.id, short),
+      type: 'rename_task',
+      type_label: 'Reformuler',
+      action_label: 'Renommer',
+      source: 'cleanup',
+      tone: 'warn',
+      score: 32,
+      cleanup_kind: 'rare_recurring',
+      title: 'Alléger le titre',
+      rationale: `Récurrente peu accomplie (${completed} fois sur la période) : un titre plus court réduit la charge mentale.`,
+      target: targetFromTask(task),
+      action: { content: short },
+      editable: [],
+      preview: `Nouveau titre : ${short}`,
+      format: 'rename',
+    });
+  }
+  return result;
 }
 
 function shortList(items, max = 4) {
@@ -343,6 +463,10 @@ function buildProposals({ projects, tasks, today, limits }) {
     ? buildCleanupTasks({ tasks: activeTasks, projects, limits })
     : [];
 
+  pools.rename_task = includeCleanup
+    ? buildRecurringRenames({ tasks: activeTasks, limits })
+    : [];
+
   const kept = [];
   for (const [type, pool] of Object.entries(pools)) {
     if (pool.length > maxPerType) truncated[type] = pool.length - maxPerType;
@@ -435,6 +559,8 @@ module.exports = {
   descriptionWithoutChecklist,
   buildProposals,
   buildCleanupTasks,
+  buildRecurringRenames,
+  shortenTitle,
   normalizeTitle,
   findProposal,
   normalizeDueDate,

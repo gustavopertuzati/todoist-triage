@@ -82,6 +82,8 @@ async function loadSnapshot({ deep = 0 } = {}) {
     cleanupMaxTotal: profile ? profile.cleanupMaxTotal : config.cleanupMaxTotal,
     cleanupIncludeSubtasks: profile ? profile.cleanupIncludeSubtasks : false,
     cleanupCrossProject: profile ? profile.cleanupCrossProject : false,
+    cleanupRecurringMinAgeDays: config.cleanupRecurringMinAgeDays,
+    cleanupRecurringMaxCompletions: config.cleanupRecurringMaxCompletions,
     scan: profile,
     generatedAt,
     appVersion: config.appVersion,

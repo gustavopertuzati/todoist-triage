@@ -64,6 +64,7 @@
       lunchStart: '12:00',
       lunchEnd: '13:00',
     },
+    startAdjusted: false,
     scheduleTimer: null,
     taskDetail: {
       open: false,
@@ -191,7 +192,12 @@
 
   function cleanupKindLabel(kind) {
     return (
-      { ghost: 'Fantôme', duplicate: 'Doublon', orphan: 'Orpheline' }[kind] || 'À supprimer'
+      {
+        ghost: 'Fantôme',
+        duplicate: 'Doublon',
+        orphan: 'Orpheline',
+        rare_recurring: 'Récurrente',
+      }[kind] || 'À supprimer'
     );
   }
   const IGNORED_KEY = 'todoist-triage:ignored-proposals';
@@ -323,6 +329,29 @@
     if (els.dayBreak) els.dayBreak.value = String(state.scheduleSettings.breakMinutes);
     if (els.dayLunchStart) els.dayLunchStart.value = state.scheduleSettings.lunchStart;
     if (els.dayLunchEnd) els.dayLunchEnd.value = state.scheduleSettings.lunchEnd;
+  }
+
+  /** Au premier chargement du jour, cale les débuts sur l'heure actuelle. */
+  function adjustStartTimesToNow() {
+    const now = new Date();
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    const rounded = Math.ceil(minutes / 5) * 5;
+    const end = parseClock(state.scheduleSettings.end, 17 * 60);
+    if (rounded >= end) return false;
+
+    const phone = Math.max(parseClock(state.scheduleSettings.phoneStart, 9 * 60), rounded);
+    const other = Math.max(parseClock(state.scheduleSettings.otherStart, 11 * 60), rounded);
+    const nextPhone = formatClock(phone);
+    const nextOther = formatClock(other);
+    const changed =
+      nextPhone !== state.scheduleSettings.phoneStart ||
+      nextOther !== state.scheduleSettings.otherStart;
+
+    state.scheduleSettings.phoneStart = nextPhone;
+    state.scheduleSettings.otherStart = nextOther;
+    saveScheduleSettings();
+    syncScheduleInputs();
+    return changed;
   }
 
   function readScheduleInputs() {
@@ -1819,6 +1848,14 @@
       variant: saved?.variant || 'equilibre',
       mode: 'execution',
     };
+    if (date === state.data?.meta?.today && !state.startAdjusted) {
+      state.startAdjusted = true;
+      if (adjustStartTimesToNow() && els.dayOrderHint) {
+        els.dayOrderHint.textContent =
+          'Début ajusté à l’heure actuelle — reclique sur Réorganiser.';
+      }
+    }
+
     renderWidget();
     renderPlanner();
     await loadDay(date, { analyze, force });

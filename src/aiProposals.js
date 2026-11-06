@@ -239,6 +239,9 @@ function buildDayDigest(snapshot, date, checkin, profile) {
       due: task.due_date,
       priority: task.priority_label,
     })),
+    completed_today: ((snapshot.completed && snapshot.completed.today) || [])
+      .slice(0, 50)
+      .map((item) => ({ title: item.title, project: item.project_name || null })),
     tasks,
   };
 }

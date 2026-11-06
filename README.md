@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 26.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 27.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -763,6 +763,43 @@ Lors d'une activation/mise à jour des rappels :
 Cela évite les doublons et les anciens horaires. Attention : un rappel absolu personnel
 sur une tâche replanifiée sera aussi remplacé.
 
+## Itération 27 — récurrences, anti-doublon du jour, début à l’heure actuelle
+
+### Récurrences peu accomplies
+
+Le nettoyage guidé détecte les tâches **récurrentes** qui sont :
+
+- assez anciennes (`CLEANUP_RECURRING_MIN_AGE_DAYS`, 30 j par défaut) ;
+- terminées très peu de fois sur la période
+  (`CLEANUP_RECURRING_MAX_COMPLETIONS`, 2 par défaut) ;
+- sans sous-tâches.
+
+Pour chacune, deux propositions sont faites :
+
+- **Supprimer** la récurrence (corbeille réversible) ;
+- **Renommer** avec un titre plus court, pour alléger la charge mentale.
+
+### Pas de tâche déjà faite aujourd’hui
+
+Les tâches terminées dans la journée sont maintenant exposées (`completed.today`) et
+injectées dans le digest des suggestions. L’IA et la validation les excluent, même si elle
+reformule le titre. Fini les « 3 repas Lose It » reproposés après les avoir déjà faits.
+
+### Début ajusté à l’heure actuelle
+
+Au premier chargement du jour, les heures de début (téléphone et autres tâches) sont
+avancées à **l’heure actuelle arrondie aux 5 minutes suivantes**, sans dépasser l’heure de
+fin. Les anciennes valeurs futures sont conservées. Le plan déjà organisé reste figé ;
+un clic sur « Réorganiser » applique les nouveaux horaires.
+
+### Notes de contexte
+
+`LIFE_CONTEXT.md` contient désormais :
+
+- le lien du projet **JobOps** : <https://github.com/DaKheera47/job-ops> ;
+- le détail des workflows **n8n** (courrier fiduciaire, alertes d’erreurs, webhooks
+  WhatsApp Meta).
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -846,6 +883,8 @@ npm run dev
 | `CLEANUP_GHOST_DAYS` | non | `365` | Âge minimum pour déclarer une tâche « fantôme ». |
 | `CLEANUP_MAX_PER_KIND` | non | `10` | Nombre maximum de suppressions proposées par catégorie. |
 | `CLEANUP_MAX_TOTAL` | non | `25` | Nombre maximum total de suppressions proposées. |
+| `CLEANUP_RECURRING_MIN_AGE_DAYS` | non | `30` | Âge minimum d'une récurrence peu accomplie. |
+| `CLEANUP_RECURRING_MAX_COMPLETIONS` | non | `2` | Maximum de réalisations sur la période pour signaler une récurrence. |
 | `PREP_MAX_ITEMS` | non | `3` | Nombre maximum de tâches de préparation proposées pour une tâche. |
 | `DECOMPOSE_MAX_ITEMS` | non | `5` | Nombre maximum de sous-tâches proposées par le découpage assisté. |
 | `ASSISTANT_NOTES_FILE` | non | `data/assistant-notes.json` | Fichier JSON du carnet de notes. |
@@ -983,7 +1022,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 26 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 27 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

@@ -102,6 +102,8 @@ const config = {
   cleanupGhostDays: readInt('CLEANUP_GHOST_DAYS', 365, { min: 90, max: 3650 }),
   cleanupMaxPerKind: readInt('CLEANUP_MAX_PER_KIND', 10, { min: 1, max: 50 }),
   cleanupMaxTotal: readInt('CLEANUP_MAX_TOTAL', 25, { min: 1, max: 100 }),
+  cleanupRecurringMinAgeDays: readInt('CLEANUP_RECURRING_MIN_AGE_DAYS', 30, { min: 7, max: 365 }),
+  cleanupRecurringMaxCompletions: readInt('CLEANUP_RECURRING_MAX_COMPLETIONS', 2, { min: 0, max: 20 }),
 
   // Itération 12 : tâches de préparation proposées par l'IA.
   prepMaxItems: readInt('PREP_MAX_ITEMS', 3, { min: 1, max: 6 }),

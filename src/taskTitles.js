@@ -8,8 +8,10 @@
  * quand on réorganise plusieurs fois.
  */
 
-const TIME_RANGE_SUFFIX = /\s*[·—]\s*\d{1,2}:\d{2}\s*[–-]\s*\d{1,2}:\d{2}\s*$/;
-const TIME_RANGE_PREFIX = /^\s*\d{1,2}:\d{2}\s*[–-]\s*\d{1,2}:\d{2}\s*[·:—-]\s*/;
+const TIME_RANGE_SUFFIX =
+  /\s*[·—]\s*\d{1,2}:\d{2}(?:\s*[–-]\s*\d{1,2}:\d{2})?\s*$/;
+const TIME_RANGE_PREFIX =
+  /^\s*\d{1,2}:\d{2}(?:\s*[–-]\s*\d{1,2}:\d{2})?\s*[·:—-]\s*/;
 
 function stripTimeMarker(value) {
   let result = String(value || '');
@@ -26,12 +28,12 @@ function isValidClock(value) {
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 }
 
-/** Ajoute/remplace le suffixe horaire. */
-function titleWithTime(title, start, end) {
+/** Ajoute/remplace l'heure de début (pas la tranche complète). */
+function titleWithTime(title, start) {
   const clean = stripTimeMarker(title);
   if (!clean) return clean;
-  if (!isValidClock(start) || !isValidClock(end)) return clean;
-  return `${clean} · ${start}–${end}`;
+  if (!isValidClock(start)) return clean;
+  return `${clean} · ${start}`;
 }
 
 module.exports = {

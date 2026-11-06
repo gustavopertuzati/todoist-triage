@@ -8,6 +8,8 @@ const {
   descriptionWithoutChecklist,
   buildProposals,
   buildCleanupTasks,
+  buildRecurringRenames,
+  shortenTitle,
   normalizeTitle,
   normalizeDueDate,
 } = require('../src/proposals');
@@ -172,6 +174,69 @@ test('buildCleanupTasks détecte fantômes, doublons et orphelines', () => {
   assert.equal(dup.target.id, 'd2');
   assert.ok(dup.action.restore);
   assert.equal(dup.target.project_name, 'Projet');
+});
+
+test('le nettoyage détecte les récurrences très peu accomplies', () => {
+  const recurring = task({
+    id: 'rec',
+    content: 'Appeler la banque pour vérifier les frais',
+    display_title: 'Appeler la banque pour vérifier les frais',
+    due_is_recurring: true,
+    age_days: 90,
+  });
+  const completedByTitle = new Map([['appeler la banque pour verifier les frais', 1]]);
+  const limits = { ...LIMITS, completedByTitle };
+  const proposals = buildCleanupTasks({
+    tasks: [recurring],
+    projects: [project()],
+    limits,
+  });
+  const rare = proposals.find((p) => p.cleanup_kind === 'rare_recurring');
+  assert.ok(rare);
+  assert.match(rare.rationale, /seulement 1 fois/);
+});
+
+test('une récurrence bien accomplie n’est pas signalée', () => {
+  const recurring = task({
+    id: 'rec',
+    content: 'Boire de l’eau',
+    display_title: 'Boire de l’eau',
+    due_is_recurring: true,
+    age_days: 90,
+  });
+  const completedByTitle = new Map([['boire de l eau', 12]]);
+  const proposals = buildCleanupTasks({
+    tasks: [recurring],
+    projects: [project()],
+    limits: { ...LIMITS, completedByTitle },
+  });
+  assert.equal(proposals.filter((p) => p.cleanup_kind === 'rare_recurring').length, 0);
+});
+
+test('buildRecurringRenames propose un titre plus court', () => {
+  const recurring = task({
+    id: 'rec',
+    content: 'Faire le tour de tous les dossiers administratifs (papiers, impôts, assurances)',
+    display_title:
+      'Faire le tour de tous les dossiers administratifs (papiers, impôts, assurances)',
+    due_is_recurring: true,
+    age_days: 120,
+  });
+  const renames = buildRecurringRenames({
+    tasks: [recurring],
+    limits: { ...LIMITS, completedByTitle: new Map() },
+  });
+  assert.equal(renames.length, 1);
+  assert.equal(renames[0].type, 'rename_task');
+  assert.ok(renames[0].action.content.length < recurring.display_title.length);
+  assert.ok(renames[0].action.content.length > 0);
+});
+
+test('shortenTitle retire les parenthèses et les emojis', () => {
+  assert.equal(
+    shortenTitle('🧠 Faire le point sur les assurances (auto, santé, habitation)'),
+    'Faire le point sur les assurances'
+  );
 });
 
 test('normalizeTitle ignore accents, casse et URL', () => {
