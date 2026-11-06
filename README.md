@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 27.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 28.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -736,6 +736,9 @@ tâche pour ce jour) :
 
 ## Itération 26 — horaires dans les titres et remplacement des rappels
 
+> **Mise à jour itération 28 :** l’heure n’est plus écrite dans le titre mais dans
+> l’échéance de la tâche. Voir la section 28.
+
 ### Horaires inscrits dans les titres Todoist
 
 Quand tu réorganises une journée (ou déplaces une tâche dans le plan), les horaires sont
@@ -799,6 +802,21 @@ un clic sur « Réorganiser » applique les nouveaux horaires.
 - le lien du projet **JobOps** : <https://github.com/DaKheera47/job-ops> ;
 - le détail des workflows **n8n** (courrier fiduciaire, alertes d’erreurs, webhooks
   WhatsApp Meta).
+
+## Itération 28 — heures dans l’échéance, plus dans le titre
+
+L’heure de début n’est plus un texte dans le titre. Lors d’une réorganisation :
+
+- les anciens suffixes horaires sont **retirés du titre** ;
+- la tâche reçoit une **échéance avec heure** :
+  - `due_datetime: AAAA-MM-JJTHH:mm:00` pour une tâche normale ;
+  - `due_string: "<récurrence> at HH:mm"` pour une tâche récurrente, afin de
+    **préserver la récurrence** ;
+- les tâches sont donc triées par heure dans Todoist ;
+- le titre reste propre (`Trier les cartons`, sans `· 09:00`).
+
+Route : `POST /api/day/times`. Appliquée après « Réorganiser », un déplacement,
+un ajout ou un report dans le plan.
 
 ## Carnet « Notes & idées » pour OpenCode
 
@@ -1022,7 +1040,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 27 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 28 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

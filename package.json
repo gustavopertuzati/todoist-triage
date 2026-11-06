@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 27 : récurrences peu accomplies, anti-doublon du jour, début ajusté à l'heure actuelle).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 28 : heures dans l'échéance des tâches, titres nettoyés).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

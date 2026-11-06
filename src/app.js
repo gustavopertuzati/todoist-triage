@@ -31,7 +31,7 @@ const { generatePreparation, generateDecomposition } = require('./prepare');
 const { generateSubtaskOrder } = require('./subtaskOrder');
 const { generateDayOrder } = require('./dayOrder');
 const { generateTaskSuggestions } = require('./taskSuggestions');
-const { titleWithTime, isValidClock } = require('./taskTitles');
+const { stripTimeMarker, isValidClock } = require('./taskTitles');
 const { replaceReminders } = require('./reminders');
 const { appendLifeProgress } = require('./lifeContext');
 const {
@@ -555,6 +555,7 @@ function createApp() {
       if (items.length === 0) {
         return res.json({ ok: true, updated: 0 });
       }
+      const requestedDate = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
 
       const { snapshot } = await getSnapshot({ force: false });
       const byId = new Map((snapshot.tasks || []).map((task) => [task.id, task]));
@@ -565,13 +566,33 @@ function createApp() {
         const task = byId.get(String(item?.taskId || ''));
         if (!task) continue;
         const start = String(item?.start || '');
-        const end = String(item?.end || '');
-        if (!isValidClock(start) || !isValidClock(end)) continue;
+        if (!isValidClock(start)) continue;
 
-        const content = titleWithTime(task.content, start, end);
-        if (!content || content === task.content) continue;
+        const payload = {};
+        const cleanContent = stripTimeMarker(task.content);
+        if (cleanContent && cleanContent !== task.content) {
+          payload.content = cleanContent;
+        }
+
+        if (task.due_is_recurring && task.due_string) {
+          // Préserve la récurrence : « every day at 10:00 ».
+          const base = String(task.due_string)
+            .replace(/\s+at\s+\d{1,2}:\d{2}\s*$/i, '')
+            .trim();
+          if (base) payload.due_string = `${base} at ${start}`;
+        } else {
+          const date =
+            isValidIsoDate(requestedDate) && requestedDate
+              ? requestedDate
+              : (task.due_date || '').slice(0, 10);
+          if (isValidIsoDate(date)) {
+            payload.due_datetime = `${date}T${start}:00`;
+          }
+        }
+
+        if (Object.keys(payload).length === 0) continue;
         try {
-          await updateTask(task.id, { content });
+          await updateTask(task.id, payload);
           updated += 1;
         } catch (error) {
           errors.push({ taskId: task.id, code: error?.code || 'ERROR' });

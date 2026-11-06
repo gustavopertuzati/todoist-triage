@@ -998,7 +998,7 @@
         null;
       // Inscrit les horaires dans les titres Todoist.
       await applyPlanTimes(date, selectedVariant);
-      toast('Ordre de la journée prêt, horaires inscrits dans les titres.', 'ok');
+      toast('Ordre de la journée prêt, heures ajoutées aux échéances.', 'ok');
 
       // Le plan est maintenant figé ; si des rappels sont actifs, on les recale
       // uniquement parce que l'utilisateur vient de réorganiser.

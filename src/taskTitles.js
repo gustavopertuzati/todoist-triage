@@ -28,16 +28,7 @@ function isValidClock(value) {
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 }
 
-/** Ajoute/remplace l'heure de début (pas la tranche complète). */
-function titleWithTime(title, start) {
-  const clean = stripTimeMarker(title);
-  if (!clean) return clean;
-  if (!isValidClock(start)) return clean;
-  return `${clean} · ${start}`;
-}
-
 module.exports = {
   stripTimeMarker,
-  titleWithTime,
   isValidClock,
 };
