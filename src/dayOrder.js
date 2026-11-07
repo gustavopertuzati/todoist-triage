@@ -426,11 +426,44 @@ function scheduleVariant(
   { phoneStart, otherStart, dayEnd, breakMinutes, lunchStart, lunchEnd }
 ) {
   let cursor = null;
+  let lastEnd = null;
   let overflow = 0;
   let stopped = false;
   const items = [];
+  const parentIds = new Set(
+    ordered.map((task) => task.parent_id).filter((id) => id && ordered.some((item) => item.id === id))
+  );
 
   const place = (task) => {
+    // Une tâche qui contient des sous-tâches n'a pas son propre créneau :
+    // elle se termine avec la dernière sous-tâche de son arbre.
+    if (parentIds.has(task.id)) {
+      if (stopped || lastEnd === null) {
+        items.push({
+          id: task.id,
+          start: null,
+          end: null,
+          minutes: 0,
+          context: task.context,
+          overflow: true,
+          unscheduled: true,
+          container: true,
+        });
+        return;
+      }
+      items.push({
+        id: task.id,
+        start: formatMinutes(lastEnd),
+        end: formatMinutes(lastEnd),
+        minutes: 0,
+        context: task.context,
+        overflow: false,
+        unscheduled: false,
+        container: true,
+      });
+      return;
+    }
+
     const minStart = task.context === 'phone' ? phoneStart : otherStart;
     const earliest = cursor === null ? minStart : Math.max(cursor, minStart);
     let start = avoidLunch(earliest, task.minutes, lunchStart, lunchEnd);
@@ -450,11 +483,13 @@ function scheduleVariant(
         context: task.context,
         overflow: true,
         unscheduled: true,
+        container: false,
       });
       return;
     }
 
     const end = start + task.minutes;
+    lastEnd = end;
     cursor = end + breakMinutes;
     items.push({
       id: task.id,
@@ -464,6 +499,7 @@ function scheduleVariant(
       context: task.context,
       overflow: false,
       unscheduled: false,
+      container: false,
     });
   };
 
@@ -602,7 +638,7 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
   // Nombre de tâches de chaque arbre encore planifiées aujourd'hui.
   const scheduledCounts = new Map();
   for (const item of variant.items) {
-    if (item.unscheduled) continue;
+    if (item.unscheduled || item.container) continue;
     const task = byId.get(item.id);
     if (!task) continue;
     const root = rootOf(task);
@@ -623,7 +659,8 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
 
   return [...groups.values()]
     .map(({ root, items }) => {
-      const unscheduled = items.reduce((sum, item) => sum + (item.minutes || 0), 0);
+      const work = items.filter((item) => !item.container);
+      const unscheduled = work.reduce((sum, item) => sum + (item.minutes || 0), 0);
       return {
         task_id: root.id,
         title: root.title,
@@ -634,7 +671,7 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
         start: null,
         end: null,
         over_minutes: unscheduled,
-        unscheduled_count: items.length,
+        unscheduled_count: work.length,
         scheduled_count: scheduledCounts.get(root.id) || 0,
         also_task_ids: items
           .map((item) => item.id)

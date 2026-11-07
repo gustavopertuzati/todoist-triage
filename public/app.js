@@ -1225,7 +1225,7 @@
   }
 
   /** Recalcule les horaires d'un plan après un déplacement manuel. */
-  function recalcVariant(variant, settings) {
+  function recalcVariant(variant, settings, tasks = null) {
     const phoneStart = parseClock(settings?.phoneStart, 9 * 60);
     const otherStart = parseClock(settings?.otherStart, 11 * 60);
     const dayEnd = parseClock(settings?.end, 17 * 60);
@@ -1234,14 +1234,43 @@
     const breakMinutes = Number.isFinite(Number(settings?.breakMinutes))
       ? Math.max(0, Number(settings.breakMinutes))
       : 10;
+    const taskList = tasks || state.dayOrder.data?.tasks || [];
+    const itemIds = new Set(variant.items.map((item) => item.id));
+    const parentIds = new Set(
+      taskList
+        .filter((task) => itemIds.has(task.id) && task.parent_id && itemIds.has(task.parent_id))
+        .map((task) => task.parent_id)
+    );
 
     let cursor = null;
+    let lastEnd = null;
     let overflow = 0;
     let stopped = false;
     const starts = [];
     const ends = [];
 
     for (const item of variant.items) {
+      // Tâche contenant des sous-tâches : pas de créneau propre, elle finit
+      // avec la dernière sous-tâche.
+      if (parentIds.has(item.id)) {
+        if (stopped || lastEnd === null) {
+          item.start = null;
+          item.end = null;
+          item.unscheduled = true;
+          item.overflow = true;
+          item.container = true;
+          item.minutes = 0;
+          continue;
+        }
+        item.start = formatClock(lastEnd);
+        item.end = formatClock(lastEnd);
+        item.minutes = 0;
+        item.unscheduled = false;
+        item.overflow = false;
+        item.container = true;
+        continue;
+      }
+
       const minStart = item.context === 'phone' ? phoneStart : otherStart;
       const earliest = cursor === null ? minStart : Math.max(cursor, minStart);
       let start = earliest;
@@ -1258,11 +1287,13 @@
         item.end = null;
         item.unscheduled = true;
         item.overflow = true;
+        item.container = false;
         overflow += item.minutes;
         continue;
       }
 
       const end = start + item.minutes;
+      lastEnd = end;
       cursor = end + breakMinutes;
       starts.push(start);
       ends.push(end);
@@ -1270,6 +1301,7 @@
       item.end = formatClock(end);
       item.unscheduled = false;
       item.overflow = false;
+      item.container = false;
     }
 
     variant.overflow_minutes = overflow;
@@ -1337,12 +1369,12 @@
     const data = plan.data;
     const settings = data.schedule || state.scheduleSettings;
 
+    data.tasks = (data.tasks || []).filter((task) => task.id !== taskId);
     data.variants = (data.variants || []).map((variant) => {
       variant.items = (variant.items || []).filter((item) => item.id !== taskId);
-      recalcVariant(variant, settings);
+      recalcVariant(variant, settings, data.tasks);
       return variant;
     });
-    data.tasks = (data.tasks || []).filter((task) => task.id !== taskId);
     data.execution = (data.execution || []).filter((entry) => entry.id !== taskId);
     data.priority = (data.priority || []).filter((id) => id !== taskId);
     data.postpone = (data.postpone || []).filter(
@@ -1503,7 +1535,7 @@
     [items[index], items[target]] = [items[target], items[index]];
     variant.items = subtasksFirstItems(items, data.tasks);
     const settings = data.schedule || state.scheduleSettings;
-    recalcVariant(variant, settings);
+    recalcVariant(variant, settings, data.tasks);
     saveDayPlan(data.date, data, variant.key);
     renderDayOrder();
     scheduleReminderSync(data.date, variant, settings);
@@ -1522,18 +1554,29 @@
         h(
           'div',
           { class: 'day-order-title-line' },
-          slot?.start && slot?.end
+          slot?.container && slot?.end
             ? h(
                 'span',
                 { class: 'day-order-time' },
-                `${slot.start}–${slot.end}`
+                `fin ${slot.end}`
               )
-            : null,
+            : slot?.start && slot?.end
+              ? h(
+                  'span',
+                  { class: 'day-order-time' },
+                  `${slot.start}–${slot.end}`
+                )
+              : null,
           h('span', { class: 'day-order-title' }, task.title),
           task.size
             ? h('span', { class: `pill size-${task.size}` }, sizeLabel[task.size] || task.size)
             : null,
-          slot ? h('span', { class: 'day-order-minutes' }, `${slot.minutes} min`) : null,
+          slot && !slot.container
+            ? h('span', { class: 'day-order-minutes' }, `${slot.minutes} min`)
+            : null,
+          slot?.container
+            ? h('span', { class: 'pill pill-soft' }, 'Fin des sous-tâches')
+            : null,
           slot?.unscheduled
             ? h('span', { class: 'pill pill-danger' }, 'Non planifié')
             : null,

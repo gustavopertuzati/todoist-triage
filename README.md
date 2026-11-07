@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 32.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 33.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -918,6 +918,16 @@ Détails :
 - Les rappels ignorent les tâches non planifiées (pas d'heure nulle).
 - Le déplacement manuel recalcule avec la même règle d'arrêt à la fin de journée.
 
+## Itération 33 — une tâche parente n’a pas de créneau propre
+
+- Quand une tâche contient des sous-tâches dans le plan, elle ne réserve plus de
+  durée : ses créneaux sont ceux de ses sous-tâches, récursivement.
+- Son horaire affiché devient **« fin HH:MM »**, égal à la fin de la dernière
+  sous-tâche de son arbre, et elle porte le badge **« Fin des sous-tâches »**.
+- Le temps du parent (souvent surestimé) ne gonfle donc plus la journée et ne
+  provoque plus de faux dépassements.
+- Le recalcul après déplacement manuel applique la même règle.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1140,7 +1150,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 32 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 33 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
