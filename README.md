@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 29.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 30.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -851,6 +851,32 @@ Après « Réorganiser », l'app bascule automatiquement sur **Ordre**.
 > **Aperçu ngrok uniquement.** Cette itération est testée en local via ngrok. Aucun
 > push Git ni déploiement Orkestr tant que l'utilisateur n'a pas donné son accord.
 
+## Itération 30 — reports fiables et journée qui déborde
+
+### Plusieurs reports d'affilée
+
+Quand plusieurs propositions de report sont validées dans **Planifier** :
+
+- la réécriture des horaires attend et relit le **dernier plan enregistré** ;
+- `POST /api/day/times` refuse de réécrire une tâche dont l'échéance a changé
+  entre-temps : un report déjà validé ne peut plus être annulé par une ancienne
+  planification ;
+- la tâche disparaît aussi de « Déjà prévu ce jour » et des listes locales, puis
+  l'aperçu est rafraîchi en arrière-plan.
+
+### Journée trop chargée dans « Ordre »
+
+- Le calcul part de l'**ordre de priorité** : les tâches importantes sont gardées
+  en premier.
+- Si le total dépasse l'heure de fin (pauses et déjeuner compris), l'app renvoie
+  `postpone` : les tâches qui débordent, les moins importantes d'abord, avec une
+  date de report suggérée (premier jour futur qui a encore de la place).
+- Une tâche importante qui déborde est aussi proposée : l'utilisateur tranche.
+- L'écran **Ordre** affiche « Pas assez de place pour tout » avec, pour chaque
+  tâche, la date proposée et un bouton **Reporter**.
+- Après un report, le plan et les horaires restants sont recalculés.
+- Route : `POST /api/day/report` (écriture uniquement après clic sur Reporter).
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1073,7 +1099,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 29 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 30 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

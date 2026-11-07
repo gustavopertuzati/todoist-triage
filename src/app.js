@@ -523,6 +523,7 @@ function createApp() {
         priority: result.priority,
         execution: result.execution,
         variants: result.variants || [],
+        postpone: Array.isArray(result.postpone) ? result.postpone : [],
         strategy: result.summary || null,
         cached: Boolean(result.cached),
         usage: result.usage || null,
@@ -565,6 +566,12 @@ function createApp() {
       for (const item of items) {
         const task = byId.get(String(item?.taskId || ''));
         if (!task) continue;
+        // Ne réécris jamais une tâche reportée entre-temps : une ancienne
+        // planification ne doit pas annuler un report déjà validé.
+        const currentDue = (task.due_date || '').slice(0, 10);
+        if (isValidIsoDate(requestedDate) && currentDue && currentDue !== requestedDate) {
+          continue;
+        }
         const start = String(item?.start || '');
         if (!isValidClock(start)) continue;
 
@@ -601,6 +608,66 @@ function createApp() {
 
       if (updated > 0) clearCache();
       return res.json({ ok: true, updated, errors });
+    })
+  );
+
+  /**
+   * Reporte une tâche depuis l'écran Ordre (journée trop chargée).
+   * Écriture explicite : l'utilisateur clique sur « Reporter » avec une date.
+   */
+  app.post(
+    '/api/day/report',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.writesEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'WRITES_DISABLED',
+            message: 'Les écritures Todoist sont désactivées sur ce serveur.',
+          },
+        });
+      }
+
+      const taskId = String(req.body?.task_id || '').trim();
+      const dueDate = String(req.body?.due_date || '').trim();
+      if (!taskId || !isValidIsoDate(dueDate)) {
+        return res.status(400).json({
+          error: { code: 'BAD_REPORT', message: 'Tâche ou date de report invalide.' },
+        });
+      }
+
+      const { snapshot } = await getSnapshot({ force: false });
+      const task = (snapshot.tasks || []).find((item) => item.id === taskId);
+      if (!task) {
+        return res.status(409).json({
+          error: {
+            code: 'PROPOSAL_STALE',
+            message: 'Cette tâche n’existe plus. Recharge la page.',
+          },
+        });
+      }
+
+      const result = await applyProposal({
+        proposal: {
+          type: 'set_due_date',
+          target: { kind: 'task', id: taskId },
+          action: { due_date: dueDate },
+        },
+        overrides: { due_date: dueDate },
+      });
+
+      clearCache();
+      return res.json({
+        ok: true,
+        task_id: taskId,
+        due_date: result.effects?.due_date || dueDate,
+        verified: result.verified,
+        message: result.message,
+      });
     })
   );
 

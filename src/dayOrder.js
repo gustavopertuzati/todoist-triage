@@ -17,7 +17,7 @@ const { config } = require('./config');
 const { chatJson, AiError } = require('./ai');
 const { estimateTaskSize } = require('./capacity');
 const { PREPARATION_MARKER } = require('./prepare');
-const { todayInTimeZone } = require('./dates');
+const { todayInTimeZone, addDaysIso } = require('./dates');
 
 const SYSTEM_PROMPT = [
   'Tu organises une journée de travail pour une personne.',
@@ -443,6 +443,76 @@ function buildScheduleVariants(tasks, execution, options = {}) {
   ];
 }
 
+/** Premier jour futur où la taille de la tâche tient encore. */
+function suggestPostponeDate(snapshot, date, size) {
+  const key = ['L', 'M', 'S'].includes(size) ? size : 'M';
+  const rule = (snapshot?.capacity && snapshot.capacity.rule) || config.capacityRule;
+  const days = Array.isArray(snapshot?.capacity?.days) ? snapshot.capacity.days : [];
+  const future = days
+    .filter((day) => day.date > date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  for (const day of future) {
+    const remaining = day.remaining || rule;
+    if ((remaining[key] || 0) > 0) return day.date;
+  }
+  return addDaysIso(date, 1);
+}
+
+/**
+ * Tâches qui ne tiennent pas dans la journée, en partant de l'ordre de
+ * priorité. Les moins importantes sont proposées au report en premier, mais
+ * une tâche importante qui déborde est aussi proposée (l'utilisateur tranche).
+ */
+function buildPostponePlan(tasks, schedule, snapshot, date) {
+  if (!Array.isArray(tasks) || tasks.length === 0) return [];
+  const normalized = normalizeSchedule(schedule || {});
+  const end = parseTime(normalized.end, 17 * 60);
+  const variant = scheduleVariant('priorite', 'Priorité', priorityOrder(tasks), {
+    phoneStart: parseTime(normalized.phoneStart, 9 * 60),
+    otherStart: parseTime(normalized.otherStart, 11 * 60),
+    dayEnd: end,
+    breakMinutes: normalized.breakMinutes,
+    lunchStart: parseTime(normalized.lunchStart, 12 * 60),
+    lunchEnd: parseTime(normalized.lunchEnd, 13 * 60),
+  });
+
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  return variant.items
+    .filter((item) => item.overflow || parseTime(item.end, 0) > end)
+    .map((item) => {
+      const task = byId.get(item.id);
+      return {
+        task_id: item.id,
+        title: task ? task.title : item.id,
+        priority: task ? task.priority : 1,
+        priority_label: task ? task.priority_label : 'P4',
+        size: task ? task.size : 'M',
+        minutes: item.minutes,
+        start: item.start,
+        end: item.end,
+        over_minutes: Math.max(0, parseTime(item.end, 0) - end),
+        due_date: suggestPostponeDate(snapshot, date, task ? task.size : 'M'),
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.priority - b.priority ||
+        b.over_minutes - a.over_minutes ||
+        a.title.localeCompare(b.title, 'fr-FR')
+    );
+}
+
+/** Ajoute la liste des reports possibles à un résultat d'ordre. */
+function withPostpone(result, snapshot, date) {
+  const postpone = buildPostponePlan(
+    result.tasks || [],
+    result.schedule || {},
+    snapshot,
+    date
+  );
+  return { ...result, postpone };
+}
+
 async function generateDayOrder(snapshot, date, { force = false, schedule = null } = {}) {
   const normalizedSchedule = clampScheduleToNow(
     normalizeSchedule(schedule || {}),
@@ -461,33 +531,41 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
   });
 
   if (tasks.length === 0) {
-    return {
-      date,
-      tasks,
-      priority,
-      execution: [],
-      variants: [],
-      schedule: normalizedSchedule,
-      changed: 0,
-      summary: 'Aucune tâche prévue ce jour-là.',
-      cached: false,
-      usage: null,
-    };
+    return withPostpone(
+      {
+        date,
+        tasks,
+        priority,
+        execution: [],
+        variants: [],
+        schedule: normalizedSchedule,
+        changed: 0,
+        summary: 'Aucune tâche prévue ce jour-là.',
+        cached: false,
+        usage: null,
+      },
+      snapshot,
+      date
+    );
   }
 
   if (!config.aiEnabled) {
-    return {
-      date,
-      tasks,
-      priority,
-      execution: fallbackExecution,
-      variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
-      schedule: normalizedSchedule,
-      changed: 0,
-      summary: 'IA désactivée : ordre de priorité utilisé.',
-      cached: false,
-      usage: null,
-    };
+    return withPostpone(
+      {
+        date,
+        tasks,
+        priority,
+        execution: fallbackExecution,
+        variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
+        schedule: normalizedSchedule,
+        changed: 0,
+        summary: 'IA désactivée : ordre de priorité utilisé.',
+        cached: false,
+        usage: null,
+      },
+      snapshot,
+      date
+    );
   }
 
   const digest = buildDayOrderDigest(tasks, date, normalizedSchedule);
@@ -498,7 +576,7 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
     cached.signature === signature &&
     (config.aiCacheTtlMs === 0 || Date.now() - cached.generatedAt < config.aiCacheTtlMs);
 
-  if (fresh && !force) return { ...cached, cached: true };
+  if (fresh && !force) return withPostpone({ ...cached, cached: true }, snapshot, date);
 
   let data;
   let usage = null;
@@ -514,18 +592,22 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
   } catch (error) {
     // L'IA peut timeout : le bouton doit quand même produire un ordre utile.
     console.warn('[ordre] IA indisponible :', error?.code || error?.message);
-    return {
-      date,
-      tasks,
-      priority,
-      execution: fallbackExecution,
-      variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
-      schedule: normalizedSchedule,
-      changed: 0,
-      summary: 'IA indisponible : ordre de priorité utilisé.',
-      cached: false,
-      usage: null,
-    };
+    return withPostpone(
+      {
+        date,
+        tasks,
+        priority,
+        execution: fallbackExecution,
+        variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
+        schedule: normalizedSchedule,
+        changed: 0,
+        summary: 'IA indisponible : ordre de priorité utilisé.',
+        cached: false,
+        usage: null,
+      },
+      snapshot,
+      date
+    );
   }
 
   const { execution, changed, summary } = validateOrderResponse(data, tasks);
@@ -554,7 +636,7 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
   };
   cache.set(String(date), entry);
 
-  return { ...entry, cached: false };
+  return withPostpone({ ...entry, cached: false }, snapshot, date);
 }
 
 function clearDayOrderCache() {
@@ -571,6 +653,8 @@ module.exports = {
   normalizeSchedule,
   clampScheduleToNow,
   buildScheduleVariants,
+  buildPostponePlan,
+  suggestPostponeDate,
   estimateMinutes,
   detectContext,
   formatMinutes,

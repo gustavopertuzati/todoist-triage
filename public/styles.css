@@ -3009,3 +3009,55 @@ body {
     gap: 12px;
   }
 }
+
+.day-postpone {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.postpone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.postpone-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.postpone-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.postpone-title {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.postpone-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.postpone-date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.postpone-date .proposal-date {
+  min-height: 30px;
+}
+

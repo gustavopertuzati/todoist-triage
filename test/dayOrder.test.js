@@ -12,6 +12,8 @@ const {
   normalizeSchedule,
   clampScheduleToNow,
   buildScheduleVariants,
+  buildPostponePlan,
+  suggestPostponeDate,
 } = require('../src/dayOrder');
 
 const TODAY = '2026-11-05';
@@ -409,4 +411,64 @@ test('clampScheduleToNow ignore les autres jours et la fin de journée', () => {
     }).phoneStart,
     '09:00'
   );
+});
+
+function dayTask(id, priority, size, minutes, title = id) {
+  return {
+    id,
+    title,
+    priority,
+    priority_label: `P${5 - priority}`,
+    size,
+    minutes,
+    context: 'other',
+  };
+}
+
+test('buildPostponePlan garde les tâches prioritaires et propose le débordement', () => {
+  const tasks = [
+    dayTask('important', 4, 'L', 60, 'Tâche importante'),
+    dayTask('secondaire', 1, 'L', 60, 'Tâche secondaire'),
+  ];
+  const schedule = normalizeSchedule({
+    phoneStart: '16:00',
+    otherStart: '16:00',
+    end: '17:00',
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    breakMinutes: 0,
+  });
+  const postpone = buildPostponePlan(tasks, schedule, null, '2026-11-07');
+  assert.equal(postpone.length, 1);
+  assert.equal(postpone[0].task_id, 'secondaire');
+  assert.equal(postpone[0].over_minutes, 60);
+  assert.equal(postpone[0].priority_label, 'P4');
+});
+
+test('buildPostponePlan ne propose rien quand tout tient', () => {
+  const tasks = [dayTask('a', 4, 'S', 15), dayTask('b', 2, 'S', 15)];
+  const schedule = normalizeSchedule({
+    phoneStart: '09:00',
+    otherStart: '09:00',
+    end: '17:00',
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    breakMinutes: 0,
+  });
+  assert.deepEqual(buildPostponePlan(tasks, schedule, null, '2026-11-07'), []);
+});
+
+test('suggestPostponeDate choisit le premier jour qui a encore de la place', () => {
+  const snapshot = {
+    capacity: {
+      rule: { L: 1, M: 3, S: 5 },
+      days: [
+        { date: '2026-11-08', remaining: { L: 0, M: 1, S: 2 } },
+        { date: '2026-11-09', remaining: { L: 1, M: 3, S: 5 } },
+      ],
+    },
+  };
+  assert.equal(suggestPostponeDate(snapshot, '2026-11-07', 'M'), '2026-11-08');
+  assert.equal(suggestPostponeDate(snapshot, '2026-11-07', 'L'), '2026-11-09');
+  assert.equal(suggestPostponeDate(null, '2026-11-07', 'M'), '2026-11-08');
 });

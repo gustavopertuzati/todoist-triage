@@ -56,6 +56,7 @@
     reminderPlans: {},
     remindersBusy: false,
     reminderSyncTimer: null,
+    overviewRefreshTimer: null,
     scheduleSettings: {
       phoneStart: '09:00',
       otherStart: '11:00',
@@ -107,6 +108,7 @@
     dayOrderHint: document.getElementById('day-order-hint'),
     dayOrderEmpty: document.getElementById('day-order-empty'),
     dayOrder: document.getElementById('day-order'),
+    dayPostpone: document.getElementById('day-postpone'),
     dayStart: document.getElementById('day-start'),
     dayOtherStart: document.getElementById('day-other-start'),
     dayEnd: document.getElementById('day-end'),
@@ -1027,6 +1029,7 @@
       error: null,
       data: null,
       mode: state.dayOrder.mode || 'execution',
+      variantTouched: false,
     };
     renderDayOrder();
 
@@ -1048,10 +1051,23 @@
       state.dayOrder.data = result;
       state.dayOrder.loading = false;
       state.dayOrder.mode = 'execution';
-      saveDayPlan(date, result, state.dayOrder.variant);
       if (els.dayOrderHint) {
         els.dayOrderHint.textContent = 'Priorité et ordre d’exécution.';
       }
+      // Journée trop chargée : on garde d'abord les tâches importantes.
+      if (
+        Array.isArray(result.postpone) &&
+        result.postpone.length > 0 &&
+        !state.dayOrder.variantTouched &&
+        (result.variants || []).some((item) => item.key === 'priorite')
+      ) {
+        state.dayOrder.variant = 'priorite';
+        if (els.dayOrderHint) {
+          els.dayOrderHint.textContent =
+            'Journée trop chargée : ordre Priorité sélectionné, reports proposés plus bas.';
+        }
+      }
+      saveDayPlan(date, result, state.dayOrder.variant);
       renderDayOrder();
 
       const selectedVariant =
@@ -1261,17 +1277,29 @@
     }
   }
 
-  function scheduleReminderSync(date, variant, settings) {
+  function scheduleReminderSync(date, variant = null, settings = null) {
     clearTimeout(state.reminderSyncTimer);
     state.reminderSyncTimer = setTimeout(() => {
-      applyPlanTimes(date, variant);
+      // Relit le plan au moment du déclenchement : plusieurs reports validés
+      // coup sur coup ne doivent pas réécrire les horaires d'une version
+      // périmée (ce qui annulerait les reports).
+      const saved = restoreDayPlan(date);
+      const data = saved?.data || null;
+      const latest =
+        (data?.variants || []).find((item) => item.key === (saved?.variant || variant?.key)) ||
+        (data?.variants || [])[0] ||
+        variant;
+      const currentSettings = data?.schedule || settings || state.scheduleSettings;
+      if (!latest) return;
+
+      applyPlanTimes(date, latest);
       if (state.reminderPlans[date]) {
         applyReminders({
           date,
-          variant: variant.key,
-          settings,
+          variant: latest.key,
+          settings: currentSettings,
           silent: true,
-          items: variant.items.map((item) => ({
+          items: latest.items.map((item) => ({
             taskId: item.id,
             date,
             time: item.start,
@@ -1297,6 +1325,9 @@
     data.tasks = (data.tasks || []).filter((task) => task.id !== taskId);
     data.execution = (data.execution || []).filter((entry) => entry.id !== taskId);
     data.priority = (data.priority || []).filter((id) => id !== taskId);
+    data.postpone = (data.postpone || []).filter(
+      (entry) => (entry.task_id || entry.id) !== taskId
+    );
 
     saveDayPlan(date, data, plan.variant);
     if (state.dayOrder.data?.date === date) {
@@ -1501,6 +1532,7 @@
 
   function renderDayOrder() {
     if (!els.dayOrder) return;
+    if (els.dayPostpone) els.dayPostpone.hidden = true;
     const focus = currentFocusDate();
     const data = state.dayOrder.data;
     const sameDay = data && data.date === focus;
@@ -1575,7 +1607,7 @@
         typeof entry === 'string' ? null : entry.why,
       ])
     );
-    const ordered = variant
+    const ordered = (variant
       ? [...variant.items]
           .sort((a, b) => a.start.localeCompare(b.start))
           .map((slot) => ({
@@ -1587,7 +1619,8 @@
           id: typeof entry === 'string' ? entry : entry.id,
           why: typeof entry === 'string' ? null : entry.why,
           slot: null,
-        }));
+        }))
+    ).filter((entry) => byId.has(entry.id));
 
     els.dayOrder.hidden = false;
     clear(els.dayOrder);
@@ -1622,6 +1655,7 @@
                   class: `chip${variant && item.key === variant.key ? ' is-active' : ''}`,
                   onclick: () => {
                     state.dayOrder.variant = item.key;
+                    state.dayOrder.variantTouched = true;
                     if (state.dayOrder.data) {
                       saveDayPlan(focus, state.dayOrder.data, item.key);
                     }
@@ -1664,6 +1698,7 @@
       );
     }
     els.dayOrder.append(list);
+    renderDayPostpone(data, focus);
 
     if (variant) {
       const plan = state.reminderPlans[focus];
@@ -1720,6 +1755,121 @@
         );
       }
     }
+  }
+
+  /** Liste des tâches qui ne tiennent pas dans la journée (écran Ordre). */
+  function renderDayPostpone(data, focus) {
+    const el = els.dayPostpone;
+    if (!el) return;
+    const items = Array.isArray(data?.postpone) ? data.postpone : [];
+    clear(el);
+    if (items.length === 0 || data?.date !== focus) {
+      el.hidden = true;
+      return;
+    }
+
+    const labels = { L: 'Gros', M: 'Moyen', S: 'Petit' };
+    const over = items.reduce((sum, item) => sum + (item.over_minutes || 0), 0);
+    el.hidden = false;
+    el.append(h('h3', { class: 'section-title' }, 'Pas assez de place pour tout'));
+    el.append(
+      h(
+        'p',
+        { class: 'day-status is-warn' },
+        `${items.length} tâche(s) ne tiennent pas dans la journée${
+          over > 0 ? ` (${over} min de trop)` : ''
+        }. Les tâches importantes sont gardées en premier ; reporte celles qui peuvent attendre.`
+      )
+    );
+
+    const list = h('div', { class: 'postpone-list' });
+    for (const item of items) {
+      const dateInput = h('input', {
+        type: 'date',
+        class: 'proposal-date',
+        value: item.due_date || '',
+        'aria-label': `Nouvelle date pour « ${item.title} »`,
+      });
+      const btn = h(
+        'button',
+        { type: 'button', class: 'btn btn-secondary btn-small' },
+        'Reporter'
+      );
+      btn.addEventListener('click', () => reportDayTask(item, dateInput, btn));
+
+      list.append(
+        h(
+          'div',
+          { class: 'postpone-row' },
+          h('span', { class: `pill size-${item.size || 'M'}` }, labels[item.size] || 'Moyen'),
+          h(
+            'div',
+            { class: 'postpone-body' },
+            h('span', { class: 'postpone-title' }, item.title),
+            h(
+              'span',
+              { class: 'postpone-meta' },
+              `${item.priority_label || ''} · ${item.start}–${item.end} · ${item.minutes} min`
+            )
+          ),
+          h('label', { class: 'postpone-date' }, h('span', {}, 'au'), dateInput),
+          btn
+        )
+      );
+    }
+    el.append(list);
+  }
+
+  async function reportDayTask(item, dateInput, btn) {
+    const dueDate = dateInput?.value || '';
+    if (!dueDate) {
+      toast('Choisis une date de report.', 'error');
+      return;
+    }
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Report…';
+    try {
+      const result = await apiJson('/api/day/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ task_id: item.task_id, due_date: dueDate }),
+      });
+
+      const data = state.dayOrder.data;
+      const date = data?.date;
+      if (data) {
+        data.tasks = (data.tasks || []).filter((task) => task.id !== item.task_id);
+        data.postpone = (data.postpone || []).filter(
+          (entry) => entry.task_id !== item.task_id
+        );
+      }
+      if (state.dayPlan?.planned) {
+        state.dayPlan.planned = state.dayPlan.planned.filter(
+          (task) => task.id !== item.task_id
+        );
+      }
+      if (date) removeTaskFromDayPlan(date, item.task_id);
+
+      toast(result.message || 'Tâche reportée.', result.verified === false ? 'error' : 'ok');
+      renderDayOrder();
+      renderPlanner();
+      scheduleOverviewRefresh();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Report impossible.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  /** Rafraîchit l'aperçu (Tâches/Aujourd'hui) après une écriture. */
+  function scheduleOverviewRefresh() {
+    clearTimeout(state.overviewRefreshTimer);
+    state.overviewRefreshTimer = setTimeout(() => {
+      load({ force: true, silent: true });
+    }, 1200);
   }
 
   function buildListBlock(title, count, items, tone = 'muted', note = null) {
@@ -1909,6 +2059,7 @@
       error: null,
       data: saved ? saved.data : null,
       variant: saved?.variant || 'equilibre',
+      variantTouched: false,
       mode: 'execution',
     };
     if (date === state.data?.meta?.today && !state.startAdjusted) {
@@ -2754,7 +2905,13 @@
           newDueDate !== planDate) ||
         proposal.type === 'delete_task';
       if (leavesDay) {
+        if (state.dayPlan?.planned) {
+          state.dayPlan.planned = state.dayPlan.planned.filter(
+            (task) => task.id !== proposal.target.id
+          );
+        }
         removeTaskFromDayPlan(planDate, proposal.target.id);
+        scheduleOverviewRefresh();
       } else if (
         ['set_due_date', 'reschedule_overdue'].includes(proposal.type) &&
         newDueDate === planDate
