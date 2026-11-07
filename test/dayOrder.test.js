@@ -11,6 +11,8 @@ const {
   validateOrderResponse,
   normalizeSchedule,
   clampScheduleToNow,
+  subtasksFirstOrder,
+  orderExecution,
   buildScheduleVariants,
   buildPostponePlan,
   suggestPostponeDate,
@@ -65,10 +67,14 @@ test('listDayTasks garde les tâches du jour, les préparations et les retards',
   });
 
   const tasks = listDayTasks(snapshot([parent, prep, normalSub, overdue]), TODAY);
-  assert.deepEqual(tasks.map((item) => item.id).sort(), ['late', 'p', 'prep']);
+  // Les sous-tâches font désormais partie du plan pour passer avant le parent.
+  assert.deepEqual(tasks.map((item) => item.id).sort(), ['late', 'p', 'prep', 'sub']);
   const prepMeta = tasks.find((item) => item.id === 'prep');
   assert.equal(prepMeta.is_prep, true);
   assert.equal(prepMeta.parent_title, 'Parent');
+  const subMeta = tasks.find((item) => item.id === 'sub');
+  assert.equal(subMeta.is_subtask, true);
+  assert.equal(subMeta.depth, 1);
 });
 
 test('priorityOrder trie P1 d’abord puis les retards', () => {
@@ -456,6 +462,83 @@ test('buildPostponePlan ne propose rien quand tout tient', () => {
     breakMinutes: 0,
   });
   assert.deepEqual(buildPostponePlan(tasks, schedule, null, '2026-11-07'), []);
+});
+
+test('subtasksFirstOrder place le niveau le plus profond avant les parents', () => {
+  const tasks = [
+    { id: 'parent', parent_id: null, title: 'Parent' },
+    { id: 'a', parent_id: 'parent', title: 'A' },
+    { id: 'b', parent_id: 'parent', title: 'B' },
+    { id: 'a1', parent_id: 'a', title: 'A1' },
+  ];
+  assert.deepEqual(
+    subtasksFirstOrder(tasks).map((task) => task.id),
+    ['a1', 'a', 'b', 'parent']
+  );
+});
+
+test('priorityOrder garde une sous-tâche avant son parent prioritaire', () => {
+  const tasks = [
+    { id: 'parent', parent_id: null, title: 'Parent', priority: 4, priority_label: 'P1' },
+    { id: 'child', parent_id: 'parent', title: 'Enfant', priority: 1, priority_label: 'P4' },
+  ];
+  assert.deepEqual(
+    priorityOrder(tasks).map((task) => task.id),
+    ['child', 'parent']
+  );
+});
+
+test('orderExecution remonte les sous-tâches avant leur parent', () => {
+  const tasks = [
+    { id: 'parent', parent_id: null, title: 'Parent' },
+    { id: 'child', parent_id: 'parent', title: 'Enfant' },
+  ];
+  const execution = [
+    { id: 'parent', why: null, minutes: 30, context: 'other' },
+    { id: 'child', why: null, minutes: 15, context: 'other' },
+  ];
+  assert.deepEqual(
+    orderExecution(execution, tasks).map((entry) => entry.id),
+    ['child', 'parent']
+  );
+});
+
+test('listDayTasks inclut tout l’arbre des sous-tâches, même sans échéance', () => {
+  const tasks = listDayTasks(
+    snapshot([
+      task({ id: 'parent', display_title: 'Parent' }),
+      task({ id: 'child', display_title: 'Enfant', parent_id: 'parent', due_date: '2026-11-06' }),
+      task({ id: 'grandchild', display_title: 'Petit-enfant', parent_id: 'child', due_date: null }),
+    ]),
+    TODAY
+  );
+  assert.deepEqual(
+    tasks.map((item) => item.id),
+    ['parent', 'child', 'grandchild']
+  );
+  assert.deepEqual(
+    tasks.map((item) => item.depth),
+    [0, 1, 2]
+  );
+  assert.equal(tasks[1].parent_id, 'parent');
+  assert.equal(tasks[2].is_subtask, true);
+});
+
+test('buildPostponePlan ne propose pas une sous-tâche seule', () => {
+  const tasks = [
+    { ...dayTask('parent', 1, 'L', 60, 'Parent'), parent_id: null, is_subtask: false },
+    { ...dayTask('child', 1, 'L', 60, 'Enfant'), parent_id: 'parent', is_subtask: true },
+  ];
+  const schedule = normalizeSchedule({
+    phoneStart: '16:00',
+    otherStart: '16:00',
+    end: '17:00',
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    breakMinutes: 0,
+  });
+  const postpone = buildPostponePlan(tasks, schedule, null, '2026-11-07');
+  assert.deepEqual(postpone.map((item) => item.task_id), ['parent']);
 });
 
 test('suggestPostponeDate choisit le premier jour qui a encore de la place', () => {

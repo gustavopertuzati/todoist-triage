@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 30 : reports fiables et propositions quand la journée déborde).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 31 : sous-tâches toujours ordonnées avant leur tâche parente).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

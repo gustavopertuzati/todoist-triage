@@ -192,44 +192,127 @@ function taskMeta(task, parentTitle) {
     context: detectContext(task),
     overdue: Boolean(task.is_overdue),
     is_prep: isPreparationTask(task),
+    parent_id: task.parent_id || null,
+    is_subtask: Boolean(task.parent_id),
+    depth: 0,
     parent_title: parentTitle ? parentTitle.slice(0, 120) : null,
     labels: (task.labels || []).slice(0, 5),
     note: String(task.description || '').slice(0, 220) || null,
   };
 }
 
-/** Tâches visibles pour ce jour : principales + préparations (+ retards si aujourd'hui). */
+/** Ordre stable des enfants d'un même parent (comme l'interface Todoist). */
+function sortChildren(a, b) {
+  return (
+    String(a.order_key || '').localeCompare(String(b.order_key || '')) ||
+    Number(a.child_order ?? 0) - Number(b.child_order ?? 0) ||
+    String(a.display_title || a.content || '').localeCompare(
+      String(b.display_title || b.content || ''),
+      'fr-FR'
+    )
+  );
+}
+
+/**
+ * Tâches visibles pour ce jour : principales + préparations, avec **tout
+ * l'arbre de leurs sous-tâches** (tous niveaux), même si une sous-tâche n'a pas
+ * d'échéance ce jour-là. L'ordre les place ensuite avant leur parent.
+ */
 function listDayTasks(snapshot, date) {
   const today = snapshot.meta.today;
   const isToday = date === today;
-  const byId = new Map((snapshot.tasks || []).map((task) => [task.id, task]));
+  const all = (snapshot.tasks || []).filter((task) => !task.project_archived);
+  const byId = new Map(all.map((task) => [task.id, task]));
+  const childrenByParent = new Map();
+  for (const task of all) {
+    if (!task.parent_id || !byId.has(task.parent_id)) continue;
+    if (!childrenByParent.has(task.parent_id)) childrenByParent.set(task.parent_id, []);
+    childrenByParent.get(task.parent_id).push(task);
+  }
+  for (const list of childrenByParent.values()) list.sort(sortChildren);
+
   const seen = new Set();
   const tasks = [];
 
-  for (const task of snapshot.tasks || []) {
-    if (task.project_archived) continue;
-    if (task.parent_id && !isPreparationTask(task)) continue;
+  const addSubtree = (task, depth) => {
+    if (!task || seen.has(task.id) || tasks.length >= MAX_TASKS) return;
+    seen.add(task.id);
+    const parent = task.parent_id ? byId.get(task.parent_id) : null;
+    const meta = taskMeta(task, parent ? titleOf(parent) : null);
+    meta.depth = depth;
+    meta.is_subtask = Boolean(parent);
+    tasks.push(meta);
+    for (const child of childrenByParent.get(task.id) || []) addSubtree(child, depth + 1);
+  };
+
+  for (const task of all) {
+    // Les sous-tâches non-préparation sont ajoutées avec leur parent. Une
+    // préparation sans parent dans le jour peut être ajoutée seule.
+    if (task.parent_id && byId.has(task.parent_id) && !isPreparationTask(task)) continue;
     const onDay = task.due_date === date;
     const overdue = isToday && task.is_overdue && task.due_date !== date;
     if (!onDay && !overdue) continue;
-    if (seen.has(task.id)) continue;
-    seen.add(task.id);
-    const parent = task.parent_id ? byId.get(task.parent_id) : null;
-    tasks.push(taskMeta(task, parent ? titleOf(parent) : null));
+    addSubtree(task, 0);
     if (tasks.length >= MAX_TASKS) break;
   }
 
   return tasks;
 }
 
-/** Ordre de priorité : P1 d'abord, puis retards, puis titre. */
+/**
+ * Réordonne une liste pour qu'aucune tâche ne passe avant ses sous-tâches :
+ * parcours post-ordre (niveau le plus profond d'abord, puis le parent).
+ * L'ordre relatif fourni (priorité, IA, manuel) est conservé entre frères.
+ */
+function subtasksFirstOrder(tasks) {
+  if (!Array.isArray(tasks) || tasks.length < 2) return Array.isArray(tasks) ? tasks : [];
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const children = new Map();
+  const roots = [];
+  for (const task of tasks) {
+    if (task.parent_id && byId.has(task.parent_id)) {
+      if (!children.has(task.parent_id)) children.set(task.parent_id, []);
+      children.get(task.parent_id).push(task);
+    } else {
+      roots.push(task);
+    }
+  }
+  if (children.size === 0) return tasks;
+
+  const out = [];
+  const visit = (task) => {
+    for (const child of children.get(task.id) || []) visit(child);
+    out.push(task);
+  };
+  for (const root of roots) visit(root);
+  return out.length === tasks.length ? out : tasks;
+}
+
+/** Ordre de priorité : P1 d'abord, puis retards, puis titre, sous-tâches avant parent. */
 function priorityOrder(tasks) {
-  return [...tasks].sort(
+  const sorted = [...tasks].sort(
     (a, b) =>
       (b.priority || 1) - (a.priority || 1) ||
       Number(b.overdue) - Number(a.overdue) ||
       a.title.localeCompare(b.title, 'fr-FR')
   );
+  return subtasksFirstOrder(sorted);
+}
+
+/** Applique l'ordre « sous-tâches d'abord » à une exécution {id,...}. */
+function orderExecution(execution, tasks) {
+  if (!Array.isArray(execution) || execution.length < 2) return execution;
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const entries = new Map(execution.map((entry) => [entry.id, entry]));
+  const taskList = execution.map((entry) => byId.get(entry.id)).filter(Boolean);
+  if (taskList.length < 2) return execution;
+
+  const ordered = subtasksFirstOrder(taskList);
+  const placed = new Set(ordered.map((task) => task.id));
+  return [
+    ...ordered.map((task) => entries.get(task.id)).filter(Boolean),
+    ...execution.filter((entry) => !placed.has(entry.id)),
+  ];
 }
 
 function buildDayOrderDigest(tasks, date, schedule = null) {
@@ -245,6 +328,8 @@ function buildDayOrderDigest(tasks, date, schedule = null) {
       context_hint: task.context,
       overdue: task.overdue,
       is_preparation: task.is_prep,
+      is_subtask: Boolean(task.is_subtask),
+      depth: task.depth || 0,
       parent: task.parent_title,
       labels: task.labels,
       note: task.note,
@@ -258,6 +343,7 @@ function buildOrderPrompt(digest) {
     '',
     'Règles :',
     '- Les préparations (is_preparation) passent avant la tâche parente concernée.',
+    '- Une sous-tâche passe TOUJOURS avant sa tâche parente. Commence par le niveau le plus profond, puis remonte niveau par niveau jusqu’à la tâche racine.',
     '- Respecte les dépendances logiques et les prérequis.',
     '- Commence par ce qui est urgent/en retard, puis les priorités hautes.',
     '- Alterne les grosses tâches avec des petites si c’est plus réaliste.',
@@ -479,6 +565,9 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
   const byId = new Map(tasks.map((task) => [task.id, task]));
   return variant.items
     .filter((item) => item.overflow || parseTime(item.end, 0) > end)
+    // On ne propose jamais une sous-tâche seule : c'est la tâche racine qui
+    // porte le report (ses sous-tâches suivent).
+    .filter((item) => !byId.get(item.id)?.is_subtask)
     .map((item) => {
       const task = byId.get(item.id);
       return {
@@ -610,7 +699,10 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
     );
   }
 
-  const { execution, changed, summary } = validateOrderResponse(data, tasks);
+  const { execution: aiExecution, changed, summary } = validateOrderResponse(data, tasks);
+  // Une sous-tâche passe toujours avant son parent, même si l'IA les a
+  // ordonnées autrement (niveau le plus profond d'abord).
+  const execution = orderExecution(aiExecution, tasks);
   // Reporte les durées/contextes estimés par l'IA sur les tâches, pour les plans.
   const byId = new Map(tasks.map((task) => [task.id, task]));
   for (const item of execution) {
@@ -652,6 +744,8 @@ module.exports = {
   validateOrderResponse,
   normalizeSchedule,
   clampScheduleToNow,
+  subtasksFirstOrder,
+  orderExecution,
   buildScheduleVariants,
   buildPostponePlan,
   suggestPostponeDate,

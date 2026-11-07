@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 30.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 31.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -877,6 +877,27 @@ Quand plusieurs propositions de report sont validées dans **Planifier** :
 - Après un report, le plan et les horaires restants sont recalculés.
 - Route : `POST /api/day/report` (écriture uniquement après clic sur Reporter).
 
+## Itération 31 — sous-tâches avant leur tâche parente
+
+L'ordre du jour inclut désormais **tout l'arbre des sous-tâches** des tâches du
+jour (tous les niveaux, même sans échéance propre) et applique un parcours
+**post-ordre** :
+
+- le niveau le plus profond est ordonné d'abord ;
+- on remonte niveau par niveau ;
+- la tâche parente / racine est toujours **après** ses sous-tâches ;
+- l'ordre relatif entre frères (priorité, IA, manuel) est conservé.
+
+Détails :
+
+- `listDayTasks` ajoute les descendants avec `parent_id`, `depth` et
+  `is_subtask` ;
+- `priorityOrder` et l'ordre d'exécution IA passent par `subtasksFirstOrder` ;
+- le déplacement manuel ▲/▼ réapplique la règle ;
+- les propositions de report ne ciblent jamais une sous-tâche seule : c'est la
+  tâche racine qui est proposée ;
+- l'écran **Ordre** marque les sous-tâches avec `↳` et le nom du parent.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1099,7 +1120,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 30 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 31 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

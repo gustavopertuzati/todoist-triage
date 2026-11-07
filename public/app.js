@@ -1440,6 +1440,35 @@
     return true;
   }
 
+  /** Empêche un parent de passer avant ses sous-tâches après un déplacement. */
+  function subtasksFirstItems(items, tasks) {
+    const byId = new Map((tasks || []).map((task) => [task.id, task]));
+    const itemsById = new Map(items.map((item) => [item.id, item]));
+    const list = items.map((item) => byId.get(item.id)).filter(Boolean);
+    if (list.length !== items.length) return items;
+
+    const children = new Map();
+    const roots = [];
+    for (const task of list) {
+      if (task.parent_id && byId.has(task.parent_id)) {
+        if (!children.has(task.parent_id)) children.set(task.parent_id, []);
+        children.get(task.parent_id).push(task);
+      } else {
+        roots.push(task);
+      }
+    }
+    if (children.size === 0) return items;
+
+    const ordered = [];
+    const visit = (task) => {
+      for (const child of children.get(task.id) || []) visit(child);
+      ordered.push(task);
+    };
+    for (const root of roots) visit(root);
+    if (ordered.length !== items.length) return items;
+    return ordered.map((task) => itemsById.get(task.id));
+  }
+
   function moveDayOrderItem(index, delta) {
     const data = state.dayOrder.data;
     if (!data) return;
@@ -1452,7 +1481,7 @@
 
     const items = [...variant.items];
     [items[index], items[target]] = [items[target], items[index]];
-    variant.items = items;
+    variant.items = subtasksFirstItems(items, data.tasks);
     const settings = data.schedule || state.scheduleSettings;
     recalcVariant(variant, settings);
     saveDayPlan(data.date, data, variant.key);
@@ -1494,6 +1523,13 @@
                 'span',
                 { class: 'pill pill-soft' },
                 `🧩${task.parent_title ? ` de « ${task.parent_title} »` : ''}`
+              )
+            : null,
+          task.is_subtask
+            ? h(
+                'span',
+                { class: 'pill pill-soft' },
+                `↳${task.parent_title ? ` ${task.parent_title}` : ' sous-tâche'}`
               )
             : null
         ),
