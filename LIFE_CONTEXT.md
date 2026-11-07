@@ -1,12 +1,22 @@
 # Contexte de vie — à relire par l'agent
 
-Dernière mise à jour : **2026-11-06**
+Dernière mise à jour : **2026-11-07**
 
 Ce fichier donne à l'agent le contexte réel des projets en cours, de leur avancement et de
 leurs blocages. Il doit être lu **avant** de proposer un plan, une priorisation ou des
 actions, et servir à éviter les conseils déconnectés de la réalité.
 
 ## Projets en cours
+
+### Lire 7 livres d'ici le 1er janvier 2027 — 0 %
+
+- Objectif : **7 livres avant le 01.01.2027**, soit environ **200 pages par livre**.
+- Rythme : **40 pages par jour, environ 1 h**, du **lundi au vendredi uniquement**
+  (pas le week-end) → 5 jours par livre.
+- Échéance très proche : ce projet est **urgent** et doit apparaître presque chaque
+  jour de semaine dans les propositions.
+- Attendu : une session de lecture de 40 pages par jour de semaine ; si la journée
+  est chargée, fractionner en 2 × 20 pages plutôt que sauter la journée.
 
 ### Configurer OpenCode AI & agents (OpenRouter / Groq) — 70 %
 
@@ -67,6 +77,12 @@ actions, et servir à éviter les conseils déconnectés de la réalité.
 
 - Montre Fit 100 S reçue ; abonnement valable jusqu'en avril de l'année prochaine.
 - Blocage : quand la charge mentale monte, le sport saute.
+- **Fréquence attendue : quasi quotidienne**, 4 à 6 séances par semaine, en
+  alternant **NonStop Gym Servette** et **maison**.
+- Les propositions de tâches doivent inclure du sport presque chaque jour, en
+  variant : force, cardio, mobilité/récupération, séance courte à la maison.
+- Si la journée est chargée ou la motivation basse : proposer une séance courte
+  (15–20 min à la maison) plutôt que rien.
 - Attendu : éviter les semaines surchargées, adapter les séances, prévoir les rappels.
 
 ### Étudier la théorie du permis de conduire (iTheorie) — 80 %
@@ -102,5 +118,9 @@ actions, et servir à éviter les conseils déconnectés de la réalité.
 - Ne pas contrôler le téléphone en dehors d'actions très restreintes et réversibles.
 - Tenir compte des blocages ci-dessus : proposer des actions petites, concrètes, adaptées à
   la fatigue et à la charge mentale.
+- Les projets à rythme **quasi quotidien** (sport, lecture, permis) doivent apparaître
+  presque chaque jour dans les propositions, en variant les actions ; ne pas les
+  remplacer par des tâches ponctuelles.
+- Une échéance proche (moins de 60 jours) passe avant un projet sans date.
 - Signaler si une demande risque de surcharger une semaine déjà dense.
 - Le contexte doit rester privé : ne pas l'exposer dans l'interface publique de l'app.

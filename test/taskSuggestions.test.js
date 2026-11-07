@@ -145,4 +145,6 @@ test('buildSuggestPrompt interdit les doublons et les tâches vagues', () => {
   assert.match(prompt, /project_context/);
   assert.match(prompt, /life_context/);
   assert.match(prompt, /date future/);
+  assert.match(prompt, /quasi quotidiens/);
+  assert.match(prompt, /presque chaque jour/);
 });

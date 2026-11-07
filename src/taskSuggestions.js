@@ -56,6 +56,7 @@ function buildSuggestPrompt(digest, maxTasks) {
     '  complétée aujourd’hui (voir "completed_today"), même reformulée.',
     '- Respecte la place restante "can_add" et "agenda" (L/M/S).',
     '- Priorité 1 (P1) à 4 (P4) ; taille L, M ou S.',
+    '- Les projets de "life_context" marqués comme quasi quotidiens ou avec une échéance proche doivent être proposés presque chaque jour, en variant les actions (sport : gym ou maison ; lecture : 40 pages ; permis : tests).',
     '- Si un projet est bloqué, propose une petite action qui débloque concrètement.',
     '- Évite les tâches de communication personnelle non demandées (mail, WhatsApp, appels).',
     digest.exclude?.length
