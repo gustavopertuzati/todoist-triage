@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.34.0",
+  "version": "0.35.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 34 : détection des temps d'attente et des tâches faisables en parallèle).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 35 : reporter une sous-tâche au lendemain avec toute sa chaîne de parents).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

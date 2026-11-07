@@ -645,11 +645,34 @@ function createApp() {
       const also = Array.isArray(req.body?.also_task_ids)
         ? req.body.also_task_ids.map((id) => String(id))
         : [];
-      const ids = [...new Set([taskId, ...also])].filter(Boolean).slice(0, 60);
+      const withAncestors = req.body?.with_ancestors === true;
 
       const { snapshot } = await getSnapshot({ force: false });
-      const known = new Set((snapshot.tasks || []).map((item) => item.id));
-      const missing = ids.filter((id) => !known.has(id));
+      const byId = new Map((snapshot.tasks || []).map((item) => [item.id, item]));
+      const dateById = new Map();
+      for (const id of [taskId, ...also]) {
+        if (id) dateById.set(id, dueDate);
+      }
+
+      // Une sous-tâche reportée ne peut pas être finie après son parent :
+      // on recule la tâche principale et tous ses ancêtres, sans jamais les
+      // avancer (une échéance déjà plus lointaine est conservée).
+      if (withAncestors) {
+        let current = byId.get(taskId);
+        const guard = new Set([taskId]);
+        while (current?.parent_id && byId.has(current.parent_id) && !guard.has(current.parent_id)) {
+          const parent = byId.get(current.parent_id);
+          guard.add(parent.id);
+          const parentDue = (parent.due_date || '').slice(0, 10);
+          const target =
+            isValidIsoDate(parentDue) && parentDue > dueDate ? parentDue : dueDate;
+          dateById.set(parent.id, target);
+          current = parent;
+        }
+      }
+
+      const ids = [...dateById.keys()].slice(0, 60);
+      const missing = ids.filter((id) => !byId.has(id));
       if (missing.length > 0) {
         return res.status(409).json({
           error: {
@@ -662,14 +685,15 @@ function createApp() {
       let updated = 0;
       const errors = [];
       for (const id of ids) {
+        const targetDate = dateById.get(id) || dueDate;
         try {
           const result = await applyProposal({
             proposal: {
               type: 'set_due_date',
               target: { kind: 'task', id },
-              action: { due_date: dueDate },
+              action: { due_date: targetDate },
             },
-            overrides: { due_date: dueDate },
+            overrides: { due_date: targetDate },
           });
           if (result.verified !== false) updated += 1;
           else errors.push({ task_id: id, code: 'NOT_VERIFIED' });
@@ -689,12 +713,13 @@ function createApp() {
         due_date: dueDate,
         updated,
         total: ids.length,
+        task_ids: ids,
         errors,
         verified: updated === ids.length,
         message:
           updated === ids.length
-            ? `${ids.length} tâche(s) reportée(s) au ${dueDate}.`
-            : `${updated}/${ids.length} tâche(s) reportée(s) au ${dueDate}.`,
+            ? `${ids.length} tâche(s) reportée(s) à partir du ${dueDate}.`
+            : `${updated}/${ids.length} tâche(s) reportée(s) à partir du ${dueDate}.`,
       });
     })
   );

@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 34.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 35.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -947,6 +947,21 @@ L’écran **Ordre** affiche :
 Les identifiants inconnus, les doublons et l’auto-référence sont filtrés. Le
 temps d’attente n’est pas compté comme du temps actif dans le planning.
 
+## Itération 35 — reporter une sous-tâche au lendemain
+
+Dans l’écran **Ordre**, chaque ligne a un bouton **⏭** « Reporter au lendemain » :
+
+- la tâche choisie passe au jour suivant ;
+- sa **tâche principale** et **tous ses ancêtres** sont reculés aussi, car un
+  parent ne peut pas finir avant ses sous-tâches ;
+- une échéance déjà plus lointaine n’est jamais avancée : on prend la plus
+  tardive entre la date actuelle du parent et le lendemain ;
+- les tâches reportées quittent le plan du jour, et les horaires restants sont
+  recalculés.
+
+Route : `POST /api/day/report` avec `with_ancestors: true`. La réponse renvoie
+`task_ids` pour mettre à jour l’écran sans recharger.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1169,7 +1184,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 34 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 35 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

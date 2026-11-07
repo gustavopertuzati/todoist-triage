@@ -1641,7 +1641,20 @@
                 onclick: controls.onDown,
               },
               '▼'
-            )
+            ),
+            controls.onTomorrow
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'icon-btn day-order-move-btn',
+                    title: 'Reporter au lendemain (avec la tâche principale et ses parents)',
+                    'aria-label': 'Reporter au lendemain avec les parents',
+                    onclick: (event) => controls.onTomorrow(event.currentTarget),
+                  },
+                  '⏭'
+                )
+              : null
           )
         : null
     );
@@ -1813,6 +1826,7 @@
           canDown: index < ordered.length - 1,
           onUp: () => moveDayOrderItem(index, -1),
           onDown: () => moveDayOrderItem(index, 1),
+          onTomorrow: (button) => postponeTaskToTomorrow(task, button),
         })
       );
     }
@@ -1966,27 +1980,10 @@
         }),
       });
 
-      const moved = new Set([item.task_id, ...alsoTaskIds]);
-      const data = state.dayOrder.data;
-      const date = data?.date;
-      if (data) {
-        data.tasks = (data.tasks || []).filter((task) => !moved.has(task.id));
-        data.postpone = (data.postpone || []).filter(
-          (entry) => entry.task_id !== item.task_id
-        );
-        data.variants = (data.variants || []).map((variant) => ({
-          ...variant,
-          items: (variant.items || []).filter((entry) => !moved.has(entry.id)),
-        }));
-      }
-      if (state.dayPlan?.planned) {
-        state.dayPlan.planned = state.dayPlan.planned.filter(
-          (task) => !moved.has(task.id)
-        );
-      }
-      if (date) {
-        for (const taskId of moved) removeTaskFromDayPlan(date, taskId);
-      }
+      const moved = Array.isArray(result.task_ids) && result.task_ids.length
+        ? result.task_ids
+        : [item.task_id, ...alsoTaskIds];
+      forgetReportedTasks(moved);
 
       toast(result.message || 'Tâche reportée.', result.verified === false ? 'error' : 'ok');
       renderDayOrder();
@@ -1998,6 +1995,77 @@
     } finally {
       btn.disabled = false;
       btn.textContent = original;
+    }
+  }
+
+  /** Retire du plan local les tâches qui viennent d'être reportées. */
+  function forgetReportedTasks(taskIds) {
+    const moved = new Set(taskIds);
+    if (moved.size === 0) return;
+    const data = state.dayOrder.data;
+    const date = data?.date;
+    if (data) {
+      data.tasks = (data.tasks || []).filter((task) => !moved.has(task.id));
+      data.postpone = (data.postpone || []).filter(
+        (entry) => !moved.has(entry.task_id)
+      );
+      data.variants = (data.variants || []).map((variant) => ({
+        ...variant,
+        items: (variant.items || []).filter((entry) => !moved.has(entry.id)),
+      }));
+    }
+    if (state.dayPlan?.planned) {
+      state.dayPlan.planned = state.dayPlan.planned.filter(
+        (task) => !moved.has(task.id)
+      );
+    }
+    if (date) {
+      for (const taskId of moved) removeTaskFromDayPlan(date, taskId);
+    }
+  }
+
+  /** Reporte la tâche (et ses parents) au lendemain du jour affiché. */
+  async function postponeTaskToTomorrow(task, btn = null) {
+    const data = state.dayOrder.data;
+    const date = data?.date;
+    if (!date) return;
+    const target = addDaysIso(date, 1);
+    const original = btn?.textContent || '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '…';
+    }
+    try {
+      const result = await apiJson('/api/day/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({
+          task_id: task.id,
+          due_date: target,
+          with_ancestors: true,
+        }),
+      });
+
+      const moved =
+        Array.isArray(result.task_ids) && result.task_ids.length
+          ? result.task_ids
+          : [task.id];
+      forgetReportedTasks(moved);
+      toast(
+        result.message || `Tâche reportée au ${formatDate(target)}.`,
+        result.verified === false ? 'error' : 'ok'
+      );
+      renderDayOrder();
+      renderPlanner();
+      scheduleOverviewRefresh();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Report impossible.', 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
     }
   }
 
