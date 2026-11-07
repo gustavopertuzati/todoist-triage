@@ -203,6 +203,24 @@
             </div>
             <span class="pill pill-readonly">Lecture seule</span>
           </div>
+          <label class="order-note">
+            <span>Consigne pour l’IA — planification (optionnel)</span>
+            <textarea
+              id="plan-note"
+              rows="2"
+              maxlength="500"
+              placeholder="Ex. : garder la matinée libre ; ne rien planifier après 16 h ; privilégier les petites tâches."
+            ></textarea>
+          </label>
+          <label class="order-note">
+            <span>Consigne pour les suggestions de tâches (optionnel)</span>
+            <textarea
+              id="suggestion-note"
+              rows="2"
+              maxlength="500"
+              placeholder="Ex. : proposer une tâche de sport ; éviter le ménage ; avancer JobOps."
+            ></textarea>
+          </label>
           <div id="capacity" class="capacity" aria-label="Charge par jour" hidden></div>
           <div id="day-plan" class="day-plan"></div>
           <div id="week-recap" class="week-recap" hidden></div>

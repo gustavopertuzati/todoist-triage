@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const { parseJsonLoose } = require('../src/ai');
 const {
   buildDayDigest,
+  buildUserPrompt,
   validateDayResponse,
   dayInfo,
   describeDay,
@@ -108,6 +109,15 @@ test('buildDayDigest est déterministe et expose la place pour ajouter', () => {
   assert.equal(digest.max_proposals, 5);
   assert.ok(Array.isArray(digest.project_context));
   assert.ok(Array.isArray(digest.due_soon));
+});
+
+test('buildDayDigest transmet la consigne libre à la planification', () => {
+  const snapshot = snapshotWith([task({ id: 'a' })]);
+  const digest = buildDayDigest(snapshot, DAY, GOOD, null, 'Garder la matinée libre');
+  assert.equal(digest.instruction, 'Garder la matinée libre');
+  const prompt = buildUserPrompt(digest);
+  assert.match(prompt, /Garder la matinée libre/);
+  assert.match(prompt, /Consigne libre/);
 });
 
 test('buildDayDigest inclut les tâches à venir et leur échéance', () => {

@@ -414,6 +414,8 @@ function createApp() {
       // (bouton « Analyser »). Sinon, on se contente de renvoyer l'état du jour
       // et, s'ils existent déjà, les propositions mises en cache.
       const analyze = req.body?.analyze === true;
+      const instruction =
+        typeof req.body?.instruction === 'string' ? req.body.instruction.slice(0, 500) : '';
 
       // Une analyse explicite relit Todoist en direct : on ne veut pas d'un
       // instantané vieux de 60 s (tâches déplacées, sous-tâches ajoutées…).
@@ -451,7 +453,7 @@ function createApp() {
 
       // Lecture seule : pas de nouvel appel au modèle.
       if (!analyze) {
-        const cached = peekDayPlan(snapshot, date, checkin, feedback);
+        const cached = peekDayPlan(snapshot, date, checkin, feedback, instruction);
         if (cached) {
           return res.json({
             ...base,
@@ -469,7 +471,12 @@ function createApp() {
         return res.json({ ...base, ai: true, analyzed: false, proposals: [], splits: [], renames: [], strategy: null, cached: false });
       }
 
-      const plan = await generateDayProposals(snapshot, date, { force, checkin, feedback });
+      const plan = await generateDayProposals(snapshot, date, {
+        force,
+        checkin,
+        feedback,
+        instruction,
+      });
 
       return res.json({
         ...base,
@@ -968,11 +975,14 @@ function createApp() {
       const exclude = Array.isArray(req.body?.exclude)
         ? req.body.exclude.map((title) => String(title)).slice(0, 80)
         : [];
+      const instruction =
+        typeof req.body?.instruction === 'string' ? req.body.instruction.slice(0, 500) : '';
       const { snapshot } = await getSnapshot({ force: false });
       const result = await generateTaskSuggestions(snapshot, date, {
         checkin,
         force,
         exclude,
+        instruction,
       });
 
       return res.json({

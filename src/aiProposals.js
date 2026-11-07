@@ -103,7 +103,7 @@ function dayInfo(snapshot, date) {
 }
 
 /** Condensé envoyé au modèle pour une journée (avec le check-in). */
-function buildDayDigest(snapshot, date, checkin, profile) {
+function buildDayDigest(snapshot, date, checkin, profile, instruction = '') {
   const info = dayInfo(snapshot, date);
   const { allowed, label, notes, answers } = computeAllowed(checkin, info.rule);
   const active = snapshot.tasks.filter((task) => !task.project_archived);
@@ -199,6 +199,7 @@ function buildDayDigest(snapshot, date, checkin, profile) {
     today: snapshot.meta.today,
     timezone: snapshot.meta.timezone,
     date,
+    instruction: String(instruction || '').trim().slice(0, 500) || null,
     weekday: info.weekday,
     checkin: {
       answers: describeCheckin(answers),
@@ -260,6 +261,15 @@ function buildUserPrompt(digest) {
 
   if (digest.checkin.notes.length > 0) {
     lines.push('Consignes liées au check-in :', ...digest.checkin.notes.map((n) => `- ${n}`));
+  }
+
+  if (digest.instruction) {
+    lines.push(
+      '',
+      'Consigne libre de la personne pour cette planification :',
+      `« ${digest.instruction} »`,
+      'Respecte-la en priorité (matinée, séquence, tâche imposée…).'
+    );
   }
 
   if (Array.isArray(digest.todoist_filters) && digest.todoist_filters.length > 0) {
@@ -612,14 +622,18 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
 }
 
 /** Génère (ou récupère) les propositions pour une journée, avec check-in et retours. */
-async function generateDayProposals(snapshot, date, { force = false, checkin = null, feedback = null } = {}) {
+async function generateDayProposals(
+  snapshot,
+  date,
+  { force = false, checkin = null, feedback = null, instruction = '' } = {}
+) {
   if (!config.aiEnabled) {
     throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
   }
 
   const answers = normalizeCheckin(checkin);
   const profile = buildProfile(normalizeFeedback(feedback), snapshot.meta.today);
-  const digest = buildDayDigest(snapshot, date, answers, profile);
+  const digest = buildDayDigest(snapshot, date, answers, profile, instruction);
   const signature = signatureOf(digest);
   const cached = dayCache.get(date);
 
@@ -707,11 +721,11 @@ function describeDay(snapshot, date, checkin) {
  * appeler le modèle. C'est ce quasi-lecture sur rechargement qui conserve les
  * propositions existantes sans en recréer de nouvelles.
  */
-function peekDayPlan(snapshot, date, checkin, feedback) {
+function peekDayPlan(snapshot, date, checkin, feedback, instruction = '') {
   if (!snapshot) return null;
   const answers = normalizeCheckin(checkin);
   const profile = buildProfile(normalizeFeedback(feedback), snapshot.meta.today);
-  const digest = buildDayDigest(snapshot, date, answers, profile);
+  const digest = buildDayDigest(snapshot, date, answers, profile, instruction);
   const signature = signatureOf(digest);
   const entry = dayCache.get(date);
 

@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 39.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 40.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1061,6 +1061,23 @@ Règles :
 
 Route : `POST /api/tasks/:id/time-mode` (`auto` ou `fixed`).
 
+## Itération 40 — consignes libres dans Planifier et Suggestions
+
+Deux nouveaux champs dans l’écran **Planifier** :
+
+- **Consigne pour l’IA — planification** : envoyée à `POST /api/day/plan`
+  (bouton « Analyser »), intégrée au prompt et à l’empreinte de cache ;
+- **Consigne pour les suggestions de tâches** : envoyée à `POST /api/day/suggest`,
+  intégrée au prompt et à l’empreinte de cache.
+
+Comme la consigne de l’écran Ordre :
+
+- enregistrement **par jour** dans le navigateur ;
+- texte libre (500 caractères), exemples : matinée réservée, séquence imposée,
+  projet à privilégier, tâches à éviter ;
+- respectée en priorité par l’IA, sans casser les règles de capacité ni de
+  hiérarchie.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1283,7 +1300,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 39 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 40 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

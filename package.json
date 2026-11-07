@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 39 : horaires libres ou verrouillés avec labels triage-auto / triage-fixe).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 40 : consignes libres pour l'IA en planification et suggestions).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

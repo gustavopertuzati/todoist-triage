@@ -61,6 +61,9 @@ function buildSuggestPrompt(digest, maxTasks) {
     digest.exclude?.length
       ? `- À NE PAS PROPOSER (déjà suggérées/créées) : ${digest.exclude.join(' ; ')}.`
       : '',
+    digest.instruction
+      ? `- Consigne libre de la personne : « ${digest.instruction} ». Respecte-la en priorité.`
+      : '',
     '',
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase courte expliquant tes suggestions",',
@@ -205,7 +208,7 @@ function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3, e
 async function generateTaskSuggestions(
   snapshot,
   date,
-  { checkin = null, force = false, exclude = [] } = {}
+  { checkin = null, force = false, exclude = [], instruction = '' } = {}
 ) {
   if (!config.aiEnabled) {
     throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
@@ -221,6 +224,7 @@ async function generateTaskSuggestions(
     ...buildDayDigest(snapshot, date, normalizeCheckin(checkin)),
     life_context: readLifeContext(),
     exclude: cleanExclude,
+    instruction: String(instruction || '').trim().slice(0, 500) || null,
   };
   const signature = signatureOf(digest);
   const cached = cache.get(String(date));

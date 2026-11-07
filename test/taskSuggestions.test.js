@@ -122,6 +122,19 @@ test('validateTaskSuggestions respecte la place et le maximum', () => {
   assert.equal(items.length, 2);
 });
 
+test('buildSuggestPrompt transmet la consigne libre', () => {
+  const prompt = buildSuggestPrompt(
+    {
+      date: DATE,
+      can_add: { L: 1, M: 1, S: 1 },
+      instruction: 'Proposer une tâche de sport',
+    },
+    3
+  );
+  assert.match(prompt, /Proposer une tâche de sport/);
+  assert.match(prompt, /Consigne libre/);
+});
+
 test('buildSuggestPrompt interdit les doublons et les tâches vagues', () => {
   const prompt = buildSuggestPrompt(
     { date: DATE, can_add: { L: 1, M: 1, S: 1 } },

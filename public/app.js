@@ -69,6 +69,8 @@
     scheduleBase: { phoneStart: '09:00', otherStart: '11:00' },
     scheduleDay: null,
     orderNotes: {},
+    planNotes: {},
+    suggestionNotes: {},
     startAdjusted: false,
     screen: 'today',
     scheduleTimer: null,
@@ -108,6 +110,8 @@
     dayOrderBtn: document.getElementById('day-order-btn'),
     dayOrderHint: document.getElementById('day-order-hint'),
     orderNote: document.getElementById('order-note'),
+    planNote: document.getElementById('plan-note'),
+    suggestionNote: document.getElementById('suggestion-note'),
     timeConfirm: document.getElementById('time-confirm'),
     dayOrderEmpty: document.getElementById('day-order-empty'),
     dayOrder: document.getElementById('day-order'),
@@ -215,6 +219,8 @@
   const SCHEDULE_KEY = 'todoist-triage:schedule';
   const DAY_PLANS_KEY = 'todoist-triage:day-plans';
   const ORDER_NOTES_KEY = 'todoist-triage:order-notes';
+  const PLAN_NOTES_KEY = 'todoist-triage:plan-notes';
+  const SUGGESTION_NOTES_KEY = 'todoist-triage:suggestion-notes';
   const ACCEPTED_TASKS_KEY = 'todoist-triage:accepted-tasks';
   const IGNORED_TASKS_KEY = 'todoist-triage:ignored-tasks';
 
@@ -313,6 +319,34 @@
   function syncOrderNote(date) {
     if (!els.orderNote) return;
     els.orderNote.value = (date && state.orderNotes[date]) || '';
+  }
+
+  function loadNoteMap(key) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveNoteMap(key, store, date, value) {
+    if (!date) return;
+    store[date] = String(value || '').slice(0, 500);
+    try {
+      localStorage.setItem(key, JSON.stringify(store));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function syncNoteInput(element, store, date) {
+    if (element) element.value = (date && store[date]) || '';
+  }
+
+  function syncPlanNotes(date) {
+    syncNoteInput(els.planNote, state.planNotes, date);
+    syncNoteInput(els.suggestionNote, state.suggestionNotes, date);
   }
 
   function restoreDayPlan(date) {
@@ -2420,6 +2454,7 @@
   async function selectDay(date, { analyze = false, force = false } = {}) {
     state.selectedDate = date;
     syncOrderNote(date);
+    syncPlanNotes(date);
     state.dayLoading = true;
     state.dayError = null;
     state.daySuggestions = [];
@@ -2458,7 +2493,14 @@
       const plan = await apiJson('/api/day/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ date, force, analyze, checkin: getCheckin(date), feedback: feedbackList() }),
+        body: JSON.stringify({
+          date,
+          force,
+          analyze,
+          checkin: getCheckin(date),
+          feedback: feedbackList(),
+          instruction: (els.planNote?.value || '').trim().slice(0, 500),
+        }),
       });
       state.dayPlan = plan;
       state.dayLoading = false;
@@ -2492,6 +2534,7 @@
           checkin: getCheckin(date),
           exclude,
           force: true,
+          instruction: (els.suggestionNote?.value || '').trim().slice(0, 500),
         }),
       });
       state.daySuggestions = Array.isArray(result.proposals) ? result.proposals : [];
@@ -5219,6 +5262,17 @@
   els.orderNote?.addEventListener('input', () => {
     saveOrderNote(currentFocusDate(), els.orderNote.value);
   });
+  els.planNote?.addEventListener('input', () => {
+    saveNoteMap(PLAN_NOTES_KEY, state.planNotes, currentFocusDate(), els.planNote.value);
+  });
+  els.suggestionNote?.addEventListener('input', () => {
+    saveNoteMap(
+      SUGGESTION_NOTES_KEY,
+      state.suggestionNotes,
+      currentFocusDate(),
+      els.suggestionNote.value
+    );
+  });
 
   for (const input of [
     els.dayStart,
@@ -5270,6 +5324,8 @@
   state.feedback = loadFeedback();
   state.reminderPlans = loadReminderPlans();
   state.orderNotes = loadOrderNotes();
+  state.planNotes = loadNoteMap(PLAN_NOTES_KEY);
+  state.suggestionNotes = loadNoteMap(SUGGESTION_NOTES_KEY);
   state.scheduleSettings = loadScheduleSettings();
   syncScheduleInputs();
   try {
