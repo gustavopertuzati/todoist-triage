@@ -273,6 +273,28 @@ function listDayTasks(snapshot, date) {
     if (tasks.length >= MAX_TASKS) break;
   }
 
+  // Une tâche dont une sous-tâche est planifiée doit apparaître comme parent,
+  // même si sa propre échéance est demain : sinon elle ne peut pas finir après
+  // la dernière sous-tâche. On s'arrête aux parents proches (au plus demain)
+  // pour ne pas tirer un projet lointain dans la journée.
+  const horizon = addDaysIso(date, 1);
+  for (const task of [...tasks]) {
+    let current = byId.get(task.parent_id);
+    const guard = new Set([task.id]);
+    while (current && !seen.has(current.id) && !guard.has(current.id)) {
+      guard.add(current.id);
+      const due = (current.due_date || '').slice(0, 10);
+      if (due && due > horizon) break;
+      seen.add(current.id);
+      const parent = current.parent_id ? byId.get(current.parent_id) : null;
+      const meta = taskMeta(current, parent ? titleOf(parent) : null);
+      meta.depth = 0;
+      tasks.push(meta);
+      if (tasks.length >= MAX_TASKS) break;
+      current = byId.get(current.parent_id);
+    }
+  }
+
   // Profondeur réelle une fois l'arbre du jour constitué (une sous-tâche dont
   // le parent n'est pas dans le plan redevient une racine).
   for (const task of tasks) {
@@ -347,10 +369,11 @@ function orderExecution(execution, tasks) {
   ];
 }
 
-function buildDayOrderDigest(tasks, date, schedule = null) {
+function buildDayOrderDigest(tasks, date, schedule = null, instruction = '') {
   return {
     date,
     schedule: normalizeSchedule(schedule || {}),
+    instruction: String(instruction || '').trim().slice(0, 500) || null,
     profile: {
       public_prep: true,
       default_prep_minutes: 30,
@@ -379,7 +402,7 @@ function buildDayOrderDigest(tasks, date, schedule = null) {
 }
 
 function buildOrderPrompt(digest) {
-  return [
+  const lines = [
     `Ordonne les tâches du ${digest.date} pour une exécution réelle.`,
     '',
     'Règles :',
@@ -401,13 +424,26 @@ function buildOrderPrompt(digest) {
     '- classe "context" parmi phone, computer, home, outside, office, other.',
     '- donne une raison courte (max 10 mots) dans "why".',
     '',
+  ];
+
+  if (digest.instruction) {
+    lines.push(
+      'Consignes impératives de la personne pour cette journée :',
+      `« ${digest.instruction} »`,
+      'Respecte-les en priorité (matinée, séquence précise, ordre imposé…), sans jamais passer une sous-tâche après sa tâche parente.',
+      ''
+    );
+  }
+
+  lines.push(
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase courte expliquant l’ordre",',
     ' "order":[{"id":"...","why":"...","minutes":30,"context":"computer","wait_minutes":0,"parallel_with":[],"public":false,"prep_minutes":0}]}',
     '',
     'Données :',
-    JSON.stringify(digest),
-  ].join('\n');
+    JSON.stringify(digest)
+  );
+  return lines.join('\n');
 }
 
 function validateOrderResponse(parsed, tasks) {
@@ -795,8 +831,9 @@ function withPostpone(result, snapshot, date) {
 async function generateDayOrder(
   snapshot,
   date,
-  { force = false, schedule = null, useAi = true } = {}
+  { force = false, schedule = null, useAi = true, instruction = '' } = {}
 ) {
+  const normalizedInstruction = String(instruction || '').trim().slice(0, 500);
   const normalizedSchedule = clampScheduleToNow(
     normalizeSchedule(schedule || {}),
     date
@@ -853,7 +890,7 @@ async function generateDayOrder(
     );
   }
 
-  const digest = buildDayOrderDigest(tasks, date, normalizedSchedule);
+  const digest = buildDayOrderDigest(tasks, date, normalizedSchedule, normalizedInstruction);
   const signature = signatureOf(digest);
   const cached = cache.get(String(date));
   const fresh =

@@ -672,6 +672,36 @@ test('une sous-tâche due aujourd’hui reste visible si son parent n’est pas 
   assert.equal(step.depth, 1);
 });
 
+test('une consigne personnelle est transmise à l’IA', () => {
+  const digest = buildDayOrderDigest([], TODAY, {}, 'Faire la vaisselle avant 10 h');
+  assert.equal(digest.instruction, 'Faire la vaisselle avant 10 h');
+  const prompt = buildOrderPrompt({
+    ...digest,
+    instruction: 'Faire la vaisselle avant 10 h, puis le linge',
+  });
+  assert.ok(prompt.includes('Faire la vaisselle avant 10 h, puis le linge'));
+  assert.ok(prompt.includes('Consignes impératives'));
+});
+
+test('un parent dû demain est inclus quand sa sous-tâche est aujourd’hui', () => {
+  const tasks = listDayTasks(
+    snapshot([
+      task({ id: 'root', display_title: 'Faire toute la lessive', due_date: '2026-11-06' }),
+      task({ id: 'mid', display_title: 'Lessive 3', parent_id: 'root', due_date: '2026-11-06' }),
+      task({ id: 'step', display_title: '1. Étape', parent_id: 'mid', due_date: TODAY }),
+    ]),
+    TODAY
+  );
+  assert.deepEqual(tasks.map((item) => item.id), ['step', 'mid', 'root']);
+  const root = tasks.find((item) => item.id === 'root');
+  const mid = tasks.find((item) => item.id === 'mid');
+  const step = tasks.find((item) => item.id === 'step');
+  assert.equal(root.is_subtask, false);
+  assert.equal(mid.is_subtask, true);
+  assert.equal(mid.depth, 1);
+  assert.equal(step.depth, 2);
+});
+
 test('une tâche publique réserve 30 min de préparation avant elle', () => {
   const tasks = [
     { ...dayTask('meeting', 4, 'M', 30, 'Entretien'), public: true, prep_minutes: 30 },

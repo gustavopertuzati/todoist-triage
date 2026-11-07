@@ -513,8 +513,15 @@ function createApp() {
         lunchEnd: req.body?.lunchEnd,
       };
       const useAi = req.body?.ai !== false;
+      const instruction =
+        typeof req.body?.instruction === 'string' ? req.body.instruction.slice(0, 500) : '';
       const { snapshot } = await getSnapshot({ force: false });
-      const result = await generateDayOrder(snapshot, date, { force, schedule, useAi });
+      const result = await generateDayOrder(snapshot, date, {
+        force,
+        schedule,
+        useAi,
+        instruction,
+      });
 
       return res.json({
         ok: true,

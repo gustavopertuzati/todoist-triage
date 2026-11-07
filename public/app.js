@@ -68,6 +68,7 @@
     // Préférence de l'utilisateur, indépendante du calage automatique du jour.
     scheduleBase: { phoneStart: '09:00', otherStart: '11:00' },
     scheduleDay: null,
+    orderNotes: {},
     startAdjusted: false,
     screen: 'today',
     scheduleTimer: null,
@@ -106,6 +107,7 @@
     widgetLists: document.getElementById('widget-lists'),
     dayOrderBtn: document.getElementById('day-order-btn'),
     dayOrderHint: document.getElementById('day-order-hint'),
+    orderNote: document.getElementById('order-note'),
     dayOrderEmpty: document.getElementById('day-order-empty'),
     dayOrder: document.getElementById('day-order'),
     dayPostpone: document.getElementById('day-postpone'),
@@ -211,6 +213,7 @@
   const REMINDERS_KEY = 'todoist-triage:reminders';
   const SCHEDULE_KEY = 'todoist-triage:schedule';
   const DAY_PLANS_KEY = 'todoist-triage:day-plans';
+  const ORDER_NOTES_KEY = 'todoist-triage:order-notes';
   const ACCEPTED_TASKS_KEY = 'todoist-triage:accepted-tasks';
   const IGNORED_TASKS_KEY = 'todoist-triage:ignored-tasks';
 
@@ -285,6 +288,30 @@
     } catch {
       /* stockage indisponible */
     }
+  }
+
+  function loadOrderNotes() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(ORDER_NOTES_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveOrderNote(date, value) {
+    if (!date) return;
+    state.orderNotes[date] = String(value || '').slice(0, 500);
+    try {
+      localStorage.setItem(ORDER_NOTES_KEY, JSON.stringify(state.orderNotes));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function syncOrderNote(date) {
+    if (!els.orderNote) return;
+    els.orderNote.value = (date && state.orderNotes[date]) || '';
   }
 
   function restoreDayPlan(date) {
@@ -1058,6 +1085,7 @@
         body: JSON.stringify({
           date,
           force: alreadyLoaded,
+          instruction: (els.orderNote?.value || '').trim().slice(0, 500),
           ...state.scheduleSettings,
         }),
       });
@@ -2368,6 +2396,7 @@
 
   async function selectDay(date, { analyze = false, force = false } = {}) {
     state.selectedDate = date;
+    syncOrderNote(date);
     state.dayLoading = true;
     state.dayError = null;
     state.daySuggestions = [];
@@ -5010,6 +5039,10 @@
     tab.addEventListener('click', () => setScreen(tab.dataset.screenTab));
   }
 
+  els.orderNote?.addEventListener('input', () => {
+    saveOrderNote(currentFocusDate(), els.orderNote.value);
+  });
+
   for (const input of [
     els.dayStart,
     els.dayOtherStart,
@@ -5059,6 +5092,7 @@
   state.checkins = loadCheckins();
   state.feedback = loadFeedback();
   state.reminderPlans = loadReminderPlans();
+  state.orderNotes = loadOrderNotes();
   state.scheduleSettings = loadScheduleSettings();
   syncScheduleInputs();
   try {

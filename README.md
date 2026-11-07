@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 37.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 38.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1014,6 +1014,28 @@ Correctifs :
 - nouvelle option serveur `ai: false` sur `POST /api/day/order` pour ce
   recalcul déterministe.
 
+## Itération 38 — parents proches et consigne libre pour l’IA
+
+### Parents d’une sous-tâche planifiée
+
+Si une sous-tâche est planifiée aujourd’hui, ses **parents proches** (échéance
+aujourd’hui ou demain) entrent aussi dans l’ordre, même s’ils ne sont pas dus
+aujourd’hui. Ils apparaissent comme containers et finissent à la fin de leur
+dernière sous-tâche **planifiée**. Cela corrige le cas « Lessive 3 » : la tâche
+principale n’est plus absente et ne reste plus à « Demain » sans heure.
+
+### Consigne libre avant l’ordre
+
+L’écran **Ordre** contient un champ **« Consigne pour l’IA (optionnel) »** :
+
+- exemples : « faire la vaisselle avant 10 h », « enchaîner lessive puis linge »,
+  « passer chez le coiffeur le matin » ;
+- la consigne est enregistrée **par jour** dans le navigateur ;
+- elle est envoyée à `POST /api/day/order` et intégrée au prompt comme consigne
+  impérative, sans jamais casser la règle sous-tâche → parent ;
+- elle est appliquée au prochain calcul de l’ordre (bouton « Réorganiser /
+  Recalculer »).
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1236,7 +1258,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 37 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 38 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

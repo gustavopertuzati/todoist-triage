@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.37.1",
+  "version": "0.38.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 37 : ordre recalculé après report, toutes les tâches du widget incluses).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 38 : parents proches inclus et consigne libre pour l'IA avant l'ordre).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
