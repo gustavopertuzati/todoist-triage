@@ -645,13 +645,37 @@ function createApp() {
       const also = Array.isArray(req.body?.also_task_ids)
         ? req.body.also_task_ids.map((id) => String(id))
         : [];
-      const withAncestors = req.body?.with_ancestors === true;
+      const withBranch = req.body?.with_branch === true;
+      const withAncestors = req.body?.with_ancestors === true || withBranch;
 
       const { snapshot } = await getSnapshot({ force: false });
       const byId = new Map((snapshot.tasks || []).map((item) => [item.id, item]));
+      const childrenByParent = new Map();
+      for (const item of snapshot.tasks || []) {
+        if (!item.parent_id) continue;
+        if (!childrenByParent.has(item.parent_id)) childrenByParent.set(item.parent_id, []);
+        childrenByParent.get(item.parent_id).push(item);
+      }
       const dateById = new Map();
       for (const id of [taskId, ...also]) {
         if (id) dateById.set(id, dueDate);
+      }
+
+      // Reporter une tâche avec ses sous-tâches : toute la descendance suit,
+      // pour qu'aucune sous-tâche ne reste seule sur le jour d'origine.
+      if (withBranch) {
+        const stack = [taskId];
+        const guard = new Set([taskId]);
+        while (stack.length > 0 && dateById.size < 60) {
+          const currentId = stack.pop();
+          for (const child of childrenByParent.get(currentId) || []) {
+            if (guard.has(child.id)) continue;
+            guard.add(child.id);
+            dateById.set(child.id, dueDate);
+            stack.push(child.id);
+            if (dateById.size >= 60) break;
+          }
+        }
       }
 
       // Une sous-tâche reportée ne peut pas être finie après son parent :

@@ -1089,7 +1089,7 @@
           silent: true,
           items: selectedVariant
             ? selectedVariant.items
-                .filter((item) => item.start && item.end)
+                .filter((item) => item.start && item.end && !item.prep)
                 .map((item) => ({
                   taskId: item.id,
                   date,
@@ -1273,11 +1273,25 @@
 
       const minStart = item.context === 'phone' ? phoneStart : otherStart;
       const earliest = cursor === null ? minStart : Math.max(cursor, minStart);
+      const prepMinutes = Math.max(0, Number(item.prep_minutes) || 0);
+      let prepEnd = null;
       let start = earliest;
+      if (!stopped && prepMinutes > 0) {
+        let prepStart = earliest;
+        if (
+          lunchEnd > lunchStart &&
+          prepStart < lunchEnd &&
+          prepStart + prepMinutes > lunchStart
+        ) {
+          prepStart = lunchEnd;
+        }
+        start = prepStart + prepMinutes;
+        prepEnd = start;
+      }
       if (lunchEnd > lunchStart && start < lunchEnd && start + item.minutes > lunchStart) {
         start = lunchEnd;
       }
-      start = Math.max(start, earliest);
+      start = Math.max(start, prepEnd === null ? earliest : prepEnd);
 
       // Même règle que le serveur : on s'arrête à la fin de journée, sans
       // jamais glisser après minuit.
@@ -1312,7 +1326,7 @@
 
   async function applyPlanTimes(date, variant) {
     const items = (variant?.items || [])
-      .filter((item) => item.id && item.start && item.end)
+      .filter((item) => item.id && item.start && item.end && !item.prep)
       .map((item) => ({ taskId: item.id, start: item.start, end: item.end }));
     if (items.length === 0) return;
     try {
@@ -1350,7 +1364,7 @@
           settings: currentSettings,
           silent: true,
           items: latest.items
-            .filter((item) => item.start && item.end)
+            .filter((item) => item.start && item.end && !item.prep)
             .map((item) => ({
               taskId: item.id,
               date,
@@ -1586,6 +1600,13 @@
                 }`
               )
             : null,
+          slot?.prep_minutes > 0
+            ? h(
+                'span',
+                { class: 'pill pill-soft' },
+                `🪞 ${slot.prep_minutes} min de préparation avant`
+              )
+            : null,
           slot?.unscheduled
             ? h('span', { class: 'pill pill-danger' }, 'Non planifié')
             : null,
@@ -1648,7 +1669,7 @@
                   {
                     type: 'button',
                     class: 'icon-btn day-order-move-btn',
-                    title: 'Reporter au lendemain (avec la tâche principale et ses parents)',
+                    title: 'Reporter au lendemain (toute la branche : parents et sous-tâches)',
                     'aria-label': 'Reporter au lendemain avec les parents',
                     onclick: (event) => controls.onTomorrow(event.currentTarget),
                   },
@@ -1848,7 +1869,7 @@
           variant: variant.key,
           settings: data.schedule || state.scheduleSettings,
           items: variant.items
-            .filter((item) => item.start && item.end)
+            .filter((item) => item.start && item.end && !item.prep)
             .map((item) => ({
               taskId: item.id,
               date: focus,
@@ -2043,6 +2064,7 @@
           task_id: task.id,
           due_date: target,
           with_ancestors: true,
+          with_branch: true,
         }),
       });
 

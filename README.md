@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 35.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 36.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -962,6 +962,33 @@ Dans l’écran **Ordre**, chaque ligne a un bouton **⏭** « Reporter au lende
 Route : `POST /api/day/report` avec `with_ancestors: true`. La réponse renvoie
 `task_ids` pour mettre à jour l’écran sans recharger.
 
+## Itération 36 — préparation avant le public et report de branche
+
+### Douche / soin avant une apparition publique
+
+Le prompt d’ordre connaît maintenant le profil : la personne est réservée en
+public et a besoin d’un temps de préparation (douche, soin, tenue) avant de se
+montrer.
+
+- L’IA marque les tâches publiques (rendez-vous, entretien, cours, présentation,
+  réunion, guichet, sortie, photo…) avec `public: true` et `prep_minutes: 30`.
+- Le planning **réserve ce temps juste avant** la tâche : son horaire de début
+  est décalé d’autant, et la ligne affiche `🪞 30 min de préparation avant`.
+- Si une tâche « douche / soin » existe, l’IA la place juste avant.
+- `LIFE_CONTEXT.md` contient une section « Apparence et vie publique » pour que
+  les autres fonctions IA (suggestions, préparation) en tiennent compte.
+- Le temps de préparation est compté dans la journée et peut déclencher un report
+  si la journée ne tient plus.
+
+### Reporter toute une branche au lendemain
+
+Le bouton **⏭** de l’écran Ordre envoie `with_branch: true` :
+
+- la tâche choisie passe au lendemain ;
+- **toutes ses sous-tâches** (descendance complète) suivent ;
+- ses **parents / ancêtres** sont reculés aussi ;
+- une échéance déjà plus lointaine n’est jamais avancée.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1184,7 +1211,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 35 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 36 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

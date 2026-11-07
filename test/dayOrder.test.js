@@ -119,8 +119,8 @@ test('validateOrderResponse applique l’ordre et complète les oublis', () => {
     tasks
   );
   assert.deepEqual(execution, [
-    { id: 'b', why: 'urgent', minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
-    { id: 'a', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
+    { id: 'b', why: 'urgent', minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [], public: false, prep_minutes: 0 },
+    { id: 'a', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [], public: false, prep_minutes: 0 },
   ]);
   assert.match(summary, /Priorité/);
 });
@@ -135,8 +135,8 @@ test('validateOrderResponse ignore les inconnus et les doublons', () => {
     tasks
   );
   assert.deepEqual(execution, [
-    { id: 'a', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
-    { id: 'b', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
+    { id: 'a', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [], public: false, prep_minutes: 0 },
+    { id: 'b', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [], public: false, prep_minutes: 0 },
   ]);
 });
 
@@ -600,6 +600,8 @@ test('le prompt demande de détecter les attentes et les tâches parallèles', (
   assert.ok(prompt.includes('wait_minutes'));
   assert.ok(prompt.includes('parallel_with'));
   assert.ok(prompt.includes('temps d’attente'));
+  assert.ok(prompt.includes('prep_minutes'));
+  assert.ok(prompt.includes('douche'));
 });
 
 test('validateOrderResponse garde les attentes et filtre les parallèles invalides', () => {
@@ -649,6 +651,44 @@ test('les créneaux exposent l’attente et les tâches faisables pendant', () =
   assert.equal(item.wait_minutes, 60);
   assert.deepEqual(item.parallel_titles, ['Trier le linge']);
   assert.equal(item.ready, '10:15');
+});
+
+test('une tâche publique réserve 30 min de préparation avant elle', () => {
+  const tasks = [
+    { ...dayTask('meeting', 4, 'M', 30, 'Entretien'), public: true, prep_minutes: 30 },
+  ];
+  const variants = buildScheduleVariants(tasks, [
+    { id: 'meeting', minutes: 30, context: 'other' },
+  ], {
+    phoneStart: '09:00',
+    otherStart: '09:00',
+    end: '17:00',
+    breakMinutes: 0,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+  });
+  const item = variants[0].items.find((entry) => entry.id === 'meeting');
+  assert.equal(item.start, '09:30');
+  assert.equal(item.end, '10:00');
+  assert.equal(item.prep_minutes, 30);
+});
+
+test('validateOrderResponse applique 30 min par défaut aux tâches publiques', () => {
+  const tasks = [
+    dayTask('a', 1, 'M', 30, 'Entretien'),
+    dayTask('b', 1, 'M', 30, 'Réunion'),
+  ];
+  const { execution } = validateOrderResponse(
+    {
+      order: [
+        { id: 'a', public: true },
+        { id: 'b', public: true, prep_minutes: 45 },
+      ],
+    },
+    tasks
+  );
+  assert.equal(execution.find((entry) => entry.id === 'a').prep_minutes, 30);
+  assert.equal(execution.find((entry) => entry.id === 'b').prep_minutes, 45);
 });
 
 test('aucun horaire ne dépasse la fin de journée ni 24 h', () => {

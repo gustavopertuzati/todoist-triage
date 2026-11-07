@@ -85,6 +85,16 @@ actions, et servir à éviter les conseils déconnectés de la réalité.
 - À faire avec Marco.
 - Blocage : difficulté à lui proposer.
 
+## Apparence et vie publique
+
+- Se sent assez réservé / **self-conscious en public**.
+- Avant un rendez-vous, un entretien, un cours, une présentation, une réunion,
+  un guichet ou une sortie : prévoir un temps de **préparation** (douche, soin,
+  tenue) d'environ **30 min**.
+- L'ordre du jour réserve ce temps juste avant la tâche publique et affiche
+  `🪞 30 min de préparation avant`.
+- Si une tâche « douche / soin » existe déjà, la placer avant la tâche publique.
+
 ## Règles pour l'agent
 
 - **Ne jamais** envoyer de WhatsApp, SMS, mail ou notification à la place de l'utilisateur

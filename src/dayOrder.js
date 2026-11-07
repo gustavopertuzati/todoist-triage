@@ -78,6 +78,16 @@ function normalizeWait(value) {
     : 0;
 }
 
+/** Temps de préparation avant une apparition publique (30 min par défaut). */
+function normalizePrep(value, isPublic) {
+  if (!isPublic) return 0;
+  const minutes = Number(value);
+  if (Number.isFinite(minutes) && minutes > 0) {
+    return Math.min(120, Math.round(minutes));
+  }
+  return 30;
+}
+
 function formatMinutes(total) {
   const minutes = Math.max(0, Math.round(total));
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
@@ -327,6 +337,11 @@ function buildDayOrderDigest(tasks, date, schedule = null) {
   return {
     date,
     schedule: normalizeSchedule(schedule || {}),
+    profile: {
+      public_prep: true,
+      default_prep_minutes: 30,
+      note: 'Prévoir douche/soin/tenue avant une apparition publique.',
+    },
     tasks: tasks.map((task) => ({
       id: task.id,
       title: task.title,
@@ -336,6 +351,8 @@ function buildDayOrderDigest(tasks, date, schedule = null) {
       context_hint: task.context,
       wait_minutes_hint: task.wait_minutes || 0,
       parallel_hint: Array.isArray(task.parallel_with) ? task.parallel_with : [],
+      public_hint: Boolean(task.public),
+      prep_minutes_hint: task.prep_minutes || 0,
       overdue: task.overdue,
       is_preparation: task.is_prep,
       is_subtask: Boolean(task.is_subtask),
@@ -362,6 +379,8 @@ function buildOrderPrompt(digest) {
     '- Cherche les temps d’attente passive (machine à laver, four, cuisson, séchage, pousse, trempage, téléchargement, réponse à attendre…). Pour ces tâches, mets le temps ACTIF dans "minutes" et le temps passif dans "wait_minutes" (0 à 480).',
     '- Si une autre tâche peut être faite pendant cette attente, liste jusqu’à 3 identifiants dans "parallel_with" et place ces tâches juste après dans l’ordre, pour remplir le temps mort.',
     '- "parallel_with" ne contient que des identifiants de la liste, jamais la tâche elle-même.',
+    '- Profil : la personne est réservée en public et a besoin d’un temps de préparation (douche, soin, tenue) avant de se montrer. Pour toute tâche publique (rendez-vous, entretien, cours, présentation, réunion, guichet, sortie, photo, événement…), mets "public": true et "prep_minutes": 30 (ou plus).',
+    '- S’il existe une tâche de douche, soin ou préparation, place-la juste avant la tâche publique. Ne marque pas "public" une tâche banale.',
     '',
     'Pour chaque tâche :',
     '- estime "minutes" de façon réaliste (5 à 480) d’après le titre, la note, la taille et le contexte ;',
@@ -370,7 +389,7 @@ function buildOrderPrompt(digest) {
     '',
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase courte expliquant l’ordre",',
-    ' "order":[{"id":"...","why":"...","minutes":30,"context":"computer","wait_minutes":0,"parallel_with":[]}]}',
+    ' "order":[{"id":"...","why":"...","minutes":30,"context":"computer","wait_minutes":0,"parallel_with":[],"public":false,"prep_minutes":0}]}',
     '',
     'Données :',
     JSON.stringify(digest),
@@ -411,6 +430,7 @@ function validateOrderResponse(parsed, tasks) {
       }
     }
 
+    const isPublic = entry?.public === true;
     execution.push({
       id,
       why:
@@ -421,6 +441,8 @@ function validateOrderResponse(parsed, tasks) {
       context,
       wait_minutes: waitMinutes,
       parallel_with: parallelWith,
+      public: isPublic,
+      prep_minutes: normalizePrep(entry?.prep_minutes, isPublic),
     });
   }
 
@@ -434,6 +456,8 @@ function validateOrderResponse(parsed, tasks) {
         context: fallbackContext(task),
         wait_minutes: 0,
         parallel_with: [],
+        public: false,
+        prep_minutes: 0,
       });
     }
   }
@@ -496,8 +520,17 @@ function scheduleVariant(
 
     const minStart = task.context === 'phone' ? phoneStart : otherStart;
     const earliest = cursor === null ? minStart : Math.max(cursor, minStart);
-    let start = avoidLunch(earliest, task.minutes, lunchStart, lunchEnd);
-    start = Math.max(start, earliest);
+    const prepMinutes = normalizePrep(task.prep_minutes, task.public === true);
+    let prepStart = null;
+    let prepEnd = null;
+    let start = earliest;
+    if (!stopped && prepMinutes > 0) {
+      prepStart = Math.max(avoidLunch(earliest, prepMinutes, lunchStart, lunchEnd), earliest);
+      prepEnd = prepStart + prepMinutes;
+      start = prepEnd;
+    }
+    start = avoidLunch(start, task.minutes, lunchStart, lunchEnd);
+    start = Math.max(start, prepEnd === null ? earliest : prepEnd);
 
     // Plus de place avant la fin de journée : on arrête net. Les tâches
     // suivantes restent non planifiées (et seront proposées au report), au
@@ -514,6 +547,8 @@ function scheduleVariant(
         overflow: true,
         unscheduled: true,
         container: false,
+        prep_minutes: prepMinutes,
+        public: Boolean(task.public),
       });
       return;
     }
@@ -542,6 +577,8 @@ function scheduleVariant(
       parallel_ids: parallelIds,
       parallel_titles: parallelIds.map((id) => titleById.get(id)).filter(Boolean),
       ready,
+      prep_minutes: prepMinutes,
+      public: Boolean(task.public),
     });
   };
 
@@ -851,6 +888,8 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
     task.context = item.context;
     task.wait_minutes = item.wait_minutes || 0;
     task.parallel_with = item.parallel_with || [];
+    task.public = Boolean(item.public);
+    task.prep_minutes = item.prep_minutes || 0;
   }
   const variants = buildScheduleVariants(tasks, execution, normalizedSchedule);
   const entry = {
