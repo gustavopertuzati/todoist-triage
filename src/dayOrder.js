@@ -482,15 +482,17 @@ function buildScheduleVariants(tasks, execution, options = {}) {
   const breakMinutes = schedule.breakMinutes;
 
   const byId = new Map(tasks.map((task) => [task.id, task]));
-  const executionTasks = execution
-    .map((entry) => byId.get(entry.id))
-    .filter(Boolean);
+  const executionTasks = subtasksFirstOrder(
+    execution.map((entry) => byId.get(entry.id)).filter(Boolean)
+  );
   const priorityTasks = priorityOrder(tasks);
-  const shortTasks = [...tasks].sort(
-    (a, b) =>
-      a.minutes - b.minutes ||
-      (b.priority || 1) - (a.priority || 1) ||
-      a.title.localeCompare(b.title, 'fr-FR')
+  const shortTasks = subtasksFirstOrder(
+    [...tasks].sort(
+      (a, b) =>
+        a.minutes - b.minutes ||
+        (b.priority || 1) - (a.priority || 1) ||
+        a.title.localeCompare(b.title, 'fr-FR')
+    )
   );
 
   return [

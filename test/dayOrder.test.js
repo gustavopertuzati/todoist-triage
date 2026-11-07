@@ -503,6 +503,38 @@ test('orderExecution remonte les sous-tâches avant leur parent', () => {
   );
 });
 
+test('la variante « courtes d’abord » garde les sous-tâches avant le parent', () => {
+  const tasks = [
+    {
+      id: 'parent',
+      title: 'Parent',
+      parent_id: null,
+      is_subtask: false,
+      priority: 1,
+      minutes: 15,
+      context: 'other',
+    },
+    {
+      id: 'child',
+      title: 'Enfant long',
+      parent_id: 'parent',
+      is_subtask: true,
+      priority: 1,
+      minutes: 60,
+      context: 'other',
+    },
+  ];
+  const variants = buildScheduleVariants(tasks, [
+    { id: 'parent', minutes: 15, context: 'other' },
+    { id: 'child', minutes: 60, context: 'other' },
+  ]);
+  const court = variants.find((variant) => variant.key === 'court');
+  assert.deepEqual(
+    court.items.map((item) => item.id),
+    ['child', 'parent']
+  );
+});
+
 test('listDayTasks inclut tout l’arbre des sous-tâches, même sans échéance', () => {
   const tasks = listDayTasks(
     snapshot([

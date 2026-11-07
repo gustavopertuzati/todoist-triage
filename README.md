@@ -892,7 +892,8 @@ Détails :
 
 - `listDayTasks` ajoute les descendants avec `parent_id`, `depth` et
   `is_subtask` ;
-- `priorityOrder` et l'ordre d'exécution IA passent par `subtasksFirstOrder` ;
+- `priorityOrder`, l'ordre d'exécution IA et toutes les variantes (Exécution,
+  Priorité, Courtes d'abord, Départ décalé) passent par `subtasksFirstOrder` ;
 - le déplacement manuel ▲/▼ réapplique la règle ;
 - les propositions de report ne ciblent jamais une sous-tâche seule : c'est la
   tâche racine qui est proposée ;
