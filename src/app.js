@@ -640,33 +640,61 @@ function createApp() {
         });
       }
 
+      // La racine part avec ses sous-tâches non planifiées : on les déplace
+      // ensemble pour qu'elles ne reviennent pas le lendemain sans leur parent.
+      const also = Array.isArray(req.body?.also_task_ids)
+        ? req.body.also_task_ids.map((id) => String(id))
+        : [];
+      const ids = [...new Set([taskId, ...also])].filter(Boolean).slice(0, 60);
+
       const { snapshot } = await getSnapshot({ force: false });
-      const task = (snapshot.tasks || []).find((item) => item.id === taskId);
-      if (!task) {
+      const known = new Set((snapshot.tasks || []).map((item) => item.id));
+      const missing = ids.filter((id) => !known.has(id));
+      if (missing.length > 0) {
         return res.status(409).json({
           error: {
             code: 'PROPOSAL_STALE',
-            message: 'Cette tâche n’existe plus. Recharge la page.',
+            message: 'Une tâche du report n’existe plus. Recharge la page.',
           },
         });
       }
 
-      const result = await applyProposal({
-        proposal: {
-          type: 'set_due_date',
-          target: { kind: 'task', id: taskId },
-          action: { due_date: dueDate },
-        },
-        overrides: { due_date: dueDate },
-      });
+      let updated = 0;
+      const errors = [];
+      for (const id of ids) {
+        try {
+          const result = await applyProposal({
+            proposal: {
+              type: 'set_due_date',
+              target: { kind: 'task', id },
+              action: { due_date: dueDate },
+            },
+            overrides: { due_date: dueDate },
+          });
+          if (result.verified !== false) updated += 1;
+          else errors.push({ task_id: id, code: 'NOT_VERIFIED' });
+        } catch (error) {
+          if (error instanceof TodoistError && error.code === 'TODOIST_NOT_FOUND') {
+            errors.push({ task_id: id, code: 'NOT_FOUND' });
+            continue;
+          }
+          throw error;
+        }
+      }
 
       clearCache();
       return res.json({
         ok: true,
         task_id: taskId,
-        due_date: result.effects?.due_date || dueDate,
-        verified: result.verified,
-        message: result.message,
+        due_date: dueDate,
+        updated,
+        total: ids.length,
+        errors,
+        verified: updated === ids.length,
+        message:
+          updated === ids.length
+            ? `${ids.length} tâche(s) reportée(s) au ${dueDate}.`
+            : `${updated}/${ids.length} tâche(s) reportée(s) au ${dueDate}.`,
       });
     })
   );

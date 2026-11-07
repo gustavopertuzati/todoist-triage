@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 31.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 32.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -899,6 +899,23 @@ Détails :
   tâche racine qui est proposée ;
 - l'écran **Ordre** marque les sous-tâches avec `↳` et le nom du parent.
 
+## Itération 32 — horaires bornés et reports partiels
+
+- La planification **s'arrête à l'heure de fin** : plus aucun horaire après 17 h
+  (ou l'heure réglée), donc plus de journée à 46 h.
+- Les tâches qui ne tiennent plus restent **non planifiées** (sans horaire) au
+  lieu de glisser après minuit.
+- Une sous-tâche qui rentre reste planifiée ; quand la suite d'un arbre ne tient
+  plus, c'est la **tâche racine** qui est proposée au report, avec :
+  - le nombre de sous-tâches déjà gardées aujourd'hui ;
+  - le nombre de sous-tâches restantes et leurs minutes ;
+  - la date du premier jour qui a de la place.
+- Le bouton **Reporter** déplace la racine **et ses sous-tâches non planifiées**
+  vers la nouvelle date, tout en laissant les sous-tâches déjà planifiées
+  aujourd'hui.
+- Les rappels ignorent les tâches non planifiées (pas d'heure nulle).
+- Le déplacement manuel recalcule avec la même règle d'arrêt à la fin de journée.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1121,7 +1138,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 31 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 32 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

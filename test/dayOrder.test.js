@@ -573,6 +573,72 @@ test('buildPostponePlan ne propose pas une sous-tâche seule', () => {
   assert.deepEqual(postpone.map((item) => item.task_id), ['parent']);
 });
 
+test('aucun horaire ne dépasse la fin de journée ni 24 h', () => {
+  const tasks = Array.from({ length: 12 }, (_, index) =>
+    dayTask(`t${index}`, 2, 'L', 60, `Tâche ${index}`)
+  );
+  const execution = tasks.map((task) => ({
+    id: task.id,
+    minutes: task.minutes,
+    context: 'other',
+  }));
+  const variants = buildScheduleVariants(tasks, execution, {
+    phoneStart: '09:00',
+    otherStart: '09:00',
+    end: '17:00',
+    breakMinutes: 10,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+  });
+  const variant = variants.find((item) => item.key === 'priorite');
+  assert.ok(variant.items.some((item) => item.unscheduled));
+  for (const item of variant.items) {
+    if (item.start) {
+      assert.match(item.start, /^([01]\d|2[0-3]):[0-5]\d$/);
+      assert.match(item.end, /^([01]\d|2[0-3]):[0-5]\d$/);
+      assert.ok(item.end <= '17:00');
+    } else {
+      assert.equal(item.end, null);
+    }
+  }
+  assert.ok(variant.end <= '17:00');
+});
+
+test('une partie des sous-tâches reste planifiée, le parent passe au report', () => {
+  const tasks = [
+    {
+      ...dayTask('parent', 1, 'L', 30, 'Parent'),
+      parent_id: null,
+      is_subtask: false,
+    },
+    {
+      ...dayTask('c1', 1, 'M', 60, 'Enfant 1'),
+      parent_id: 'parent',
+      is_subtask: true,
+    },
+    {
+      ...dayTask('c2', 1, 'L', 120, 'Enfant 2'),
+      parent_id: 'parent',
+      is_subtask: true,
+    },
+  ];
+  const schedule = {
+    phoneStart: '09:00',
+    otherStart: '09:00',
+    end: '11:00',
+    breakMinutes: 0,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+  };
+  const postpone = buildPostponePlan(tasks, schedule, null, '2026-11-07');
+  assert.equal(postpone.length, 1);
+  assert.equal(postpone[0].task_id, 'parent');
+  assert.equal(postpone[0].scheduled_count, 1);
+  assert.equal(postpone[0].unscheduled_count, 2);
+  assert.deepEqual(postpone[0].also_task_ids, ['c2']);
+  assert.equal(postpone[0].over_minutes, 150);
+});
+
 test('suggestPostponeDate choisit le premier jour qui a encore de la place', () => {
   const snapshot = {
     capacity: {

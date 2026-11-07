@@ -425,49 +425,73 @@ function scheduleVariant(
   ordered,
   { phoneStart, otherStart, dayEnd, breakMinutes, lunchStart, lunchEnd }
 ) {
-  const phoneTasks = ordered.filter((task) => task.context === 'phone');
-  const otherTasks = ordered.filter((task) => task.context !== 'phone');
-  let cursor = phoneStart;
+  let cursor = null;
   let overflow = 0;
+  let stopped = false;
   const items = [];
-  const starts = [];
-  const ends = [];
 
   const place = (task) => {
-    let start = avoidLunch(cursor, task.minutes, lunchStart, lunchEnd);
-    // Une pause déjeuner peut décaler le début ; on ne repasse jamais avant.
-    start = Math.max(start, cursor);
+    const minStart = task.context === 'phone' ? phoneStart : otherStart;
+    const earliest = cursor === null ? minStart : Math.max(cursor, minStart);
+    let start = avoidLunch(earliest, task.minutes, lunchStart, lunchEnd);
+    start = Math.max(start, earliest);
+
+    // Plus de place avant la fin de journée : on arrête net. Les tâches
+    // suivantes restent non planifiées (et seront proposées au report), au
+    // lieu de glisser après minuit.
+    if (stopped || start + task.minutes > dayEnd) {
+      stopped = true;
+      overflow += task.minutes;
+      items.push({
+        id: task.id,
+        start: null,
+        end: null,
+        minutes: task.minutes,
+        context: task.context,
+        overflow: true,
+        unscheduled: true,
+      });
+      return;
+    }
+
     const end = start + task.minutes;
     cursor = end + breakMinutes;
-
-    const over = Math.max(0, end - dayEnd);
-    overflow += over;
-    starts.push(start);
-    ends.push(end);
     items.push({
       id: task.id,
       start: formatMinutes(start),
       end: formatMinutes(end),
       minutes: task.minutes,
       context: task.context,
-      overflow: over > 0,
+      overflow: false,
+      unscheduled: false,
     });
   };
 
-  for (const task of phoneTasks) place(task);
-  cursor = Math.max(cursor, otherStart);
-  for (const task of otherTasks) place(task);
+  for (const task of ordered) place(task);
 
-  items.sort((a, b) => a.start.localeCompare(b.start));
+  const scheduled = items.filter((item) => item.start && item.end);
+  items.sort((a, b) => String(a.start || '99:99').localeCompare(String(b.start || '99:99')));
 
   return {
     key,
     label,
-    start: items.length ? formatMinutes(Math.min(...starts)) : null,
-    end: items.length ? formatMinutes(Math.max(...ends)) : null,
+    start: scheduled.length
+      ? scheduled.reduce((min, item) => (item.start < min ? item.start : min), '99:99')
+      : null,
+    end: scheduled.length
+      ? scheduled.reduce((max, item) => (item.end > max ? item.end : max), '00:00')
+      : null,
     overflow_minutes: overflow,
     items,
   };
+}
+
+/** Préfère les appels tôt, sans jamais passer un parent avant ses sous-tâches. */
+function phoneFirstOrder(tasks) {
+  return subtasksFirstOrder([
+    ...tasks.filter((task) => task.context === 'phone'),
+    ...tasks.filter((task) => task.context !== 'phone'),
+  ]);
 }
 
 /** Trois planifications + une variante décalée (ordre et heure de départ). */
@@ -496,7 +520,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
   );
 
   return [
-    scheduleVariant('equilibre', 'Exécution', executionTasks, {
+    scheduleVariant('equilibre', 'Exécution', phoneFirstOrder(executionTasks), {
       phoneStart,
       otherStart,
       dayEnd,
@@ -504,7 +528,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       lunchStart,
       lunchEnd,
     }),
-    scheduleVariant('priorite', 'Priorité', priorityTasks, {
+    scheduleVariant('priorite', 'Priorité', phoneFirstOrder(priorityTasks), {
       phoneStart,
       otherStart,
       dayEnd,
@@ -512,7 +536,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       lunchStart,
       lunchEnd,
     }),
-    scheduleVariant('court', 'Courtes d’abord', shortTasks, {
+    scheduleVariant('court', 'Courtes d’abord', phoneFirstOrder(shortTasks), {
       phoneStart,
       otherStart,
       dayEnd,
@@ -520,7 +544,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       lunchStart,
       lunchEnd,
     }),
-    scheduleVariant('decale', 'Départ décalé', executionTasks, {
+    scheduleVariant('decale', 'Départ décalé', phoneFirstOrder(executionTasks), {
       phoneStart: Math.min(phoneStart + 60, dayEnd - 60),
       otherStart: Math.min(otherStart + 30, dayEnd - 30),
       dayEnd,
@@ -565,24 +589,58 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
   });
 
   const byId = new Map(tasks.map((task) => [task.id, task]));
-  return variant.items
-    .filter((item) => item.overflow || parseTime(item.end, 0) > end)
-    // On ne propose jamais une sous-tâche seule : c'est la tâche racine qui
-    // porte le report (ses sous-tâches suivent).
-    .filter((item) => !byId.get(item.id)?.is_subtask)
-    .map((item) => {
-      const task = byId.get(item.id);
+  const rootOf = (task) => {
+    let current = task;
+    const seen = new Set();
+    while (current?.parent_id && byId.has(current.parent_id) && !seen.has(current.id)) {
+      seen.add(current.id);
+      current = byId.get(current.parent_id);
+    }
+    return current || task;
+  };
+
+  // Nombre de tâches de chaque arbre encore planifiées aujourd'hui.
+  const scheduledCounts = new Map();
+  for (const item of variant.items) {
+    if (item.unscheduled) continue;
+    const task = byId.get(item.id);
+    if (!task) continue;
+    const root = rootOf(task);
+    scheduledCounts.set(root.id, (scheduledCounts.get(root.id) || 0) + 1);
+  }
+
+  // Regroupe les tâches non planifiées par tâche racine : on reporte la racine,
+  // ce qui emporte le reste de son arbre, tout en gardant la partie déjà faite.
+  const groups = new Map();
+  for (const item of variant.items) {
+    if (!item.unscheduled) continue;
+    const task = byId.get(item.id);
+    if (!task) continue;
+    const root = rootOf(task);
+    if (!groups.has(root.id)) groups.set(root.id, { root, items: [] });
+    groups.get(root.id).items.push(item);
+  }
+
+  return [...groups.values()]
+    .map(({ root, items }) => {
+      const unscheduled = items.reduce((sum, item) => sum + (item.minutes || 0), 0);
       return {
-        task_id: item.id,
-        title: task ? task.title : item.id,
-        priority: task ? task.priority : 1,
-        priority_label: task ? task.priority_label : 'P4',
-        size: task ? task.size : 'M',
-        minutes: item.minutes,
-        start: item.start,
-        end: item.end,
-        over_minutes: Math.max(0, parseTime(item.end, 0) - end),
-        due_date: suggestPostponeDate(snapshot, date, task ? task.size : 'M'),
+        task_id: root.id,
+        title: root.title,
+        priority: root.priority,
+        priority_label: root.priority_label,
+        size: root.size,
+        minutes: root.minutes,
+        start: null,
+        end: null,
+        over_minutes: unscheduled,
+        unscheduled_count: items.length,
+        scheduled_count: scheduledCounts.get(root.id) || 0,
+        also_task_ids: items
+          .map((item) => item.id)
+          .filter((id) => id !== root.id)
+          .slice(0, 60),
+        due_date: suggestPostponeDate(snapshot, date, root.size),
       };
     })
     .sort(

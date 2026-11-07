@@ -1088,11 +1088,13 @@
           settings: result.schedule || state.scheduleSettings,
           silent: true,
           items: selectedVariant
-            ? selectedVariant.items.map((item) => ({
-                taskId: item.id,
-                date,
-                time: item.start,
-              }))
+            ? selectedVariant.items
+                .filter((item) => item.start && item.end)
+                .map((item) => ({
+                  taskId: item.id,
+                  date,
+                  time: item.start,
+                }))
             : null,
         });
       }
@@ -1233,25 +1235,41 @@
       ? Math.max(0, Number(settings.breakMinutes))
       : 10;
 
-    let cursor = phoneStart;
+    let cursor = null;
     let overflow = 0;
+    let stopped = false;
     const starts = [];
     const ends = [];
 
     for (const item of variant.items) {
-      const earliest = item.context === 'phone' ? phoneStart : otherStart;
-      let start = Math.max(cursor, earliest);
+      const minStart = item.context === 'phone' ? phoneStart : otherStart;
+      const earliest = cursor === null ? minStart : Math.max(cursor, minStart);
+      let start = earliest;
       if (lunchEnd > lunchStart && start < lunchEnd && start + item.minutes > lunchStart) {
         start = lunchEnd;
       }
+      start = Math.max(start, earliest);
+
+      // Même règle que le serveur : on s'arrête à la fin de journée, sans
+      // jamais glisser après minuit.
+      if (stopped || start + item.minutes > dayEnd) {
+        stopped = true;
+        item.start = null;
+        item.end = null;
+        item.unscheduled = true;
+        item.overflow = true;
+        overflow += item.minutes;
+        continue;
+      }
+
       const end = start + item.minutes;
       cursor = end + breakMinutes;
       starts.push(start);
       ends.push(end);
       item.start = formatClock(start);
       item.end = formatClock(end);
-      item.overflow = end > dayEnd;
-      overflow += Math.max(0, end - dayEnd);
+      item.unscheduled = false;
+      item.overflow = false;
     }
 
     variant.overflow_minutes = overflow;
@@ -1299,11 +1317,13 @@
           variant: latest.key,
           settings: currentSettings,
           silent: true,
-          items: latest.items.map((item) => ({
-            taskId: item.id,
-            date,
-            time: item.start,
-          })),
+          items: latest.items
+            .filter((item) => item.start && item.end)
+            .map((item) => ({
+              taskId: item.id,
+              date,
+              time: item.start,
+            })),
         });
       }
     }, 900);
@@ -1514,8 +1534,8 @@
             ? h('span', { class: `pill size-${task.size}` }, sizeLabel[task.size] || task.size)
             : null,
           slot ? h('span', { class: 'day-order-minutes' }, `${slot.minutes} min`) : null,
-          slot?.overflow
-            ? h('span', { class: 'pill pill-danger' }, 'Après 17h')
+          slot?.unscheduled
+            ? h('span', { class: 'pill pill-danger' }, 'Non planifié')
             : null,
           task.overdue ? h('span', { class: 'pill pill-danger' }, 'En retard') : null,
           task.is_prep
@@ -1645,7 +1665,9 @@
     );
     const ordered = (variant
       ? [...variant.items]
-          .sort((a, b) => a.start.localeCompare(b.start))
+          .sort((a, b) =>
+            String(a.start || '99:99').localeCompare(String(b.start || '99:99'))
+          )
           .map((slot) => ({
             id: slot.id,
             why: whyById.get(slot.id) || null,
@@ -1750,11 +1772,13 @@
           date: focus,
           variant: variant.key,
           settings: data.schedule || state.scheduleSettings,
-          items: variant.items.map((item) => ({
-            taskId: item.id,
-            date: focus,
-            time: item.start,
-          })),
+          items: variant.items
+            .filter((item) => item.start && item.end)
+            .map((item) => ({
+              taskId: item.id,
+              date: focus,
+              time: item.start,
+            })),
         })
       );
       actions.append(remindBtn);
@@ -1786,7 +1810,9 @@
           h(
             'p',
             { class: 'day-status is-warn' },
-            `Dépassement de ${variant.overflow_minutes} min après 17h : envisage de reporter une tâche.`
+            `${variant.overflow_minutes} min ne tiennent pas avant ${
+              (data.schedule || state.scheduleSettings).end || 'la fin de journée'
+            } : les tâches en trop restent non planifiées.`
           )
         );
       }
@@ -1812,9 +1838,9 @@
       h(
         'p',
         { class: 'day-status is-warn' },
-        `${items.length} tâche(s) ne tiennent pas dans la journée${
-          over > 0 ? ` (${over} min de trop)` : ''
-        }. Les tâches importantes sont gardées en premier ; reporte celles qui peuvent attendre.`
+        `${items.length} tâche(s) principale(s) ne tiennent pas dans la journée${
+          over > 0 ? ` (${over} min restantes)` : ''
+        }. Les sous-tâches qui rentrent restent planifiées ; le reste part avec la tâche principale.`
       )
     );
 
@@ -1845,7 +1871,9 @@
             h(
               'span',
               { class: 'postpone-meta' },
-              `${item.priority_label || ''} · ${item.start}–${item.end} · ${item.minutes} min`
+              `${item.priority_label || ''} · ${item.scheduled_count || 0} sous-tâche(s) gardée(s) · ${
+                item.unscheduled_count || 0
+              } à finir (${item.over_minutes || 0} min)`
             )
           ),
           h('label', { class: 'postpone-date' }, h('span', {}, 'au'), dateInput),
@@ -1866,26 +1894,38 @@
     btn.disabled = true;
     btn.textContent = 'Report…';
     try {
+      const alsoTaskIds = Array.isArray(item.also_task_ids) ? item.also_task_ids : [];
       const result = await apiJson('/api/day/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
-        body: JSON.stringify({ task_id: item.task_id, due_date: dueDate }),
+        body: JSON.stringify({
+          task_id: item.task_id,
+          due_date: dueDate,
+          also_task_ids: alsoTaskIds,
+        }),
       });
 
+      const moved = new Set([item.task_id, ...alsoTaskIds]);
       const data = state.dayOrder.data;
       const date = data?.date;
       if (data) {
-        data.tasks = (data.tasks || []).filter((task) => task.id !== item.task_id);
+        data.tasks = (data.tasks || []).filter((task) => !moved.has(task.id));
         data.postpone = (data.postpone || []).filter(
           (entry) => entry.task_id !== item.task_id
         );
+        data.variants = (data.variants || []).map((variant) => ({
+          ...variant,
+          items: (variant.items || []).filter((entry) => !moved.has(entry.id)),
+        }));
       }
       if (state.dayPlan?.planned) {
         state.dayPlan.planned = state.dayPlan.planned.filter(
-          (task) => task.id !== item.task_id
+          (task) => !moved.has(task.id)
         );
       }
-      if (date) removeTaskFromDayPlan(date, item.task_id);
+      if (date) {
+        for (const taskId of moved) removeTaskFromDayPlan(date, taskId);
+      }
 
       toast(result.message || 'Tâche reportée.', result.verified === false ? 'error' : 'ok');
       renderDayOrder();
