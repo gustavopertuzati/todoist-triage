@@ -512,8 +512,9 @@ function createApp() {
         lunchStart: req.body?.lunchStart,
         lunchEnd: req.body?.lunchEnd,
       };
+      const useAi = req.body?.ai !== false;
       const { snapshot } = await getSnapshot({ force: false });
-      const result = await generateDayOrder(snapshot, date, { force, schedule });
+      const result = await generateDayOrder(snapshot, date, { force, schedule, useAi });
 
       return res.json({
         ok: true,

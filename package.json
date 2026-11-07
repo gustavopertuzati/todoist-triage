@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.36.0",
+  "version": "0.37.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 36 : préparation avant le public et report de toute une branche).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 37 : ordre recalculé après report, toutes les tâches du widget incluses).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

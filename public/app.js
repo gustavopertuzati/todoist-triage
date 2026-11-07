@@ -860,6 +860,24 @@
       );
   }
 
+  /** Tâches visibles dans le widget du jour (même filtre). */
+  function widgetDayTaskIds(date) {
+    const ids = new Set(tasksDueOn(date).map((task) => task.id));
+    const today = state.data?.meta?.today;
+    if (date === today) {
+      for (const task of activeTasks()) {
+        if (
+          task.is_overdue &&
+          task.due_date !== date &&
+          (!task.parent_id || isPreparationTask(task))
+        ) {
+          ids.add(task.id);
+        }
+      }
+    }
+    return ids;
+  }
+
   function renderWidget() {
     const tasks = activeTasks();
     const today = state.data.meta.today;
@@ -1106,6 +1124,63 @@
       state.dayOrder.loading = false;
       state.dayOrder.error = error.message || 'Impossible d’ordonner la journée.';
       renderDayOrder();
+    }
+  }
+
+  /**
+   * Recalcule l'ordre sans IA à partir des tâches actuelles. Utilisé après un
+   * report ou quand le plan enregistré ne correspond plus au widget.
+   */
+  async function rebuildDayOrder({ applyTimes = false, silent = true } = {}) {
+    const date = currentFocusDate();
+    if (!date || state.dayOrder.rebuilding) return;
+    state.dayOrder.rebuilding = true;
+    try {
+      const result = await apiJson('/api/day/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({
+          date,
+          force: true,
+          ai: false,
+          ...state.scheduleSettings,
+        }),
+      });
+      if (!result?.ok) return;
+
+      state.dayOrder.data = result;
+      state.dayOrder.loading = false;
+      state.dayOrder.error = null;
+      state.dayOrder.variantTouched = false;
+      state.dayOrder.variant = (result.variants || []).some(
+        (variant) => variant.key === 'priorite'
+      )
+        ? 'priorite'
+        : state.dayOrder.variant;
+      if (result.schedule) {
+        state.scheduleSettings = result.schedule;
+        saveScheduleSettings();
+        syncScheduleInputs();
+      }
+      saveDayPlan(date, result, state.dayOrder.variant);
+      renderDayOrder();
+
+      const variant =
+        (result.variants || []).find((item) => item.key === state.dayOrder.variant) ||
+        (result.variants || [])[0] ||
+        null;
+      if (applyTimes && variant) {
+        await applyPlanTimes(date, variant);
+      }
+      if (variant) {
+        scheduleReminderSync(date, variant, result.schedule || state.scheduleSettings);
+      }
+      if (!silent) toast('Ordre recalculé pour rester cohérent.', 'ok');
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      if (!silent) toast(error.message || 'Recalcul de l’ordre impossible.', 'error');
+    } finally {
+      state.dayOrder.rebuilding = false;
     }
   }
 
@@ -1688,6 +1763,24 @@
     const data = state.dayOrder.data;
     const sameDay = data && data.date === focus;
 
+    // Le plan enregistré peut être périmé après un report ou un changement
+    // dans Todoist. On le recalcule sans IA pour que l'ordre reste cohérent et
+    // contienne toutes les tâches visibles dans le widget.
+    if (sameDay && !state.dayOrder.rebuilding && state.data) {
+      const planIds = new Set((data.tasks || []).map((task) => task.id));
+      const activeIds = new Set(activeTasks().map((task) => task.id));
+      const visible = widgetDayTaskIds(focus);
+      const missing = [...visible].filter((id) => !planIds.has(id)).sort();
+      const gone = [...planIds].filter((id) => !activeIds.has(id)).sort();
+      if (missing.length > 0 || gone.length > 0) {
+        const key = `${focus}:${missing.join('|')}:${gone.join('|')}`;
+        if (state.dayOrder.rebuildKey !== key) {
+          state.dayOrder.rebuildKey = key;
+          rebuildDayOrder({ silent: true });
+        }
+      }
+    }
+
     els.dayOrderBtn.disabled = Boolean(state.dayOrder.loading);
     els.dayOrderBtn.textContent = state.dayOrder.loading
       ? '🔀 Analyse de l’ordre…'
@@ -2005,6 +2098,7 @@
         ? result.task_ids
         : [item.task_id, ...alsoTaskIds];
       forgetReportedTasks(moved);
+      await rebuildDayOrder({ applyTimes: true, silent: true });
 
       toast(result.message || 'Tâche reportée.', result.verified === false ? 'error' : 'ok');
       renderDayOrder();
@@ -2073,6 +2167,7 @@
           ? result.task_ids
           : [task.id];
       forgetReportedTasks(moved);
+      await rebuildDayOrder({ applyTimes: true, silent: true });
       toast(
         result.message || `Tâche reportée au ${formatDate(target)}.`,
         result.verified === false ? 'error' : 'ok'

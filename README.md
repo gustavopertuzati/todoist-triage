@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 36.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 37.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -989,6 +989,26 @@ Le bouton **⏭** de l’écran Ordre envoie `with_branch: true` :
 - ses **parents / ancêtres** sont reculés aussi ;
 - une échéance déjà plus lointaine n’est jamais avancée.
 
+## Itération 37 — ordre cohérent après report et tâches du widget
+
+Deux causes de désordre après un report :
+
+- le plan enregistré était seulement filtré, sans être reconstruit ;
+- une tâche ajoutée/déplacée dans Todoist pouvait ne pas être dans ce plan.
+
+Correctifs :
+
+- après un report (bouton ⏭ ou panneau), l’ordre est **recalculé sans IA** à
+  partir de l’état actuel de Todoist : priorité, hiérarchie, horaires, pauses et
+  déjeuner sont refaits, et les horaires sont réécrits ;
+- au rendu de l’écran Ordre, si le plan ne contient pas toutes les tâches
+  visibles dans le widget (ou contient une tâche qui n’existe plus), il est
+  **recalculé automatiquement** ;
+- l’ordre sans IA inclut **toutes** les tâches du widget et leurs sous-tâches,
+  avec un message explicite « Ordre recalculé sans IA » ;
+- nouvelle option serveur `ai: false` sur `POST /api/day/order` pour ce
+  recalcul déterministe.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1211,7 +1231,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 36 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 37 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

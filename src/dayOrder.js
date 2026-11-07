@@ -778,7 +778,11 @@ function withPostpone(result, snapshot, date) {
   return { ...result, postpone };
 }
 
-async function generateDayOrder(snapshot, date, { force = false, schedule = null } = {}) {
+async function generateDayOrder(
+  snapshot,
+  date,
+  { force = false, schedule = null, useAi = true } = {}
+) {
   const normalizedSchedule = clampScheduleToNow(
     normalizeSchedule(schedule || {}),
     date
@@ -814,7 +818,7 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
     );
   }
 
-  if (!config.aiEnabled) {
+  if (!useAi || !config.aiEnabled) {
     return withPostpone(
       {
         date,
@@ -824,7 +828,9 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
         variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
         schedule: normalizedSchedule,
         changed: 0,
-        summary: 'IA désactivée : ordre de priorité utilisé.',
+        summary: useAi
+          ? 'IA désactivée : ordre de priorité utilisé.'
+          : 'Ordre recalculé sans IA : priorité, sous-tâches et horaires.',
         cached: false,
         usage: null,
       },

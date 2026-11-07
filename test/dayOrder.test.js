@@ -16,6 +16,7 @@ const {
   buildScheduleVariants,
   buildPostponePlan,
   suggestPostponeDate,
+  generateDayOrder,
 } = require('../src/dayOrder');
 
 const TODAY = '2026-11-05';
@@ -689,6 +690,27 @@ test('validateOrderResponse applique 30 min par défaut aux tâches publiques', 
   );
   assert.equal(execution.find((entry) => entry.id === 'a').prep_minutes, 30);
   assert.equal(execution.find((entry) => entry.id === 'b').prep_minutes, 45);
+});
+
+test('generateDayOrder sans IA inclut toutes les tâches et sous-tâches', async () => {
+  const result = await generateDayOrder(
+    snapshot([
+      task({ id: 'main', display_title: 'Principale' }),
+      task({ id: 'sub', display_title: 'Sous-tâche', parent_id: 'main', due_date: null }),
+      task({ id: 'other', display_title: 'Autre' }),
+    ]),
+    TODAY,
+    {
+      useAi: false,
+      schedule: { phoneStart: '09:00', otherStart: '09:00', end: '17:00' },
+    }
+  );
+  assert.deepEqual(
+    result.tasks.map((item) => item.id).sort(),
+    ['main', 'other', 'sub']
+  );
+  assert.ok(result.variants.length > 0);
+  assert.match(result.summary, /sans IA/);
 });
 
 test('aucun horaire ne dépasse la fin de journée ni 24 h', () => {
