@@ -1577,6 +1577,15 @@
           slot?.container
             ? h('span', { class: 'pill pill-soft' }, 'Fin des sous-tâches')
             : null,
+          slot?.wait_minutes > 0
+            ? h(
+                'span',
+                { class: 'pill pill-soft' },
+                `⏳ ${slot.wait_minutes} min d’attente${
+                  slot.ready ? ` · prêt à ${slot.ready}` : ''
+                }`
+              )
+            : null,
           slot?.unscheduled
             ? h('span', { class: 'pill pill-danger' }, 'Non planifié')
             : null,
@@ -1596,7 +1605,16 @@
               )
             : null
         ),
-        why ? h('span', { class: 'day-order-why' }, why) : null
+        why ? h('span', { class: 'day-order-why' }, why) : null,
+        slot?.parallel_titles?.length
+          ? h(
+              'span',
+              { class: 'day-order-why' },
+              `↔ Pendant l’attente : ${slot.parallel_titles
+                .map((title) => `« ${title} »`)
+                .join(', ')}`
+            )
+          : null
       ),
       controls
         ? h(

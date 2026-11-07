@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 33 : pas de créneau pour une tâche parente, elle finit avec sa dernière sous-tâche).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 34 : détection des temps d'attente et des tâches faisables en parallèle).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

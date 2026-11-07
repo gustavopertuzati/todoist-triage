@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 33.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 34.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -928,6 +928,25 @@ Détails :
   provoque plus de faux dépassements.
 - Le recalcul après déplacement manuel applique la même règle.
 
+## Itération 34 — temps d’attente et tâches en parallèle
+
+Le prompt d’ordre demande maintenant à l’IA de repérer les tâches avec un temps
+passif (machine, four, cuisson, séchage, trempage, téléchargement, réponse
+attendue…) :
+
+- `minutes` = temps **actif** seulement ;
+- `wait_minutes` = temps d’attente passif (0 à 480) ;
+- `parallel_with` = jusqu’à 3 tâches faisables pendant cette attente, placées
+  juste après dans l’ordre pour remplir le temps mort.
+
+L’écran **Ordre** affiche :
+
+- `⏳ 60 min d’attente · prêt à 15:05` sur la tâche concernée ;
+- `↔ Pendant l’attente : « Trier le linge », « Répondre au mail »`.
+
+Les identifiants inconnus, les doublons et l’auto-référence sont filtrés. Le
+temps d’attente n’est pas compté comme du temps actif dans le planning.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1150,7 +1169,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 33 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 34 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

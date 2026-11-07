@@ -119,8 +119,8 @@ test('validateOrderResponse applique l’ordre et complète les oublis', () => {
     tasks
   );
   assert.deepEqual(execution, [
-    { id: 'b', why: 'urgent', minutes: 30, context: 'other' },
-    { id: 'a', why: null, minutes: 30, context: 'other' },
+    { id: 'b', why: 'urgent', minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
+    { id: 'a', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
   ]);
   assert.match(summary, /Priorité/);
 });
@@ -135,8 +135,8 @@ test('validateOrderResponse ignore les inconnus et les doublons', () => {
     tasks
   );
   assert.deepEqual(execution, [
-    { id: 'a', why: null, minutes: 30, context: 'other' },
-    { id: 'b', why: null, minutes: 30, context: 'other' },
+    { id: 'a', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
+    { id: 'b', why: null, minutes: 30, context: 'other', wait_minutes: 0, parallel_with: [] },
   ]);
 });
 
@@ -589,6 +589,66 @@ test('une tâche parente ne prend pas de créneau et finit avec sa dernière sou
     lunchEnd: '13:00',
     breakMinutes: 0,
   }, null, '2026-11-07'), []);
+});
+
+test('le prompt demande de détecter les attentes et les tâches parallèles', () => {
+  const prompt = buildOrderPrompt({
+    date: '2026-11-07',
+    schedule: {},
+    tasks: [],
+  });
+  assert.ok(prompt.includes('wait_minutes'));
+  assert.ok(prompt.includes('parallel_with'));
+  assert.ok(prompt.includes('temps d’attente'));
+});
+
+test('validateOrderResponse garde les attentes et filtre les parallèles invalides', () => {
+  const tasks = [
+    dayTask('a', 1, 'M', 15, 'Machine'),
+    dayTask('b', 1, 'S', 10, 'Pendant'),
+    dayTask('c', 1, 'S', 10, 'Aussi'),
+    dayTask('d', 1, 'S', 10, 'Encore'),
+    dayTask('e', 1, 'S', 10, 'Trop'),
+  ];
+  const { execution } = validateOrderResponse(
+    {
+      order: [
+        {
+          id: 'a',
+          minutes: 15,
+          context: 'other',
+          wait_minutes: 60,
+          parallel_with: ['b', 'a', 'inconnu', 'c', 'd', 'e'],
+        },
+      ],
+    },
+    tasks
+  );
+  const entry = execution.find((item) => item.id === 'a');
+  assert.equal(entry.wait_minutes, 60);
+  assert.deepEqual(entry.parallel_with, ['b', 'c', 'd']);
+});
+
+test('les créneaux exposent l’attente et les tâches faisables pendant', () => {
+  const tasks = [
+    { ...dayTask('machine', 1, 'M', 15, 'Lancer la machine'), wait_minutes: 60, parallel_with: ['linge'] },
+    { ...dayTask('linge', 1, 'S', 10, 'Trier le linge') },
+  ];
+  const variants = buildScheduleVariants(tasks, [
+    { id: 'machine', minutes: 15, context: 'other' },
+    { id: 'linge', minutes: 10, context: 'other' },
+  ], {
+    phoneStart: '09:00',
+    otherStart: '09:00',
+    end: '17:00',
+    breakMinutes: 0,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+  });
+  const item = variants[0].items.find((entry) => entry.id === 'machine');
+  assert.equal(item.wait_minutes, 60);
+  assert.deepEqual(item.parallel_titles, ['Trier le linge']);
+  assert.equal(item.ready, '10:15');
 });
 
 test('aucun horaire ne dépasse la fin de journée ni 24 h', () => {

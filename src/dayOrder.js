@@ -70,6 +70,14 @@ function normalizeContext(value, fallback) {
   return CONTEXTS.includes(value) ? value : fallback;
 }
 
+/** Temps d'attente passive : 0 à 480 min, jamais négatif. */
+function normalizeWait(value) {
+  const minutes = Number(value);
+  return Number.isFinite(minutes) && minutes > 0
+    ? Math.min(480, Math.round(minutes))
+    : 0;
+}
+
 function formatMinutes(total) {
   const minutes = Math.max(0, Math.round(total));
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
@@ -326,6 +334,8 @@ function buildDayOrderDigest(tasks, date, schedule = null) {
       size: task.size,
       minutes_hint: task.minutes,
       context_hint: task.context,
+      wait_minutes_hint: task.wait_minutes || 0,
+      parallel_hint: Array.isArray(task.parallel_with) ? task.parallel_with : [],
       overdue: task.overdue,
       is_preparation: task.is_prep,
       is_subtask: Boolean(task.is_subtask),
@@ -349,6 +359,9 @@ function buildOrderPrompt(digest) {
     '- Alterne les grosses tâches avec des petites si c’est plus réaliste.',
     '- Ne tiens pas compte des tâches qui ne sont pas dans la liste.',
     '- Utilise chaque identifiant exactement une fois.',
+    '- Cherche les temps d’attente passive (machine à laver, four, cuisson, séchage, pousse, trempage, téléchargement, réponse à attendre…). Pour ces tâches, mets le temps ACTIF dans "minutes" et le temps passif dans "wait_minutes" (0 à 480).',
+    '- Si une autre tâche peut être faite pendant cette attente, liste jusqu’à 3 identifiants dans "parallel_with" et place ces tâches juste après dans l’ordre, pour remplir le temps mort.',
+    '- "parallel_with" ne contient que des identifiants de la liste, jamais la tâche elle-même.',
     '',
     'Pour chaque tâche :',
     '- estime "minutes" de façon réaliste (5 à 480) d’après le titre, la note, la taille et le contexte ;',
@@ -357,7 +370,7 @@ function buildOrderPrompt(digest) {
     '',
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase courte expliquant l’ordre",',
-    ' "order":[{"id":"...","why":"...","minutes":30,"context":"computer"}]}',
+    ' "order":[{"id":"...","why":"...","minutes":30,"context":"computer","wait_minutes":0,"parallel_with":[]}]}',
     '',
     'Données :',
     JSON.stringify(digest),
@@ -386,6 +399,18 @@ function validateOrderResponse(parsed, tasks) {
     // indice concret dans le titre ou les labels.
     if (context === 'phone' && heuristicContext !== 'phone') context = heuristicContext;
 
+    const waitMinutes = normalizeWait(entry?.wait_minutes);
+    const parallelWith = [];
+    if (Array.isArray(entry?.parallel_with)) {
+      for (const rawId of entry.parallel_with) {
+        const parallelId = String(rawId);
+        if (parallelId === id || !byId.has(parallelId)) continue;
+        if (parallelWith.includes(parallelId)) continue;
+        parallelWith.push(parallelId);
+        if (parallelWith.length >= 3) break;
+      }
+    }
+
     execution.push({
       id,
       why:
@@ -394,6 +419,8 @@ function validateOrderResponse(parsed, tasks) {
           : null,
       minutes: normalizeMinutes(entry?.minutes, fallbackMinutes(task)),
       context,
+      wait_minutes: waitMinutes,
+      parallel_with: parallelWith,
     });
   }
 
@@ -405,6 +432,8 @@ function validateOrderResponse(parsed, tasks) {
         why: null,
         minutes: fallbackMinutes(task),
         context: fallbackContext(task),
+        wait_minutes: 0,
+        parallel_with: [],
       });
     }
   }
@@ -430,8 +459,9 @@ function scheduleVariant(
   let overflow = 0;
   let stopped = false;
   const items = [];
+  const titleById = new Map(ordered.map((task) => [task.id, task.title]));
   const parentIds = new Set(
-    ordered.map((task) => task.parent_id).filter((id) => id && ordered.some((item) => item.id === id))
+    ordered.map((task) => task.parent_id).filter((id) => id && titleById.has(id))
   );
 
   const place = (task) => {
@@ -489,6 +519,14 @@ function scheduleVariant(
     }
 
     const end = start + task.minutes;
+    const waitMinutes = normalizeWait(task.wait_minutes);
+    const parallelIds = (Array.isArray(task.parallel_with) ? task.parallel_with : [])
+      .filter((id) => id !== task.id && titleById.has(id))
+      .slice(0, 3);
+    const ready =
+      waitMinutes > 0 && end + waitMinutes <= 23 * 60 + 59
+        ? formatMinutes(end + waitMinutes)
+        : null;
     lastEnd = end;
     cursor = end + breakMinutes;
     items.push({
@@ -500,6 +538,10 @@ function scheduleVariant(
       overflow: false,
       unscheduled: false,
       container: false,
+      wait_minutes: waitMinutes,
+      parallel_ids: parallelIds,
+      parallel_titles: parallelIds.map((id) => titleById.get(id)).filter(Boolean),
+      ready,
     });
   };
 
@@ -807,6 +849,8 @@ async function generateDayOrder(snapshot, date, { force = false, schedule = null
     if (!task) continue;
     task.minutes = item.minutes;
     task.context = item.context;
+    task.wait_minutes = item.wait_minutes || 0;
+    task.parallel_with = item.parallel_with || [];
   }
   const variants = buildScheduleVariants(tasks, execution, normalizedSchedule);
   const entry = {
