@@ -10,6 +10,7 @@ const {
   buildOrderPrompt,
   validateOrderResponse,
   normalizeSchedule,
+  clampScheduleToNow,
   buildScheduleVariants,
 } = require('../src/dayOrder');
 
@@ -348,4 +349,64 @@ test('les pauses entre tâches et la pause déjeuner sont respectées', () => {
   assert.equal(equilibre.items[0].end, '11:30');
   // 10 min de pause, puis la tâche suivante tombe dans le déjeuner.
   assert.equal(equilibre.items[1].start, '13:00');
+});
+
+test('clampScheduleToNow décale un début déjà passé à l’heure actuelle', () => {
+  const now = new Date('2026-11-07T13:03:00Z'); // 14:03 à Paris
+  const schedule = normalizeSchedule({
+    phoneStart: '09:00',
+    otherStart: '11:00',
+    end: '17:00',
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    breakMinutes: 10,
+  });
+  const clamped = clampScheduleToNow(schedule, '2026-11-07', {
+    timeZone: 'Europe/Paris',
+    now,
+  });
+  assert.equal(clamped.phoneStart, '14:05');
+  assert.equal(clamped.otherStart, '14:05');
+  assert.equal(clamped.end, '17:00');
+});
+
+test('clampScheduleToNow ne recule jamais un début déjà plus tard', () => {
+  const now = new Date('2026-11-07T13:03:00Z');
+  const clamped = clampScheduleToNow(
+    normalizeSchedule({
+      phoneStart: '15:00',
+      otherStart: '16:00',
+      end: '18:00',
+      lunchStart: '12:00',
+      lunchEnd: '13:00',
+    }),
+    '2026-11-07',
+    { timeZone: 'Europe/Paris', now }
+  );
+  assert.equal(clamped.phoneStart, '15:00');
+  assert.equal(clamped.otherStart, '16:00');
+});
+
+test('clampScheduleToNow ignore les autres jours et la fin de journée', () => {
+  const now = new Date('2026-11-07T13:03:00Z');
+  const schedule = normalizeSchedule({ phoneStart: '09:00', otherStart: '11:00' });
+  assert.equal(
+    clampScheduleToNow(schedule, '2026-11-08', { timeZone: 'Europe/Paris', now })
+      .phoneStart,
+    '09:00'
+  );
+  assert.equal(
+    clampScheduleToNow(schedule, '2026-11-06', { timeZone: 'Europe/Paris', now })
+      .phoneStart,
+    '09:00'
+  );
+
+  const evening = new Date('2026-11-07T17:30:00Z'); // 18:30 à Paris
+  assert.equal(
+    clampScheduleToNow(schedule, '2026-11-07', {
+      timeZone: 'Europe/Paris',
+      now: evening,
+    }).phoneStart,
+    '09:00'
+  );
 });

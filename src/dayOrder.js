@@ -17,6 +17,7 @@ const { config } = require('./config');
 const { chatJson, AiError } = require('./ai');
 const { estimateTaskSize } = require('./capacity');
 const { PREPARATION_MARKER } = require('./prepare');
+const { todayInTimeZone } = require('./dates');
 
 const SYSTEM_PROMPT = [
   'Tu organises une journée de travail pour une personne.',
@@ -115,6 +116,41 @@ function normalizeSchedule(input = {}) {
     breakMinutes,
     lunchStart: formatMinutes(lunchStart),
     lunchEnd: formatMinutes(lunchEnd),
+  };
+}
+
+/** Heure courante (minutes depuis minuit) dans un fuseau donné. */
+function clockMinutesInTimeZone(timeZone, now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const value = (type) =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0) || 0;
+  return (value('hour') % 24) * 60 + value('minute');
+}
+
+/**
+ * Pour la journée en cours, un horaire de début déjà passé est décalé à
+ * l'heure actuelle (arrondie aux 5 minutes suivantes). Les jours passés ou
+ * futurs ne bougent pas. L'heure de fin n'est pas modifiée : après la fin de
+ * journée, on laisse le plan tel que l'utilisateur l'a réglé.
+ */
+function clampScheduleToNow(schedule, date, { timeZone = config.timezone, now = new Date() } = {}) {
+  if (!date || date !== todayInTimeZone(timeZone, now)) return schedule;
+
+  const end = parseTime(schedule.end, 17 * 60);
+  const nowMinutes = Math.ceil(clockMinutesInTimeZone(timeZone, now) / 5) * 5;
+  if (nowMinutes >= end) return schedule;
+
+  const phoneStart = Math.max(parseTime(schedule.phoneStart, 9 * 60), nowMinutes);
+  const otherStart = Math.max(parseTime(schedule.otherStart, 11 * 60), phoneStart);
+  return {
+    ...schedule,
+    phoneStart: formatMinutes(phoneStart),
+    otherStart: formatMinutes(otherStart),
   };
 }
 
@@ -408,7 +444,10 @@ function buildScheduleVariants(tasks, execution, options = {}) {
 }
 
 async function generateDayOrder(snapshot, date, { force = false, schedule = null } = {}) {
-  const normalizedSchedule = normalizeSchedule(schedule || {});
+  const normalizedSchedule = clampScheduleToNow(
+    normalizeSchedule(schedule || {}),
+    date
+  );
   const tasks = listDayTasks(snapshot, date);
   const priority = priorityOrder(tasks).map((task) => task.id);
   const fallbackExecution = priority.map((id) => {
@@ -530,6 +569,7 @@ module.exports = {
   buildOrderPrompt,
   validateOrderResponse,
   normalizeSchedule,
+  clampScheduleToNow,
   buildScheduleVariants,
   estimateMinutes,
   detectContext,

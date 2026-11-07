@@ -836,6 +836,18 @@ Les réglages d'horaires et le bouton **« Réorganiser la journée »** sont su
 l'écran **Ordre**, avec un état vide explicite tant qu'aucun ordre n'a été généré.
 Après « Réorganiser », l'app bascule automatiquement sur **Ordre**.
 
+### Correctif 0.29.1 — heure de début recalée
+
+- Si l'heure de début réglée est déjà passée **aujourd'hui**, elle est calée sur
+  l'heure actuelle (arrondie aux 5 minutes suivantes) au moment de
+  « Réorganiser », et le champ **Début tél.** se met à jour.
+- Le calcul est fait côté serveur (`clampScheduleToNow`) et dans le navigateur :
+  une page restée ouverte ne peut plus produire un ordre qui commence dans le
+  passé.
+- La préférence de départ est mémorisée séparément (`basePhoneStart`) : le
+  calage automatique d'hier n'est pas réutilisé le lendemain.
+- Aucun changement pour les jours passés, futurs, ou après l'heure de fin.
+
 > **Aperçu ngrok uniquement.** Cette itération est testée en local via ngrok. Aucun
 > push Git ni déploiement Orkestr tant que l'utilisateur n'a pas donné son accord.
 

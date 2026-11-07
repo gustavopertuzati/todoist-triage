@@ -64,6 +64,9 @@
       lunchStart: '12:00',
       lunchEnd: '13:00',
     },
+    // Préférence de l'utilisateur, indépendante du calage automatique du jour.
+    scheduleBase: { phoneStart: '09:00', otherStart: '11:00' },
+    scheduleDay: null,
     startAdjusted: false,
     screen: 'today',
     scheduleTimer: null,
@@ -288,37 +291,56 @@
     return plan;
   }
 
+  function localTodayIso() {
+    const now = new Date();
+    return [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+  }
+
   function loadScheduleSettings() {
-    const fallback = {
-      phoneStart: '09:00',
-      otherStart: '11:00',
-      end: '17:00',
-      breakMinutes: 10,
-      lunchStart: '12:00',
-      lunchEnd: '13:00',
-    };
+    const api = window.ScheduleSettings;
+    const today = localTodayIso();
     try {
+      if (!api) throw new Error('schedule-settings indisponible');
       const parsed = JSON.parse(localStorage.getItem(SCHEDULE_KEY) || '{}');
-      const time = (value, def) => (/^\d{2}:\d{2}$/.test(value) ? value : def);
-      const breakMinutes = Number(parsed.breakMinutes);
-      return {
-        phoneStart: time(parsed.phoneStart, fallback.phoneStart),
-        otherStart: time(parsed.otherStart, fallback.otherStart),
-        end: time(parsed.end, fallback.end),
-        breakMinutes: Number.isFinite(breakMinutes)
-          ? Math.min(120, Math.max(0, Math.round(breakMinutes)))
-          : fallback.breakMinutes,
-        lunchStart: time(parsed.lunchStart, fallback.lunchStart),
-        lunchEnd: time(parsed.lunchEnd, fallback.lunchEnd),
-      };
+      const normalized = api.normalize(parsed, today);
+      state.scheduleBase = normalized.base;
+      state.scheduleDay = normalized.day;
+      return normalized.settings;
     } catch {
+      const fallback = {
+        phoneStart: '09:00',
+        otherStart: '11:00',
+        end: '17:00',
+        breakMinutes: 10,
+        lunchStart: '12:00',
+        lunchEnd: '13:00',
+      };
+      state.scheduleBase = {
+        phoneStart: fallback.phoneStart,
+        otherStart: fallback.otherStart,
+      };
+      state.scheduleDay = today;
       return fallback;
     }
   }
 
   function saveScheduleSettings() {
     try {
-      localStorage.setItem(SCHEDULE_KEY, JSON.stringify(state.scheduleSettings));
+      if (!window.ScheduleSettings) return;
+      localStorage.setItem(
+        SCHEDULE_KEY,
+        JSON.stringify(
+          window.ScheduleSettings.serialize(
+            state.scheduleSettings,
+            state.scheduleBase,
+            state.scheduleDay || localTodayIso()
+          )
+        )
+      );
     } catch {
       /* stockage indisponible */
     }
@@ -351,12 +373,13 @@
 
     state.scheduleSettings.phoneStart = nextPhone;
     state.scheduleSettings.otherStart = nextOther;
-    saveScheduleSettings();
+    // Volontairement non sauvegardé : ce calage est propre à la journée en
+    // cours. La préférence de base reste intacte pour les jours suivants.
     syncScheduleInputs();
     return changed;
   }
 
-  function readScheduleInputs() {
+  function readScheduleInputs({ startChanged = false } = {}) {
     const breakMinutes = Number(els.dayBreak?.value);
     state.scheduleSettings = {
       phoneStart: els.dayStart?.value || '09:00',
@@ -368,6 +391,16 @@
       lunchStart: els.dayLunchStart?.value || '12:00',
       lunchEnd: els.dayLunchEnd?.value || '13:00',
     };
+    // Seul un changement explicite des heures de début devient la base des
+    // jours suivants. Modifier la pause ne doit pas figer l'heure calée
+    // automatiquement pour aujourd'hui.
+    if (startChanged) {
+      state.scheduleBase = {
+        phoneStart: state.scheduleSettings.phoneStart,
+        otherStart: state.scheduleSettings.otherStart,
+      };
+    }
+    state.scheduleDay = localTodayIso();
     saveScheduleSettings();
   }
 
@@ -982,6 +1015,11 @@
   async function loadDayOrder() {
     const date = currentFocusDate();
     if (!date || state.dayOrder.loading) return;
+    // Si la page est restée ouverte, on recale le début sur l'heure actuelle
+    // avant de calculer l'ordre : les champs ne doivent jamais rester en retard.
+    if (date === state.data?.meta?.today && adjustStartTimesToNow() && els.dayOrderHint) {
+      els.dayOrderHint.textContent = 'Début recalculé à l’heure actuelle.';
+    }
     const alreadyLoaded = state.dayOrder.data?.date === date;
     state.dayOrder = {
       date,
@@ -4500,7 +4538,9 @@
     els.dayLunchEnd,
   ]) {
     input?.addEventListener('change', () => {
-      readScheduleInputs();
+      readScheduleInputs({
+        startChanged: input === els.dayStart || input === els.dayOtherStart,
+      });
       if (els.dayOrderHint) {
         els.dayOrderHint.textContent = 'Horaires modifiés — reclique sur Réorganiser.';
       }
