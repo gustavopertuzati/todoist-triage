@@ -1522,7 +1522,7 @@
         h(
           'div',
           { class: 'day-order-title-line' },
-          slot
+          slot?.start && slot?.end
             ? h(
                 'span',
                 { class: 'day-order-time' },

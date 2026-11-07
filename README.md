@@ -913,6 +913,8 @@ Détails :
 - Le bouton **Reporter** déplace la racine **et ses sous-tâches non planifiées**
   vers la nouvelle date, tout en laissant les sous-tâches déjà planifiées
   aujourd'hui.
+- Les tâches non planifiées n'affichent plus `null–null` : seulement le badge
+  « Non planifié » et leur durée.
 - Les rappels ignorent les tâches non planifiées (pas d'heure nulle).
 - Le déplacement manuel recalcule avec la même règle d'arrêt à la fin de journée.
 

@@ -1,6 +1,6 @@
 {
   "name": "todoist-triage",
-  "version": "0.32.0",
+  "version": "0.32.1",
   "private": true,
   "description": "Petite app personnelle pour trier un Todoist encombré (itération 32 : horaires bornés à la journée et reports partiels des sous-tâches).",
   "main": "server.js",
