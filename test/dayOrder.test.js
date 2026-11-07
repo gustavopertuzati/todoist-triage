@@ -654,6 +654,24 @@ test('les créneaux exposent l’attente et les tâches faisables pendant', () =
   assert.equal(item.ready, '10:15');
 });
 
+test('une sous-tâche due aujourd’hui reste visible si son parent n’est pas planifié', () => {
+  const tasks = listDayTasks(
+    snapshot([
+      task({ id: 'root', display_title: 'Faire toute la lessive', due_date: '2026-11-09' }),
+      task({ id: 'mid', display_title: 'Lessive 2', parent_id: 'root', due_date: TODAY }),
+      task({ id: 'step', display_title: '1. Étape', parent_id: 'mid', due_date: TODAY }),
+    ]),
+    TODAY
+  );
+  assert.deepEqual(tasks.map((item) => item.id), ['mid', 'step']);
+  const mid = tasks.find((item) => item.id === 'mid');
+  const step = tasks.find((item) => item.id === 'step');
+  assert.equal(mid.is_subtask, false);
+  assert.equal(mid.depth, 0);
+  assert.equal(step.is_subtask, true);
+  assert.equal(step.depth, 1);
+});
+
 test('une tâche publique réserve 30 min de préparation avant elle', () => {
   const tasks = [
     { ...dayTask('meeting', 4, 'M', 30, 'Entretien'), public: true, prep_minutes: 30 },

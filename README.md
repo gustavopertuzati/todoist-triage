@@ -1006,6 +1006,11 @@ Correctifs :
   **recalculé automatiquement** ;
 - l’ordre sans IA inclut **toutes** les tâches du widget et leurs sous-tâches,
   avec un message explicite « Ordre recalculé sans IA » ;
+- une sous-tâche due aujourd’hui est incluse **même si son parent n’est pas
+  planifié** : son parent container finit alors à la fin de sa dernière
+  sous-tâche à faire, jamais à celle d’une sous-tâche déjà cochée ;
+- le recalcul automatique réécrit aussi les heures Todoist pour corriger le
+  parent ;
 - nouvelle option serveur `ai: false` sur `POST /api/day/order` pour ce
   recalcul déterministe.
 

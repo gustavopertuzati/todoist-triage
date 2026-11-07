@@ -264,14 +264,28 @@ function listDayTasks(snapshot, date) {
   };
 
   for (const task of all) {
-    // Les sous-tâches non-préparation sont ajoutées avec leur parent. Une
-    // préparation sans parent dans le jour peut être ajoutée seule.
-    if (task.parent_id && byId.has(task.parent_id) && !isPreparationTask(task)) continue;
+    // Toute tâche due ce jour compte, y compris une sous-tâche dont le parent
+    // n'est pas planifié aujourd'hui. Ses propres sous-tâches suivent.
     const onDay = task.due_date === date;
     const overdue = isToday && task.is_overdue && task.due_date !== date;
     if (!onDay && !overdue) continue;
     addSubtree(task, 0);
     if (tasks.length >= MAX_TASKS) break;
+  }
+
+  // Profondeur réelle une fois l'arbre du jour constitué (une sous-tâche dont
+  // le parent n'est pas dans le plan redevient une racine).
+  for (const task of tasks) {
+    let depth = 0;
+    let current = byId.get(task.parent_id);
+    const guard = new Set([task.id]);
+    while (current && seen.has(current.id) && !guard.has(current.id)) {
+      guard.add(current.id);
+      depth += 1;
+      current = byId.get(current.parent_id);
+    }
+    task.depth = depth;
+    task.is_subtask = Boolean(task.parent_id && seen.has(task.parent_id));
   }
 
   return tasks;

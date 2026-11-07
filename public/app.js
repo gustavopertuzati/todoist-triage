@@ -1776,7 +1776,9 @@
         const key = `${focus}:${missing.join('|')}:${gone.join('|')}`;
         if (state.dayOrder.rebuildKey !== key) {
           state.dayOrder.rebuildKey = key;
-          rebuildDayOrder({ silent: true });
+          // Les horaires enregistrés ne correspondent plus : on les recale
+          // aussi dans Todoist, sinon le parent garde son ancienne heure.
+          rebuildDayOrder({ silent: true, applyTimes: true });
         }
       }
     }
