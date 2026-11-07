@@ -18,6 +18,7 @@ const { chatJson, AiError } = require('./ai');
 const { estimateTaskSize } = require('./capacity');
 const { PREPARATION_MARKER } = require('./prepare');
 const { todayInTimeZone, addDaysIso } = require('./dates');
+const { timeMode, clockOf } = require('./timeMode');
 
 const SYSTEM_PROMPT = [
   'Tu organises une journée de travail pour une personne.',
@@ -213,6 +214,8 @@ function taskMeta(task, parentTitle) {
     parent_id: task.parent_id || null,
     is_subtask: Boolean(task.parent_id),
     depth: 0,
+    time_mode: timeMode(task),
+    fixed_time: timeMode(task) === 'fixed' ? clockOf(task) : null,
     parent_title: parentTitle ? parentTitle.slice(0, 120) : null,
     labels: (task.labels || []).slice(0, 5),
     note: String(task.description || '').slice(0, 220) || null,
@@ -390,6 +393,8 @@ function buildDayOrderDigest(tasks, date, schedule = null, instruction = '') {
       parallel_hint: Array.isArray(task.parallel_with) ? task.parallel_with : [],
       public_hint: Boolean(task.public),
       prep_minutes_hint: task.prep_minutes || 0,
+      time_mode_hint: task.time_mode || 'untimed',
+      fixed_time: task.fixed_time || null,
       overdue: task.overdue,
       is_preparation: task.is_prep,
       is_subtask: Boolean(task.is_subtask),
@@ -408,6 +413,7 @@ function buildOrderPrompt(digest) {
     'Règles :',
     '- Les préparations (is_preparation) passent avant la tâche parente concernée.',
     '- Une sous-tâche passe TOUJOURS avant sa tâche parente. Commence par le niveau le plus profond, puis remonte niveau par niveau jusqu’à la tâche racine.',
+    '- Les tâches dont time_mode_hint vaut "fixed" ont un horaire imposé : ne les déplace pas et garde-les à leur heure.',
     '- Respecte les dépendances logiques et les prérequis.',
     '- Commence par ce qui est urgent/en retard, puis les priorités hautes.',
     '- Alterne les grosses tâches avec des petites si c’est plus réaliste.',
@@ -552,6 +558,9 @@ function scheduleVariant(
           overflow: true,
           unscheduled: true,
           container: true,
+          time_mode: task.time_mode || 'untimed',
+          fixed: task.time_mode === 'fixed',
+          fixed_time: task.fixed_time || null,
         });
         return;
       }
@@ -564,6 +573,9 @@ function scheduleVariant(
         overflow: false,
         unscheduled: false,
         container: true,
+        time_mode: task.time_mode || 'untimed',
+        fixed: task.time_mode === 'fixed',
+        fixed_time: task.fixed_time || null,
       });
       return;
     }
@@ -599,6 +611,9 @@ function scheduleVariant(
         container: false,
         prep_minutes: prepMinutes,
         public: Boolean(task.public),
+        time_mode: task.time_mode || 'untimed',
+        fixed: task.time_mode === 'fixed',
+        fixed_time: task.fixed_time || null,
       });
       return;
     }
@@ -629,6 +644,9 @@ function scheduleVariant(
       ready,
       prep_minutes: prepMinutes,
       public: Boolean(task.public),
+      time_mode: task.time_mode || 'untimed',
+      fixed: task.time_mode === 'fixed',
+      fixed_time: task.fixed_time || null,
     });
   };
 

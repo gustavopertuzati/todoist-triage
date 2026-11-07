@@ -108,6 +108,7 @@
     dayOrderBtn: document.getElementById('day-order-btn'),
     dayOrderHint: document.getElementById('day-order-hint'),
     orderNote: document.getElementById('order-note'),
+    timeConfirm: document.getElementById('time-confirm'),
     dayOrderEmpty: document.getElementById('day-order-empty'),
     dayOrder: document.getElementById('day-order'),
     dayPostpone: document.getElementById('day-postpone'),
@@ -1062,6 +1063,13 @@
   async function loadDayOrder() {
     const date = currentFocusDate();
     if (!date || state.dayOrder.loading) return;
+    const pendingTimes = pendingTimeConfirmations(date);
+    if (pendingTimes.length > 0) {
+      setScreen('order');
+      renderTimeConfirm();
+      toast('Confirme d’abord les horaires déjà présents ci-dessus.', 'error');
+      return;
+    }
     // Si la page est restée ouverte, on recale le début sur l'heure actuelle
     // avant de calculer l'ordre : les champs ne doivent jamais rester en retard.
     if (date === state.data?.meta?.today && adjustStartTimesToNow() && els.dayOrderHint) {
@@ -1429,7 +1437,15 @@
 
   async function applyPlanTimes(date, variant) {
     const items = (variant?.items || [])
-      .filter((item) => item.id && item.start && item.end && !item.prep)
+      .filter(
+        (item) =>
+          item.id &&
+          item.start &&
+          item.end &&
+          !item.prep &&
+          !item.fixed &&
+          item.time_mode !== 'confirm'
+      )
       .map((item) => ({ taskId: item.id, start: item.start, end: item.end }));
     if (items.length === 0) return;
     try {
@@ -1671,19 +1687,25 @@
         h(
           'div',
           { class: 'day-order-title-line' },
-          slot?.container && slot?.end
+          slot?.fixed
             ? h(
                 'span',
                 { class: 'day-order-time' },
-                `fin ${slot.end}`
+                slot.fixed_time ? `fixe ${slot.fixed_time}` : 'horaire fixe'
               )
-            : slot?.start && slot?.end
+            : slot?.container && slot?.end
               ? h(
                   'span',
                   { class: 'day-order-time' },
-                  `${slot.start}–${slot.end}`
+                  `fin ${slot.end}`
                 )
-              : null,
+              : slot?.start && slot?.end
+                ? h(
+                    'span',
+                    { class: 'day-order-time' },
+                    `${slot.start}–${slot.end}`
+                  )
+                : null,
           h('span', { class: 'day-order-title' }, task.title),
           task.size
             ? h('span', { class: `pill size-${task.size}` }, sizeLabel[task.size] || task.size)
@@ -1787,6 +1809,7 @@
   function renderDayOrder() {
     if (!els.dayOrder) return;
     if (els.dayPostpone) els.dayPostpone.hidden = true;
+    renderTimeConfirm();
     const focus = currentFocusDate();
     const data = state.dayOrder.data;
     const sameDay = data && data.date === focus;
@@ -4329,6 +4352,160 @@
   const PREPARATION_MARKER = 'Préparation créée par Triage';
 
   /** Une préparation créée par l'app (sous-tâche marquée dans sa note). */
+  const AUTO_LABEL = 'triage-auto';
+  const FIXED_LABEL = 'triage-fixe';
+
+  function taskLabels(task) {
+    return Array.isArray(task?.labels) ? task.labels : [];
+  }
+
+  function taskHasClock(task) {
+    const date = String(task?.due?.date || '');
+    if (/T\d{2}:\d{2}/.test(date)) return true;
+    return /\b\d{1,2}:\d{2}\b/.test(String(task?.due_string || ''));
+  }
+
+  function taskTimeMode(task) {
+    const labels = taskLabels(task);
+    if (labels.includes(FIXED_LABEL)) return 'fixed';
+    if (labels.includes(AUTO_LABEL)) return 'auto';
+    if (taskHasClock(task)) return 'confirm';
+    return 'untimed';
+  }
+
+  function taskClock(task) {
+    const date = String(task?.due?.date || '');
+    const inDate = /T(\d{2}:\d{2})/.exec(date);
+    if (inDate) return inDate[1];
+    const inString = /\b(\d{1,2}:\d{2})\b/.exec(String(task?.due_string || ''));
+    return inString ? inString[1].padStart(5, '0') : null;
+  }
+
+  /** Tâches principales avec une heure mais aucun label Triage. */
+  function pendingTimeConfirmations(date) {
+    const today = state.data?.meta?.today;
+    if (!date) return [];
+    return activeTasks().filter((task) => {
+      const onDay =
+        task.due_date === date ||
+        (date === today && task.is_overdue && task.due_date !== date);
+      return onDay && taskTimeMode(task) === 'confirm';
+    });
+  }
+
+  function renderTimeConfirm() {
+    const el = els.timeConfirm;
+    if (!el) return;
+    const date = currentFocusDate();
+    const pending = pendingTimeConfirmations(date);
+    clear(el);
+    if (pending.length === 0) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.append(h('h3', { class: 'section-title' }, 'Horaires à confirmer'));
+    el.append(
+      h(
+        'p',
+        { class: 'day-status' },
+        'Ces tâches ont déjà une heure mais pas encore de repère Triage. Puis-je déplacer leur horaire ?'
+      )
+    );
+    const bulk = h(
+      'button',
+      { type: 'button', class: 'btn btn-secondary btn-small' },
+      'Tout rendre modifiable'
+    );
+    bulk.addEventListener('click', async () => {
+      bulk.disabled = true;
+      let done = 0;
+      for (const task of pending) {
+        try {
+          await applyTaskTimeMode(task, 'auto');
+          done += 1;
+        } catch {
+          /* on garde la tâche dans la liste */
+        }
+      }
+      renderTimeConfirm();
+      renderDayOrder();
+      toast(`${done} horaire(s) rendu(s) modifiable(s).`, 'ok');
+    });
+    el.append(bulk);
+
+    const list = h('div', { class: 'time-confirm-list' });
+    for (const task of pending) {
+      const autoBtn = h(
+        'button',
+        { type: 'button', class: 'btn btn-secondary btn-small' },
+        'Oui, modifiable'
+      );
+      const fixedBtn = h(
+        'button',
+        { type: 'button', class: 'btn btn-ghost btn-small' },
+        'Non, horaire fixe'
+      );
+      autoBtn.addEventListener('click', () => setTaskTimeMode(task, 'auto', autoBtn, fixedBtn));
+      fixedBtn.addEventListener('click', () => setTaskTimeMode(task, 'fixed', autoBtn, fixedBtn));
+      list.append(
+        h(
+          'div',
+          { class: 'time-confirm-row' },
+          h(
+            'div',
+            { class: 'time-confirm-body' },
+            h('span', { class: 'time-confirm-title' }, task.display_title || task.content),
+            h(
+              'span',
+              { class: 'time-confirm-meta' },
+              `Horaire actuel : ${taskClock(task) || '—'}`
+            )
+          ),
+          autoBtn,
+          fixedBtn
+        )
+      );
+    }
+    el.append(list);
+  }
+
+  async function applyTaskTimeMode(task, mode) {
+    const result = await apiJson(`/api/tasks/${encodeURIComponent(task.id)}/time-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+      body: JSON.stringify({ mode }),
+    });
+    const saved = Array.isArray(result.labels) ? result.labels : [];
+    task.labels = saved;
+    if (state.dayOrder.data?.tasks) {
+      const planned = state.dayOrder.data.tasks.find((item) => item.id === task.id);
+      if (planned) planned.labels = saved;
+    }
+    for (const variant of state.dayOrder.data?.variants || []) {
+      const item = (variant.items || []).find((entry) => entry.id === task.id);
+      if (!item) continue;
+      item.time_mode = mode;
+      item.fixed = mode === 'fixed';
+      item.fixed_time = mode === 'fixed' ? taskClock(task) : null;
+    }
+    return result;
+  }
+
+  async function setTaskTimeMode(task, mode, ...buttons) {
+    for (const button of buttons) button.disabled = true;
+    try {
+      const result = await applyTaskTimeMode(task, mode);
+      toast(result.message || 'Préférence enregistrée.', result.verified === false ? 'error' : 'ok');
+      renderTimeConfirm();
+      renderDayOrder();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Enregistrement impossible.', 'error');
+      for (const button of buttons) button.disabled = false;
+    }
+  }
+
   function isPreparationTask(task) {
     if (!task?.parent_id) return false;
     if (String(task.description || '').includes(PREPARATION_MARKER)) return true;

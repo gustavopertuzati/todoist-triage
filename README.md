@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 38.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 39.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1036,6 +1036,31 @@ L’écran **Ordre** contient un champ **« Consigne pour l’IA (optionnel) »*
 - elle est appliquée au prochain calcul de l’ordre (bouton « Réorganiser /
   Recalculer »).
 
+## Itération 39 — horaires libres ou verrouillés
+
+Deux labels Todoist servent de repère durable :
+
+- **`triage-auto`** : l’horaire est géré par Triage, il peut être recalculé ;
+- **`triage-fixe`** : la personne a choisi l’horaire, Triage n’y touche plus.
+
+Règles :
+
+- une tâche **sans heure et sans label** reçoit un horaire lors de la
+  réorganisation et le label `triage-auto` ;
+- une tâche **avec une heure mais sans label** déclenche, dans l’écran Ordre, la
+  question « Puis-je déplacer cet horaire ? » avec deux réponses :
+  - **Oui, modifiable** → label `triage-auto` ;
+  - **Non, horaire fixe** → label `triage-fixe`, plus jamais déplacée ni
+    redemandée ;
+- la réorganisation est bloquée tant que ces horaires ne sont pas confirmés ;
+- `/api/day/times` refuse de modifier une tâche `triage-fixe` ou non confirmée ;
+- l’écran Ordre affiche `fixe HH:MM` et ignore l’horaire calculé pour les tâches
+  verrouillées ;
+- la réponse est stockée dans Todoist (labels), donc elle survit aux
+  rechargements et aux autres appareils.
+
+Route : `POST /api/tasks/:id/time-mode` (`auto` ou `fixed`).
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1258,7 +1283,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 38 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 39 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

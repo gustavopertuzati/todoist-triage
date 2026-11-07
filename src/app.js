@@ -32,6 +32,7 @@ const { generateSubtaskOrder } = require('./subtaskOrder');
 const { generateDayOrder } = require('./dayOrder');
 const { generateTaskSuggestions } = require('./taskSuggestions');
 const { stripTimeMarker, isValidClock } = require('./taskTitles');
+const { timeMode, hasModeLabel, labelsForMode, AUTO_LABEL } = require('./timeMode');
 const { replaceReminders } = require('./reminders');
 const { appendLifeProgress } = require('./lifeContext');
 const {
@@ -574,6 +575,12 @@ function createApp() {
       for (const item of items) {
         const task = byId.get(String(item?.taskId || ''));
         if (!task) continue;
+        // Horaire verrouillé par la personne : on n'y touche jamais.
+        const mode = timeMode(task);
+        if (mode === 'fixed') continue;
+        // Heure déjà présente mais pas encore confirmée : l'interface doit
+        // d'abord demander l'autorisation, même pour une sous-tâche.
+        if (mode === 'confirm') continue;
         // Ne réécris jamais une tâche reportée entre-temps : une ancienne
         // planification ne doit pas annuler un report déjà validé.
         const currentDue = (task.due_date || '').slice(0, 10);
@@ -584,6 +591,11 @@ function createApp() {
         if (!isValidClock(start)) continue;
 
         const payload = {};
+        if (!hasModeLabel(task, AUTO_LABEL)) {
+          // Une sous-tâche ou une tâche sans heure est gérée par Triage :
+          // on la marque pour ne plus confondre avec un horaire imposé.
+          payload.labels = labelsForMode(task, 'auto');
+        }
         const cleanContent = stripTimeMarker(task.content);
         if (cleanContent && cleanContent !== task.content) {
           payload.content = cleanContent;
@@ -616,6 +628,63 @@ function createApp() {
 
       if (updated > 0) clearCache();
       return res.json({ ok: true, updated, errors });
+    })
+  );
+
+  /**
+   * Confirme une fois si l'horaire d'une tâche est modifiable (auto) ou
+   * verrouillé (fixe). Les labels Todoist gardent la réponse durablement.
+   */
+  app.post(
+    '/api/tasks/:id/time-mode',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (!config.writesEnabled) {
+        return res.status(403).json({
+          error: {
+            code: 'WRITES_DISABLED',
+            message: 'Les écritures Todoist sont désactivées sur ce serveur.',
+          },
+        });
+      }
+
+      const taskId = String(req.params.id || '');
+      const mode = req.body?.mode === 'fixed' ? 'fixed' : req.body?.mode === 'auto' ? 'auto' : null;
+      if (!taskId || !mode) {
+        return res.status(400).json({
+          error: { code: 'BAD_MODE', message: 'Mode d’horaire invalide.' },
+        });
+      }
+
+      const task = await getTask(taskId);
+      if (!task) {
+        return res.status(404).json({
+          error: { code: 'TASK_NOT_FOUND', message: 'Tâche introuvable.' },
+        });
+      }
+
+      const labels = labelsForMode(task, mode);
+      await updateTask(taskId, { labels });
+      const fresh = await getTask(taskId);
+      const saved = Array.isArray(fresh?.labels) ? fresh.labels : [];
+      const expected = mode === 'fixed' ? 'triage-fixe' : AUTO_LABEL;
+
+      clearCache();
+      return res.json({
+        ok: true,
+        task_id: taskId,
+        mode,
+        labels: saved,
+        verified: saved.includes(expected),
+        message:
+          mode === 'fixed'
+            ? 'Horaire verrouillé : Triage n’y touchera plus.'
+            : 'Horaire modifiable : Triage pourra le recaler.',
+      });
     })
   );
 
