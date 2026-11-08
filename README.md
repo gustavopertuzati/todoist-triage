@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 41.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 42.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1091,6 +1091,22 @@ Le prompt des suggestions de tâches demande désormais de proposer presque chaq
 jour les projets à rythme quasi quotidien ou à échéance proche, en variant les
 actions, au lieu de les remplacer par des tâches ponctuelles.
 
+## Itération 42 — un parent finit à la date de sa dernière sous-tâche
+
+Le parent ne pouvait pas finir avant ses sous-tâches **en date** : une tâche
+principale due aujourd'hui avec des sous-tâches au 17 novembre était encore
+planifiée aujourd'hui.
+
+Correctifs :
+
+- le parent container prend la **date de la dernière sous-tâche** de son arbre ;
+- il prend aussi l'**heure la plus tardive** de ces sous-tâches sur cette date ;
+- l'écran Ordre affiche par exemple `fin 17 nov. 19:55` ;
+- `/api/day/times` accepte une date explicite par tâche pour déplacer le parent
+  vers cette date, sans annuler les reports ;
+- la contrainte « sous-tâche avant parent » est donc respectée en date **et** en
+  heure, même quand les sous-tâches sont dans le futur.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1313,7 +1329,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 41 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 42 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

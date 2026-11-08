@@ -1480,7 +1480,12 @@
           !item.fixed &&
           item.time_mode !== 'confirm'
       )
-      .map((item) => ({ taskId: item.id, start: item.start, end: item.end }));
+      .map((item) => ({
+        taskId: item.id,
+        start: item.start,
+        end: item.end,
+        date: item.date || undefined,
+      }));
     if (items.length === 0) return;
     try {
       await apiJson('/api/day/times', {
@@ -1731,7 +1736,11 @@
               ? h(
                   'span',
                   { class: 'day-order-time' },
-                  `fin ${slot.end}`
+                  `fin ${
+                    slot.date && slot.date !== currentFocusDate()
+                      ? `${formatDate(slot.date)} `
+                      : ''
+                  }${slot.end}`
                 )
               : slot?.start && slot?.end
                 ? h(

@@ -216,6 +216,8 @@ function taskMeta(task, parentTitle) {
     depth: 0,
     time_mode: timeMode(task),
     fixed_time: timeMode(task) === 'fixed' ? clockOf(task) : null,
+    due_date: task.due_date || null,
+    due_clock: clockOf(task),
     parent_title: parentTitle ? parentTitle.slice(0, 120) : null,
     labels: (task.labels || []).slice(0, 5),
     note: String(task.description || '').slice(0, 220) || null,
@@ -532,7 +534,7 @@ function scheduleVariant(
   key,
   label,
   ordered,
-  { phoneStart, otherStart, dayEnd, breakMinutes, lunchStart, lunchEnd }
+  { phoneStart, otherStart, dayEnd, breakMinutes, lunchStart, lunchEnd, date = null }
 ) {
   let cursor = null;
   let lastEnd = null;
@@ -540,9 +542,42 @@ function scheduleVariant(
   let stopped = false;
   const items = [];
   const titleById = new Map(ordered.map((task) => [task.id, task.title]));
-  const parentIds = new Set(
-    ordered.map((task) => task.parent_id).filter((id) => id && titleById.has(id))
-  );
+  const taskById = new Map(ordered.map((task) => [task.id, task]));
+  const childrenByParent = new Map();
+  for (const task of ordered) {
+    if (!task.parent_id || !titleById.has(task.parent_id)) continue;
+    if (!childrenByParent.has(task.parent_id)) childrenByParent.set(task.parent_id, []);
+    childrenByParent.get(task.parent_id).push(task);
+  }
+  const parentIds = new Set(childrenByParent.keys());
+
+  // Dernière échéance des descendants : un parent ne peut pas finir avant.
+  const maxDescendantDue = (taskId, guard = new Set()) => {
+    if (guard.has(taskId)) return '';
+    guard.add(taskId);
+    let max = '';
+    for (const child of childrenByParent.get(taskId) || []) {
+      const due = String(child.due_date || '').slice(0, 10);
+      if (due > max) max = due;
+      const deeper = maxDescendantDue(child.id, guard);
+      if (deeper > max) max = deeper;
+    }
+    return max;
+  };
+
+  // Heure la plus tardive des descendants qui tombent sur la même date.
+  const maxDescendantClock = (taskId, targetDate, guard = new Set()) => {
+    if (guard.has(taskId)) return 0;
+    guard.add(taskId);
+    let max = 0;
+    for (const child of childrenByParent.get(taskId) || []) {
+      if (String(child.due_date || '').slice(0, 10) === targetDate && child.due_clock) {
+        max = Math.max(max, parseTime(child.due_clock, 0));
+      }
+      max = Math.max(max, maxDescendantClock(child.id, targetDate, guard));
+    }
+    return max;
+  };
 
   const place = (task) => {
     // Une tâche qui contient des sous-tâches n'a pas son propre créneau :
@@ -564,10 +599,15 @@ function scheduleVariant(
         });
         return;
       }
+      const containerDate = maxDescendantDue(task.id);
+      const finish = Math.max(
+        lastEnd,
+        maxDescendantClock(task.id, containerDate || date || '')
+      );
       items.push({
         id: task.id,
-        start: formatMinutes(lastEnd),
-        end: formatMinutes(lastEnd),
+        start: formatMinutes(finish),
+        end: formatMinutes(finish),
         minutes: 0,
         context: task.context,
         overflow: false,
@@ -576,6 +616,8 @@ function scheduleVariant(
         time_mode: task.time_mode || 'untimed',
         fixed: task.time_mode === 'fixed',
         fixed_time: task.fixed_time || null,
+        date:
+          containerDate > String(date || '') ? containerDate : date || null,
       });
       return;
     }
@@ -688,6 +730,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
   const lunchEnd = parseTime(schedule.lunchEnd, 13 * 60);
   const breakMinutes = schedule.breakMinutes;
 
+  const planDate = typeof options.date === 'string' ? options.date : null;
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const executionTasks = subtasksFirstOrder(
     execution.map((entry) => byId.get(entry.id)).filter(Boolean)
@@ -708,6 +751,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       otherStart,
       dayEnd,
       breakMinutes,
+      date: planDate,
       lunchStart,
       lunchEnd,
     }),
@@ -716,6 +760,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       otherStart,
       dayEnd,
       breakMinutes,
+      date: planDate,
       lunchStart,
       lunchEnd,
     }),
@@ -724,6 +769,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       otherStart,
       dayEnd,
       breakMinutes,
+      date: planDate,
       lunchStart,
       lunchEnd,
     }),
@@ -732,6 +778,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       otherStart: Math.min(otherStart + 30, dayEnd - 30),
       dayEnd,
       breakMinutes,
+      date: planDate,
       lunchStart,
       lunchEnd,
     }),
@@ -767,6 +814,7 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
     otherStart: parseTime(normalized.otherStart, 11 * 60),
     dayEnd: end,
     breakMinutes: normalized.breakMinutes,
+    date,
     lunchStart: parseTime(normalized.lunchStart, 12 * 60),
     lunchEnd: parseTime(normalized.lunchEnd, 13 * 60),
   });
@@ -894,7 +942,7 @@ async function generateDayOrder(
         tasks,
         priority,
         execution: fallbackExecution,
-        variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
+        variants: buildScheduleVariants(tasks, fallbackExecution, { ...normalizedSchedule, date }),
         schedule: normalizedSchedule,
         changed: 0,
         summary: useAi
@@ -938,7 +986,7 @@ async function generateDayOrder(
         tasks,
         priority,
         execution: fallbackExecution,
-        variants: buildScheduleVariants(tasks, fallbackExecution, normalizedSchedule),
+        variants: buildScheduleVariants(tasks, fallbackExecution, { ...normalizedSchedule, date }),
         schedule: normalizedSchedule,
         changed: 0,
         summary: 'IA indisponible : ordre de priorité utilisé.',
@@ -966,7 +1014,10 @@ async function generateDayOrder(
     task.public = Boolean(item.public);
     task.prep_minutes = item.prep_minutes || 0;
   }
-  const variants = buildScheduleVariants(tasks, execution, normalizedSchedule);
+  const variants = buildScheduleVariants(tasks, execution, {
+    ...normalizedSchedule,
+    date,
+  });
   const entry = {
     signature,
     date,

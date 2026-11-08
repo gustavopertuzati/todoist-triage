@@ -588,10 +588,19 @@ function createApp() {
         // Heure déjà présente mais pas encore confirmée : l'interface doit
         // d'abord demander l'autorisation, même pour une sous-tâche.
         if (mode === 'confirm') continue;
+        const itemDate = String(item?.date || '').trim();
+        const explicitDate = isValidIsoDate(itemDate);
+        const targetDate = explicitDate ? itemDate : requestedDate;
         // Ne réécris jamais une tâche reportée entre-temps : une ancienne
-        // planification ne doit pas annuler un report déjà validé.
+        // planification ne doit pas annuler un report déjà validé. Une date
+        // explicite (parent aligné sur ses sous-tâches futures) est permise.
         const currentDue = (task.due_date || '').slice(0, 10);
-        if (isValidIsoDate(requestedDate) && currentDue && currentDue !== requestedDate) {
+        if (
+          !explicitDate &&
+          isValidIsoDate(requestedDate) &&
+          currentDue &&
+          currentDue !== requestedDate
+        ) {
           continue;
         }
         const start = String(item?.start || '');
@@ -616,8 +625,8 @@ function createApp() {
           if (base) payload.due_string = `${base} at ${start}`;
         } else {
           const date =
-            isValidIsoDate(requestedDate) && requestedDate
-              ? requestedDate
+            isValidIsoDate(targetDate) && targetDate
+              ? targetDate
               : (task.due_date || '').slice(0, 10);
           if (isValidIsoDate(date)) {
             payload.due_datetime = `${date}T${start}:00`;

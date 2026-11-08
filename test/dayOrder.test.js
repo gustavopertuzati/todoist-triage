@@ -702,6 +702,45 @@ test('un parent dû demain est inclus quand sa sous-tâche est aujourd’hui', (
   assert.equal(step.depth, 2);
 });
 
+test('un parent finit à la date et à l’heure de sa dernière sous-tâche future', () => {
+  const tasks = [
+    {
+      ...dayTask('parent', 1, 'M', 30, 'Parent'),
+      parent_id: null,
+      is_subtask: false,
+      due_date: TODAY,
+      due_clock: null,
+    },
+    {
+      ...dayTask('child', 1, 'S', 15, 'Enfant'),
+      parent_id: 'parent',
+      is_subtask: true,
+      due_date: '2026-11-17',
+      due_clock: '20:00',
+    },
+  ];
+  const variants = buildScheduleVariants(
+    tasks,
+    [
+      { id: 'child', minutes: 15, context: 'other' },
+      { id: 'parent', minutes: 30, context: 'other' },
+    ],
+    {
+      date: TODAY,
+      phoneStart: '09:00',
+      otherStart: '09:00',
+      end: '17:00',
+      breakMinutes: 0,
+      lunchStart: '12:00',
+      lunchEnd: '13:00',
+    }
+  );
+  const parent = variants[0].items.find((item) => item.id === 'parent');
+  assert.equal(parent.container, true);
+  assert.equal(parent.date, '2026-11-17');
+  assert.equal(parent.end, '20:00');
+});
+
 test('une tâche publique réserve 30 min de préparation avant elle', () => {
   const tasks = [
     { ...dayTask('meeting', 4, 'M', 30, 'Entretien'), public: true, prep_minutes: 30 },

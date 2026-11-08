@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.41.0",
+  "version": "0.42.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 41 : projet lecture 7 livres et sport quasi quotidien dans le contexte IA).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 42 : un parent finit à la date et l'heure de sa dernière sous-tâche).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
