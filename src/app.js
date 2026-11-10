@@ -41,6 +41,7 @@ const {
   hasOrderPrefix,
 } = require('./renumber');
 const assistantNotes = require('./assistantNotes');
+const { readGoals, evaluateGoals } = require('./goals');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
 const { AiError } = require('./ai');
@@ -986,12 +987,14 @@ function createApp() {
         : [];
       const instruction =
         typeof req.body?.instruction === 'string' ? req.body.instruction.slice(0, 500) : '';
+      const goals = Array.isArray(req.body?.goals) ? req.body.goals.slice(0, 10) : [];
       const { snapshot } = await getSnapshot({ force: false });
       const result = await generateTaskSuggestions(snapshot, date, {
         checkin,
         force,
         exclude,
         instruction,
+        goals,
       });
 
       return res.json({
@@ -1244,6 +1247,17 @@ function createApp() {
       });
     })
   );
+
+  /**
+   * Objectifs et jalons : définitions GOALS.json + compteurs de tâches
+   * terminées correspondantes (lecture seule côté serveur).
+   */
+  app.get('/api/goals', requireApiAuth, asyncHandler(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const { snapshot } = await getSnapshot({ force: false });
+    const goals = evaluateGoals(snapshot, readGoals());
+    res.json({ ok: true, goals });
+  }));
 
   /**
    * Carnet « Notes & idées » (assistant en bas à droite).

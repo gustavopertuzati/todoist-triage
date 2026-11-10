@@ -65,6 +65,19 @@ function buildSuggestPrompt(digest, maxTasks) {
     digest.instruction
       ? `- Consigne libre de la personne : « ${digest.instruction} ». Respecte-la en priorité.`
       : '',
+    ...(Array.isArray(digest.goals) && digest.goals.length > 0
+      ? [
+          '',
+          'Objectifs validés et prochains jalons :',
+          ...digest.goals.map(
+            (goal) =>
+              `- ${goal.title} (${goal.progress}%) — prochain jalon : ${
+                goal.next_milestone || 'à définir'
+              }`
+          ),
+          'Propose des tâches concrètes qui font avancer le prochain jalon non terminé.',
+        ]
+      : []),
     '',
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase courte expliquant tes suggestions",',
@@ -209,7 +222,7 @@ function validateTaskSuggestions(parsed, snapshot, date, digest, maxTasks = 3, e
 async function generateTaskSuggestions(
   snapshot,
   date,
-  { checkin = null, force = false, exclude = [], instruction = '' } = {}
+  { checkin = null, force = false, exclude = [], instruction = '', goals = [] } = {}
 ) {
   if (!config.aiEnabled) {
     throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
@@ -221,11 +234,24 @@ async function generateTaskSuggestions(
       .filter(Boolean)
   )].slice(0, 80);
 
+  const cleanGoals = (Array.isArray(goals) ? goals : [])
+    .map((goal) => ({
+      id: String(goal?.id || '').slice(0, 80),
+      title: String(goal?.title || '').slice(0, 160),
+      progress: Math.max(0, Math.min(100, Number(goal?.progress) || 0)),
+      next_milestone: goal?.next_milestone
+        ? String(goal.next_milestone).slice(0, 180)
+        : null,
+    }))
+    .filter((goal) => goal.id && goal.title)
+    .slice(0, 10);
+
   const digest = {
     ...buildDayDigest(snapshot, date, normalizeCheckin(checkin)),
     life_context: readLifeContext(),
     exclude: cleanExclude,
     instruction: String(instruction || '').trim().slice(0, 500) || null,
+    goals: cleanGoals,
   };
   const signature = signatureOf(digest);
   const cached = cache.get(String(date));

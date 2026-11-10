@@ -122,6 +122,27 @@ test('validateTaskSuggestions respecte la place et le maximum', () => {
   assert.equal(items.length, 2);
 });
 
+test('buildSuggestPrompt transmet les objectifs et le prochain jalon', () => {
+  const prompt = buildSuggestPrompt(
+    {
+      date: DATE,
+      can_add: { L: 1, M: 1, S: 1 },
+      goals: [
+        {
+          id: 'itheorie',
+          title: 'Réussir iTheorie',
+          progress: 30,
+          next_milestone: 'Enchaîner 3 tests ≥ 90 %',
+        },
+      ],
+    },
+    3
+  );
+  assert.match(prompt, /Réussir iTheorie/);
+  assert.match(prompt, /Enchaîner 3 tests/);
+  assert.match(prompt, /prochain jalon/);
+});
+
 test('buildSuggestPrompt transmet la consigne libre', () => {
   const prompt = buildSuggestPrompt(
     {

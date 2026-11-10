@@ -243,9 +243,18 @@ function buildSnapshot({
   const completedByProject = new Map();
   const completedByTitle = new Map();
   const completedToday = [];
+  const completedRecent = [];
   for (const item of completedAvailable ? asArray(completed.items) : []) {
     const projectId = item.project_id ? String(item.project_id) : null;
     const title = stripTimeMarker(item.content || '');
+    if (completedRecent.length < 300) {
+      completedRecent.push({
+        id: item.id ? String(item.id) : null,
+        title: title.slice(0, 160),
+        project_id: projectId,
+        completed_at: item.completed_at || null,
+      });
+    }
     const normalized = normalizeTitle(title);
     if (normalized) {
       completedByTitle.set(normalized, (completedByTitle.get(normalized) || 0) + 1);
@@ -523,6 +532,7 @@ function buildSnapshot({
       truncated: Boolean(completedAvailable && completed.truncated),
       by_project: Object.fromEntries(completedByProject),
       today: completedToday.slice(0, 200),
+      recent: completedRecent,
     },
     orphan_tasks: orphanTasks.map((task) => task.id),
   };

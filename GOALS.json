@@ -1,0 +1,39 @@
+{
+  "updated_at": "2026-11-10",
+  "goals": [
+    {
+      "id": "itheorie",
+      "title": "Réussir la théorie du permis (iTheorie)",
+      "description": "Objectif : 90 % de réussite, 3 tests consécutifs.",
+      "keywords": ["itheorie", "theorie", "théorie", "permis"],
+      "confirmed": false,
+      "milestones": [
+        {
+          "id": "tests-10",
+          "title": "Faire 10 tests d'entraînement",
+          "weight": 10,
+          "type": "completed_tasks",
+          "count": 10
+        },
+        {
+          "id": "score-80",
+          "title": "Atteindre 80 % une première fois",
+          "weight": 15,
+          "type": "manual"
+        },
+        {
+          "id": "streak-90",
+          "title": "Enchaîner 3 tests ≥ 90 %",
+          "weight": 30,
+          "type": "manual"
+        },
+        {
+          "id": "exam",
+          "title": "Réussir l'examen officiel",
+          "weight": 45,
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

@@ -19,6 +19,7 @@ COPY views ./views
 COPY public ./public
 # Contexte de vie/progression : doit être lisible et inscriptible par « node ».
 COPY --chown=node:node LIFE_CONTEXT.md ./
+COPY --chown=node:node GOALS.json ./
 
 # Carnet de notes persistant : le processus tourne en « node », il lui faut un
 # dossier inscriptible (le système de fichiers du conteneur reste éphémère).

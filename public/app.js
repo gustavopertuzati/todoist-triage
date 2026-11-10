@@ -71,6 +71,9 @@
     orderNotes: {},
     planNotes: {},
     suggestionNotes: {},
+    goals: [],
+    goalState: {},
+    goalsLoaded: false,
     startAdjusted: false,
     screen: 'today',
     scheduleTimer: null,
@@ -124,6 +127,7 @@
     dayLunchEnd: document.getElementById('day-lunch-end'),
     proposalsCount: document.getElementById('proposals-count'),
     capacity: document.getElementById('capacity'),
+    goalsPanel: document.getElementById('goals-panel'),
     dayPlan: document.getElementById('day-plan'),
     weekRecap: document.getElementById('week-recap'),
     proposalsNote: document.getElementById('proposals-note'),
@@ -219,6 +223,7 @@
   const SCHEDULE_KEY = 'todoist-triage:schedule';
   const DAY_PLANS_KEY = 'todoist-triage:day-plans';
   const ORDER_NOTES_KEY = 'todoist-triage:order-notes';
+  const GOAL_STATE_KEY = 'todoist-triage:goal-state';
   const PLAN_NOTES_KEY = 'todoist-triage:plan-notes';
   const SUGGESTION_NOTES_KEY = 'todoist-triage:suggestion-notes';
   const ACCEPTED_TASKS_KEY = 'todoist-triage:accepted-tasks';
@@ -347,6 +352,175 @@
   function syncPlanNotes(date) {
     syncNoteInput(els.planNote, state.planNotes, date);
     syncNoteInput(els.suggestionNote, state.suggestionNotes, date);
+  }
+
+  function loadGoalState() {
+    return loadNoteMap(GOAL_STATE_KEY);
+  }
+
+  function saveGoalState() {
+    try {
+      localStorage.setItem(GOAL_STATE_KEY, JSON.stringify(state.goalState || {}));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function goalEntry(goal) {
+    return state.goalState[goal.id] || {};
+  }
+
+  function goalConfirmed(goal) {
+    return Boolean(goal.confirmed || goalEntry(goal).confirmed);
+  }
+
+  function goalMilestoneDone(goal, milestone) {
+    if (milestone.type === 'completed_tasks') return Boolean(milestone.auto_done);
+    return Boolean(goalEntry(goal).done?.[milestone.id]);
+  }
+
+  function goalProgress(goal) {
+    if (!goalConfirmed(goal)) return 0;
+    const total = (goal.milestones || []).reduce(
+      (sum, milestone) => sum + (Number(milestone.weight) || 0),
+      0
+    );
+    if (total <= 0) return 0;
+    const done = (goal.milestones || [])
+      .filter((milestone) => goalMilestoneDone(goal, milestone))
+      .reduce((sum, milestone) => sum + (Number(milestone.weight) || 0), 0);
+    return Math.round((done / total) * 100);
+  }
+
+  function nextGoalMilestone(goal) {
+    return (
+      (goal.milestones || []).find((milestone) => !goalMilestoneDone(goal, milestone)) || null
+    );
+  }
+
+  function activeGoalsSummary() {
+    return (state.goals || [])
+      .filter((goal) => goalConfirmed(goal))
+      .map((goal) => ({
+        id: goal.id,
+        title: goal.title,
+        progress: goalProgress(goal),
+        next_milestone: nextGoalMilestone(goal)?.title || null,
+      }));
+  }
+
+  async function loadGoals() {
+    try {
+      const result = await apiJson('/api/goals');
+      state.goals = Array.isArray(result.goals) ? result.goals : [];
+      state.goalsLoaded = true;
+      renderGoals();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.goalsLoaded = true;
+    }
+  }
+
+  function toggleGoalMilestone(goal, milestone) {
+    const entry = goalEntry(goal);
+    const done = { ...(entry.done || {}) };
+    done[milestone.id] = !done[milestone.id];
+    state.goalState[goal.id] = { ...entry, done };
+    saveGoalState();
+    renderGoals();
+  }
+
+  function confirmGoal(goal) {
+    state.goalState[goal.id] = { ...goalEntry(goal), confirmed: true };
+    saveGoalState();
+    renderGoals();
+    toast('Jalons validés : le suivi de progression est actif.', 'ok');
+  }
+
+  function renderGoals() {
+    const el = els.goalsPanel;
+    if (!el) return;
+    const goals = state.goals || [];
+    clear(el);
+    if (goals.length === 0) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.append(h('h3', { class: 'section-title' }, 'Objectifs & jalons'));
+    for (const goal of goals) {
+      const confirmed = goalConfirmed(goal);
+      const progress = goalProgress(goal);
+      const next = nextGoalMilestone(goal);
+      const card = h('div', { class: 'goal-card' });
+      card.append(
+        h(
+          'div',
+          { class: 'goal-head' },
+          h('span', { class: 'goal-title' }, goal.title),
+          h('span', { class: 'goal-percent' }, confirmed ? `${progress}%` : 'À valider')
+        )
+      );
+      if (goal.description) {
+        card.append(h('p', { class: 'goal-desc' }, goal.description));
+      }
+      card.append(
+        h(
+          'div',
+          { class: 'goal-progress' },
+          h('div', {
+            class: 'goal-progress-fill',
+            style: `width:${confirmed ? progress : 0}%`,
+          })
+        )
+      );
+      if (!confirmed) {
+        card.append(
+          h(
+            'p',
+            { class: 'fine-print' },
+            'Proposition de jalons. Valide pour activer le suivi et les suggestions liées.'
+          )
+        );
+        const validate = h(
+          'button',
+          { type: 'button', class: 'btn btn-primary btn-small' },
+          'Valider ces jalons'
+        );
+        validate.addEventListener('click', () => confirmGoal(goal));
+        card.append(validate);
+      }
+
+      const list = h('div', { class: 'goal-milestones' });
+      for (const milestone of goal.milestones || []) {
+        const done = goalMilestoneDone(goal, milestone);
+        const auto = milestone.type === 'completed_tasks';
+        const meta = auto
+          ? `${milestone.completed_count || 0}/${milestone.count} tâche(s) terminée(s)`
+          : `${milestone.weight} %`;
+        const row = h(
+          'div',
+          { class: `goal-milestone${done ? ' is-done' : ''}` },
+          h('span', { class: 'goal-milestone-title' }, `${done ? '✓ ' : ''}${milestone.title}`),
+          h('span', { class: 'goal-milestone-meta' }, meta)
+        );
+        if (!auto && confirmed) {
+          const btn = h(
+            'button',
+            { type: 'button', class: 'btn btn-ghost btn-small' },
+            done ? 'Annuler' : 'Marquer fait'
+          );
+          btn.addEventListener('click', () => toggleGoalMilestone(goal, milestone));
+          row.append(btn);
+        }
+        list.append(row);
+      }
+      card.append(list);
+      if (confirmed && next) {
+        card.append(h('p', { class: 'goal-next' }, `Prochain jalon : ${next.title}`));
+      }
+      el.append(card);
+    }
   }
 
   function restoreDayPlan(date) {
@@ -792,6 +966,7 @@
       if (force) state.cleanup = { depth: 0, scan: null, loading: false };
       render();
       ensureDefaultDay();
+      loadGoals();
       els.loading.hidden = true;
       els.content.hidden = false;
       if (force && !silent) toast('Données rafraîchies depuis Todoist.', 'ok');
@@ -2180,13 +2355,15 @@
     btn.textContent = 'Report…';
     try {
       const alsoTaskIds = Array.isArray(item.also_task_ids) ? item.also_task_ids : [];
+      const branch = isTrainingTitle(item.title);
       const result = await apiJson('/api/day/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
         body: JSON.stringify({
           task_id: item.task_id,
           due_date: dueDate,
-          also_task_ids: alsoTaskIds,
+          also_task_ids: branch ? [] : alsoTaskIds,
+          with_branch: branch,
         }),
       });
 
@@ -2241,6 +2418,8 @@
     const date = data?.date;
     if (!date) return;
     const target = addDaysIso(date, 1);
+    const branchRoot = trainingBranchRoot(task, data?.tasks || []);
+    const targetId = branchRoot?.id || task.id;
     const original = btn?.textContent || '';
     if (btn) {
       btn.disabled = true;
@@ -2251,7 +2430,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
         body: JSON.stringify({
-          task_id: task.id,
+          task_id: targetId,
           due_date: target,
           with_ancestors: true,
           with_branch: true,
@@ -2261,7 +2440,7 @@
       const moved =
         Array.isArray(result.task_ids) && result.task_ids.length
           ? result.task_ids
-          : [task.id];
+          : [targetId];
       forgetReportedTasks(moved);
       await rebuildDayOrder({ applyTimes: true, silent: true });
       toast(
@@ -2544,6 +2723,7 @@
           exclude,
           force: true,
           instruction: (els.suggestionNote?.value || '').trim().slice(0, 500),
+          goals: activeGoalsSummary(),
         }),
       });
       state.daySuggestions = Array.isArray(result.proposals) ? result.proposals : [];
@@ -4558,6 +4738,25 @@
     }
   }
 
+  function isTrainingTitle(value) {
+    return /\b(sport|gym|fitness|musculation|entra[iî]nement|s[ée]ance|nonstop|cardio|natation|course [àa] pied)\b/i.test(
+      String(value || '')
+    );
+  }
+
+  /** Remonte jusqu'à la tâche d'entraînement la plus proche. */
+  function trainingBranchRoot(task, tasks) {
+    const byId = new Map((tasks || []).map((item) => [item.id, item]));
+    let current = task;
+    while (current) {
+      if (isTrainingTitle(current.display_title || current.content || current.title)) {
+        return current;
+      }
+      current = current.parent_id ? byId.get(current.parent_id) : null;
+    }
+    return task;
+  }
+
   function isPreparationTask(task) {
     if (!task?.parent_id) return false;
     if (String(task.description || '').includes(PREPARATION_MARKER)) return true;
@@ -5333,6 +5532,7 @@
   state.feedback = loadFeedback();
   state.reminderPlans = loadReminderPlans();
   state.orderNotes = loadOrderNotes();
+  state.goalState = loadGoalState();
   state.planNotes = loadNoteMap(PLAN_NOTES_KEY);
   state.suggestionNotes = loadNoteMap(SUGGESTION_NOTES_KEY);
   state.scheduleSettings = loadScheduleSettings();

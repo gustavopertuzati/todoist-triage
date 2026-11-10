@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.42.0",
+  "version": "0.43.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 42 : un parent finit à la date et l'heure de sa dernière sous-tâche).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 43 : objectifs avec jalons et report groupé des entraînements).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

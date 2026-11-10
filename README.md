@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 42.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 43.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1107,6 +1107,31 @@ Correctifs :
 - la contrainte « sous-tâche avant parent » est donc respectée en date **et** en
   heure, même quand les sous-tâches sont dans le futur.
 
+## Itération 43 — objectifs, jalons et reports groupés
+
+### Objectifs et jalons
+
+Les définitions vivent dans **`GOALS.json`** (versionné, copié dans l’image
+Docker). L’onglet **Planifier** affiche un panneau **Objectifs & jalons** :
+
+- une proposition de jalons est visible avec un bouton **Valider ces jalons** ;
+- après validation, une barre de progression et les jalons s’activent ;
+- les jalons **manuels** se cochent (80 %, streak, examen) ;
+- les jalons **automatiques** comptent les tâches terminées récentes dont le
+  titre ou le projet contient les mots-clés de l’objectif ;
+- la progression est la somme des poids des jalons atteints ;
+- l’état (validation + cases manuelles) est conservé dans le navigateur ;
+- les suggestions de tâches reçoivent les objectifs validés, leur progression et
+  le prochain jalon à faire avancer.
+
+Première proposition : **iTheorie** (10 tests, 80 %, 3 tests ≥ 90 %, examen).
+
+### Report d’un entraînement
+
+Quand une tâche d’entraînement (sport, gym, fitness, musculation, séance,
+NonStop, cardio…) est reportée, le bouton ⏭ ou le panneau **Reporter** déplace
+la tâche **et toutes ses sous-tâches ensemble**, à la même date.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1329,7 +1354,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 42 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 43 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
