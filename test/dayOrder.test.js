@@ -17,6 +17,7 @@ const {
   buildPostponePlan,
   suggestPostponeDate,
   generateDayOrder,
+  detectContext,
 } = require('../src/dayOrder');
 
 const TODAY = '2026-11-05';
@@ -164,7 +165,7 @@ test('les durées et contextes par défaut sont exploitables', () => {
   const phone = tasks.find((item) => item.id === 'phone');
   const home = tasks.find((item) => item.id === 'home');
   assert.equal(phone.context, 'phone');
-  assert.equal(home.context, 'other');
+  assert.equal(home.context, 'home');
   assert.equal(phone.minutes, 20);
   assert.equal(home.minutes, 60);
 });
@@ -798,6 +799,14 @@ test('generateDayOrder sans IA inclut toutes les tâches et sous-tâches', async
   );
   assert.ok(result.variants.length > 0);
   assert.match(result.summary, /sans IA/);
+});
+
+test('detectContext reconnaît les tâches extérieures et intérieures', () => {
+  assert.equal(detectContext({ display_title: 'Acheter de la javel', labels: [] }), 'outside');
+  assert.equal(detectContext({ display_title: 'Passer à la pharmacie', labels: [] }), 'outside');
+  assert.equal(detectContext({ display_title: 'Passer l’aspirateur', labels: [] }), 'home');
+  assert.equal(detectContext({ display_title: 'Lancer la lessive', labels: [] }), 'home');
+  assert.equal(detectContext({ display_title: 'Appeler le dentiste', labels: [] }), 'phone');
 });
 
 test('aucun horaire ne dépasse la fin de journée ni 24 h', () => {

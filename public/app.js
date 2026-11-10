@@ -74,6 +74,8 @@
     goals: [],
     goalState: {},
     goalsLoaded: false,
+    reportChain: Promise.resolve(),
+    reportQueueSize: 0,
     startAdjusted: false,
     screen: 'today',
     scheduleTimer: null,
@@ -1272,6 +1274,10 @@
   async function loadDayOrder() {
     const date = currentFocusDate();
     if (!date || state.dayOrder.loading) return;
+    if (state.reportQueueSize > 0) {
+      toast('Reports en cours — attends la fin avant de réorganiser.', 'error');
+      return;
+    }
     const pendingTimes = pendingTimeConfirmations(date);
     if (pendingTimes.length > 0) {
       setScreen('order');
@@ -2035,7 +2041,7 @@
     // Le plan enregistré peut être périmé après un report ou un changement
     // dans Todoist. On le recalcule sans IA pour que l'ordre reste cohérent et
     // contienne toutes les tâches visibles dans le widget.
-    if (sameDay && !state.dayOrder.rebuilding && state.data) {
+    if (sameDay && !state.dayOrder.rebuilding && !state.reportQueueSize && state.data) {
       const planIds = new Set((data.tasks || []).map((task) => task.id));
       const activeIds = new Set(activeTasks().map((task) => task.id));
       const visible = widgetDayTaskIds(focus);
@@ -2344,7 +2350,25 @@
     el.append(list);
   }
 
-  async function reportDayTask(item, dateInput, btn) {
+  function enqueueReportAction(action) {
+    state.reportQueueSize += 1;
+    const run = async () => {
+      try {
+        return await action();
+      } finally {
+        state.reportQueueSize = Math.max(0, state.reportQueueSize - 1);
+      }
+    };
+    const next = state.reportChain.then(run, run);
+    state.reportChain = next.catch(() => {});
+    return next;
+  }
+
+  function reportDayTask(item, dateInput, btn) {
+    return enqueueReportAction(() => reportDayTaskNow(item, dateInput, btn));
+  }
+
+  async function reportDayTaskNow(item, dateInput, btn) {
     const dueDate = dateInput?.value || '';
     if (!dueDate) {
       toast('Choisis une date de report.', 'error');
@@ -2413,7 +2437,11 @@
   }
 
   /** Reporte la tâche (et ses parents) au lendemain du jour affiché. */
-  async function postponeTaskToTomorrow(task, btn = null) {
+  function postponeTaskToTomorrow(task, btn = null) {
+    return enqueueReportAction(() => postponeTaskToTomorrowNow(task, btn));
+  }
+
+  async function postponeTaskToTomorrowNow(task, btn = null) {
     const data = state.dayOrder.data;
     const date = data?.date;
     if (!date) return;

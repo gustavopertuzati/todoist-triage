@@ -623,14 +623,20 @@ function createApp() {
           const base = String(task.due_string)
             .replace(/\s+at\s+\d{1,2}:\d{2}\s*$/i, '')
             .trim();
-          if (base) payload.due_string = `${base} at ${start}`;
+          const desiredString = base ? `${base} at ${start}` : null;
+          if (desiredString && desiredString !== task.due_string) {
+            payload.due_string = desiredString;
+          }
         } else {
           const date =
             isValidIsoDate(targetDate) && targetDate
               ? targetDate
               : (task.due_date || '').slice(0, 10);
-          if (isValidIsoDate(date)) {
-            payload.due_datetime = `${date}T${start}:00`;
+          const desired = isValidIsoDate(date) ? `${date}T${start}:00` : null;
+          const current = String(task.due?.date || '').slice(0, 19);
+          // Ne réécris pas un horaire déjà identique : économise le quota.
+          if (desired && current.slice(0, 16) !== desired.slice(0, 16)) {
+            payload.due_datetime = desired;
           }
         }
 

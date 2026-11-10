@@ -35,11 +35,17 @@ const PHONE_RE =
   /\b(appel|appeler|t[ée]l[ée]phone|t[ée]l[ée]phoner|tel|phone|sms|whatsapp|message vocal)\b/i;
 const COMPUTER_RE =
   /\b(ordi|ordinateur|computer|mail|email|e-mail|excel|word|code|dev|site|web|admin)\b/i;
+const OUTSIDE_RE =
+  /\b(acheter|achat|courses|magasin|supermarch[ée]|pharmacie|poste|banque|march[ée]|ext[ée]rieur|dehors|jardin|bricolage|pressing|laverie|guichet|coiffeur|garage)\b/i;
+const HOME_RE =
+  /\b(m[ée]nage|lessive|vaisselle|aspirateur|nettoyer|ranger|cuisine|repas|linge|poubelle|lit|salle de bain)\b/i;
 
 function detectContext(task) {
   const haystack = `${titleOf(task)} ${(task.labels || []).join(' ')}`;
   if (PHONE_RE.test(haystack)) return 'phone';
   if (COMPUTER_RE.test(haystack)) return 'computer';
+  if (OUTSIDE_RE.test(haystack)) return 'outside';
+  if (HOME_RE.test(haystack)) return 'home';
   return 'other';
 }
 
@@ -419,6 +425,7 @@ function buildOrderPrompt(digest) {
     '- Respecte les dépendances logiques et les prérequis.',
     '- Commence par ce qui est urgent/en retard, puis les priorités hautes.',
     '- Alterne les grosses tâches avec des petites si c’est plus réaliste.',
+    '- Regroupe les tâches "outside" (courses, magasin, pharmacie, poste, banque, jardin, extérieur) de façon cohérente ; si la consigne demande « dehors en fin de journée », place-les après les tâches intérieures.',
     '- Ne tiens pas compte des tâches qui ne sont pas dans la liste.',
     '- Utilise chaque identifiant exactement une fois.',
     '- Cherche les temps d’attente passive (machine à laver, four, cuisson, séchage, pousse, trempage, téléchargement, réponse à attendre…). Pour ces tâches, mets le temps ACTIF dans "minutes" et le temps passif dans "wait_minutes" (0 à 480).',

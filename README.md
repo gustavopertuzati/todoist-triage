@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 43.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 44.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1132,6 +1132,20 @@ Quand une tâche d’entraînement (sport, gym, fitness, musculation, séance,
 NonStop, cardio…) est reportée, le bouton ⏭ ou le panneau **Reporter** déplace
 la tâche **et toutes ses sous-tâches ensemble**, à la même date.
 
+## Itération 44 — quota, reports fiables, contexte intérieur/extérieur
+
+- **Quota Todoist** : `/api/day/times` ne réécrit plus un horaire déjà identique ;
+  les rappels absolus déjà au bon horaire sont **réutilisés** au lieu d'être
+  supprimés/recréés. Moins d'appels Sync par réorganisation.
+- **Reports multiples** : les reports sont **sérialisés** dans le navigateur
+  (file d'attente). Un recalcul automatique ne peut plus réécrire l'horaire d'une
+  tâche pendant qu'un autre report est en cours. Les recalculs automatiques sont
+  ignorés tant que la file n'est pas vide.
+- **Intérieur/extérieur** : `detectContext` reconnaît désormais `outside`
+  (courses, magasin, pharmacie, poste, banque, jardin, extérieur…) et `home`
+  (ménage, lessive, vaisselle, rangement…). Le prompt demande de regrouper les
+  tâches extérieures et de respecter une consigne « dehors en fin de journée ».
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1354,7 +1368,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 43 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 44 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

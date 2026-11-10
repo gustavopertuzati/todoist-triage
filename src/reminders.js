@@ -42,22 +42,32 @@ async function replaceReminders({ items, known = [], timezone = 'Europe/Paris' }
   const existingById = new Map(existing.map((reminder) => [String(reminder.id), reminder]));
 
   const wantedTaskIds = new Set(wanted.map((item) => String(item.taskId)));
+  const wantedByTask = new Map(wanted.map((item) => [String(item.taskId), item]));
   const deleteIds = new Set();
+  const reusedByTask = new Map();
+  const reusedIds = new Set();
 
-  // Supprime TOUS les anciens rappels absolus des tâches replanifiées, pour
-  // laisser la place au nouvel horaire (même si l'ancien n'était pas dans le
-  // mapping local).
+  // Réutilise un rappel absolu déjà au bon horaire ; ne supprime que ceux qui
+  // doivent réellement changer. Cela évite de recréer tous les rappels à
+  // chaque réorganisation (quota Todoist).
   for (const reminder of existing) {
     if (reminder.type !== 'absolute') continue;
-    if (wantedTaskIds.has(String(reminder.item_id))) {
-      deleteIds.add(String(reminder.id));
+    const taskId = String(reminder.item_id);
+    const wantedItem = wantedByTask.get(taskId);
+    if (wantedItem) {
+      if (sameDue(reminder, wantedItem.date, wantedItem.time)) {
+        reusedByTask.set(taskId, reminder);
+        reusedIds.add(String(reminder.id));
+      } else {
+        deleteIds.add(String(reminder.id));
+      }
     }
   }
 
   // Et les rappels connus de tâches qui ne sont plus dans le plan.
   for (const entry of knownList) {
     const reminderId = String(entry?.reminderId || '');
-    if (!reminderId) continue;
+    if (!reminderId || reusedIds.has(reminderId)) continue;
     const reminder = existingById.get(reminderId);
     if (!reminder) continue;
     if (entry.taskId && String(reminder.item_id) !== String(entry.taskId)) continue;
@@ -75,6 +85,11 @@ async function replaceReminders({ items, known = [], timezone = 'Europe/Paris' }
   }
 
   for (const item of wanted) {
+    const taskId = String(item.taskId);
+    const existingReminder = reusedByTask.get(taskId);
+    if (existingReminder) {
+      continue;
+    }
     const tempId = crypto.randomUUID();
     const uuid = crypto.randomUUID();
     commands.push({
@@ -82,7 +97,7 @@ async function replaceReminders({ items, known = [], timezone = 'Europe/Paris' }
       temp_id: tempId,
       uuid,
       args: {
-        item_id: String(item.taskId),
+        item_id: taskId,
         type: 'absolute',
         due: { date: dueString(item.date, item.time), timezone },
       },
@@ -105,6 +120,16 @@ async function replaceReminders({ items, known = [], timezone = 'Europe/Paris' }
   }
 
   const mapping = [];
+  for (const item of wanted) {
+    const reminder = reusedByTask.get(String(item.taskId));
+    if (!reminder) continue;
+    mapping.push({
+      taskId: String(item.taskId),
+      reminderId: String(reminder.id),
+      date: item.date,
+      time: item.time,
+    });
+  }
   for (const add of addCommands) {
     const reminderId = tempMapping[add.tempId];
     if (!reminderId) continue;
