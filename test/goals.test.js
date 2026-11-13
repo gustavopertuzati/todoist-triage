@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { readGoals, countCompleted, evaluateGoals } = require('../src/goals');
+const { normalizeMilestones } = require('../src/goalProposals');
 
 const goal = {
   id: 'g',
@@ -37,6 +38,21 @@ test('evaluateGoals calcule les jalons automatiques', () => {
   assert.equal(evaluated.milestones[0].completed_count, 2);
   assert.equal(evaluated.milestones[0].auto_done, true);
   assert.equal(evaluated.milestones[1].auto_done, false);
+});
+
+test('normalizeMilestones normalise les poids à 100 et garde les étapes', () => {
+  const milestones = normalizeMilestones({
+    milestones: [
+      { title: 'Partie A', weight: 20, steps: ['1', '2', '3', '4'] },
+      { title: 'Partie B', weight: 80 },
+    ],
+  });
+  assert.equal(
+    milestones.reduce((sum, milestone) => sum + milestone.weight, 0),
+    100
+  );
+  assert.equal(milestones[0].steps.length, 4);
+  assert.equal(milestones[0].type, 'manual');
 });
 
 test('readGoals charge les objectifs et leurs jalons', () => {

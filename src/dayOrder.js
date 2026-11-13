@@ -297,28 +297,6 @@ function listDayTasks(snapshot, date) {
     if (tasks.length >= MAX_TASKS) break;
   }
 
-  // Une tâche dont une sous-tâche est planifiée doit apparaître comme parent,
-  // même si sa propre échéance est demain : sinon elle ne peut pas finir après
-  // la dernière sous-tâche. On s'arrête aux parents proches (au plus demain)
-  // pour ne pas tirer un projet lointain dans la journée.
-  const horizon = addDaysIso(date, 1);
-  for (const task of [...tasks]) {
-    let current = byId.get(task.parent_id);
-    const guard = new Set([task.id]);
-    while (current && !seen.has(current.id) && !guard.has(current.id)) {
-      guard.add(current.id);
-      const due = (current.due_date || '').slice(0, 10);
-      if (due && due > horizon) break;
-      seen.add(current.id);
-      const parent = current.parent_id ? byId.get(current.parent_id) : null;
-      const meta = taskMeta(current, parent ? titleOf(parent) : null);
-      meta.depth = 0;
-      tasks.push(meta);
-      if (tasks.length >= MAX_TASKS) break;
-      current = byId.get(current.parent_id);
-    }
-  }
-
   // Profondeur réelle une fois l'arbre du jour constitué (une sous-tâche dont
   // le parent n'est pas dans le plan redevient une racine).
   for (const task of tasks) {

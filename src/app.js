@@ -42,6 +42,7 @@ const {
 } = require('./renumber');
 const assistantNotes = require('./assistantNotes');
 const { readGoals, evaluateGoals } = require('./goals');
+const { generateGoalMilestones } = require('./goalProposals');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
 const { AiError } = require('./ai');
@@ -1268,6 +1269,45 @@ function createApp() {
     const goals = evaluateGoals(snapshot, readGoals());
     res.json({ ok: true, goals });
   }));
+
+  app.post(
+    '/api/goals/propose',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      if (!config.aiEnabled) {
+        return res.status(403).json({
+          error: { code: 'AI_DISABLED', message: 'L’IA n’est pas configurée sur ce serveur.' },
+        });
+      }
+      const title = String(req.body?.title || '').trim();
+      if (!title) {
+        return res.status(400).json({
+          error: { code: 'BAD_TITLE', message: 'Donne un titre à l’objectif.' },
+        });
+      }
+      const deadline = String(req.body?.deadline || '').trim();
+      const sources = Array.isArray(req.body?.sources)
+        ? req.body.sources.map((source) => String(source || '')).slice(0, 8)
+        : [];
+
+      const result = await generateGoalMilestones({
+        title,
+        description: req.body?.description,
+        deadline: isValidIsoDate(deadline) ? deadline : '',
+        sources,
+      });
+
+      return res.json({
+        ok: true,
+        summary: result.summary,
+        milestones: result.milestones,
+        usage: result.usage || null,
+      });
+    })
+  );
 
   /**
    * Carnet « Notes & idées » (assistant en bas à droite).

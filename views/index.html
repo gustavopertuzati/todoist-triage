@@ -14,6 +14,7 @@
     <meta name="apple-mobile-web-app-title" content="Triage" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/schedule-settings.js" defer></script>
+    <script src="/goal-progress.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -242,6 +243,30 @@
                 </p>
               </div>
             </div>
+            <details class="goal-create">
+              <summary>+ Créer un objectif</summary>
+              <label>
+                <span>Titre</span>
+                <input id="goal-title" type="text" maxlength="160" placeholder="Ex. : Apprendre la guitare" />
+              </label>
+              <label>
+                <span>Description / intention</span>
+                <textarea id="goal-desc" rows="2" maxlength="500" placeholder="Ex. : suivre un cours complet et jouer 3 morceaux."></textarea>
+              </label>
+              <label>
+                <span>Date limite</span>
+                <input id="goal-deadline" type="date" />
+              </label>
+              <label>
+                <span>Sources / liens (un par ligne)</span>
+                <textarea id="goal-sources" rows="2" maxlength="1000" placeholder="https://www.youtube.com/playlist?list=..."></textarea>
+              </label>
+              <button id="goal-propose" class="btn btn-primary btn-small" type="button">
+                Proposer des jalons avec l’IA
+              </button>
+              <div id="goal-proposal" class="goal-proposal" hidden></div>
+            </details>
+
             <div id="goals-panel" class="goals-panel" hidden></div>
             <div id="rituals-panel" class="goals-panel" hidden></div>
           </section>

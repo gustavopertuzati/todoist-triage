@@ -685,7 +685,7 @@ test('une consigne personnelle est transmise à l’IA', () => {
   assert.ok(prompt.includes('Consignes impératives'));
 });
 
-test('un parent dû demain est inclus quand sa sous-tâche est aujourd’hui', () => {
+test('une tâche d’un autre jour n’est pas ajoutée à l’ordre du jour', () => {
   const tasks = listDayTasks(
     snapshot([
       task({ id: 'root', display_title: 'Faire toute la lessive', due_date: '2026-11-06' }),
@@ -694,14 +694,10 @@ test('un parent dû demain est inclus quand sa sous-tâche est aujourd’hui', (
     ]),
     TODAY
   );
-  assert.deepEqual(tasks.map((item) => item.id), ['step', 'mid', 'root']);
-  const root = tasks.find((item) => item.id === 'root');
-  const mid = tasks.find((item) => item.id === 'mid');
+  assert.deepEqual(tasks.map((item) => item.id), ['step']);
   const step = tasks.find((item) => item.id === 'step');
-  assert.equal(root.is_subtask, false);
-  assert.equal(mid.is_subtask, true);
-  assert.equal(mid.depth, 1);
-  assert.equal(step.depth, 2);
+  assert.equal(step.is_subtask, false);
+  assert.equal(step.depth, 0);
 });
 
 test('un parent finit à la date et à l’heure de sa dernière sous-tâche future', () => {

@@ -72,6 +72,7 @@
     planNotes: {},
     suggestionNotes: {},
     goals: [],
+    customGoals: [],
     goalState: {},
     goalsLoaded: false,
     rituals: {},
@@ -133,6 +134,12 @@
     capacity: document.getElementById('capacity'),
     goalsPanel: document.getElementById('goals-panel'),
     ritualsPanel: document.getElementById('rituals-panel'),
+    goalTitle: document.getElementById('goal-title'),
+    goalDesc: document.getElementById('goal-desc'),
+    goalDeadline: document.getElementById('goal-deadline'),
+    goalSources: document.getElementById('goal-sources'),
+    goalPropose: document.getElementById('goal-propose'),
+    goalProposal: document.getElementById('goal-proposal'),
     dayPlan: document.getElementById('day-plan'),
     weekRecap: document.getElementById('week-recap'),
     proposalsNote: document.getElementById('proposals-note'),
@@ -233,6 +240,7 @@
   const SUGGESTION_NOTES_KEY = 'todoist-triage:suggestion-notes';
   const SOFT_MODE_KEY = 'todoist-triage:soft-mode';
   const RITUALS_KEY = 'todoist-triage:rituals';
+  const CUSTOM_GOALS_KEY = 'todoist-triage:custom-goals';
   const ACCEPTED_TASKS_KEY = 'todoist-triage:accepted-tasks';
   const IGNORED_TASKS_KEY = 'todoist-triage:ignored-tasks';
 
@@ -373,6 +381,27 @@
     }
   }
 
+  function loadCustomGoals() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CUSTOM_GOALS_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveCustomGoals() {
+    try {
+      localStorage.setItem(CUSTOM_GOALS_KEY, JSON.stringify(state.customGoals || []));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function allGoals() {
+    return [...(state.goals || []), ...(state.customGoals || [])];
+  }
+
   function goalEntry(goal) {
     return state.goalState[goal.id] || {};
   }
@@ -382,31 +411,31 @@
   }
 
   function goalMilestoneDone(goal, milestone) {
-    if (milestone.type === 'completed_tasks') return Boolean(milestone.auto_done);
-    return Boolean(goalEntry(goal).done?.[milestone.id]);
+    return window.GoalProgress.milestoneDone(milestone, goalEntry(goal));
   }
 
   function goalProgress(goal) {
     if (!goalConfirmed(goal)) return 0;
-    const total = (goal.milestones || []).reduce(
-      (sum, milestone) => sum + (Number(milestone.weight) || 0),
-      0
-    );
-    if (total <= 0) return 0;
-    const done = (goal.milestones || [])
-      .filter((milestone) => goalMilestoneDone(goal, milestone))
-      .reduce((sum, milestone) => sum + (Number(milestone.weight) || 0), 0);
-    return Math.round((done / total) * 100);
+    return window.GoalProgress.goalProgress(goal, goalEntry(goal));
   }
 
   function nextGoalMilestone(goal) {
-    return (
-      (goal.milestones || []).find((milestone) => !goalMilestoneDone(goal, milestone)) || null
-    );
+    return window.GoalProgress.nextMilestone(goal, goalEntry(goal));
+  }
+
+  function toggleGoalStep(goal, milestone, step) {
+    const entry = goalEntry(goal);
+    const steps = { ...(entry.steps || {}) };
+    const done = { ...(steps[milestone.id] || {}) };
+    done[step.id] = !done[step.id];
+    steps[milestone.id] = done;
+    state.goalState[goal.id] = { ...entry, steps };
+    saveGoalState();
+    renderGoals();
   }
 
   function activeGoalsSummary() {
-    return (state.goals || [])
+    return allGoals()
       .filter((goal) => goalConfirmed(goal))
       .map((goal) => ({
         id: goal.id,
@@ -436,6 +465,15 @@
     state.goalState[goal.id] = { ...entry, done };
     saveGoalState();
     renderGoals();
+  }
+
+  function deleteCustomGoal(goal) {
+    state.customGoals = (state.customGoals || []).filter((item) => item.id !== goal.id);
+    delete state.goalState[goal.id];
+    saveCustomGoals();
+    saveGoalState();
+    renderGoals();
+    toast('Objectif supprimé.', 'ok');
   }
 
   function confirmGoal(goal) {
@@ -502,7 +540,7 @@
         'Une seule micro-action par jour. Le but est de ne pas casser la chaîne, pas de tout faire.'
       )
     );
-    const next = (state.goals || [])
+    const next = allGoals()
       .filter((goal) => goalConfirmed(goal))
       .map((goal) => ({ goal, milestone: nextGoalMilestone(goal) }))
       .find((item) => item.milestone);
@@ -542,11 +580,118 @@
     el.append(list);
   }
 
+  function renderGoalProposal(proposal, draft) {
+    const el = els.goalProposal;
+    if (!el) return;
+    clear(el);
+    el.hidden = false;
+    el.append(h('h4', {}, 'Jalons proposés par l’IA'));
+    if (proposal.summary) {
+      el.append(h('p', { class: 'goal-desc' }, proposal.summary));
+    }
+    const list = h('div', { class: 'goal-proposal-list' });
+    for (const milestone of proposal.milestones || []) {
+      const steps = Array.isArray(milestone.steps) ? milestone.steps : [];
+      list.append(
+        h(
+          'div',
+          { class: 'goal-proposal-row' },
+          h('span', { class: 'goal-proposal-title' }, milestone.title),
+          h(
+            'span',
+            { class: 'goal-proposal-meta' },
+            `${milestone.weight} %${steps.length ? ` · ${steps.length} étapes` : ''}`
+          )
+        )
+      );
+    }
+    el.append(list);
+    const create = h(
+      'button',
+      { type: 'button', class: 'btn btn-primary btn-small' },
+      'Créer cet objectif'
+    );
+    create.addEventListener('click', () => createCustomGoal(draft, proposal.milestones));
+    el.append(create);
+  }
+
+  function createCustomGoal(draft, milestones) {
+    const id = `custom-${Date.now()}`;
+    const goal = {
+      id,
+      title: draft.title,
+      description: draft.description || null,
+      deadline: draft.deadline || null,
+      sources: draft.sources || [],
+      confirmed: true,
+      custom: true,
+      milestones: (milestones || []).map((milestone, index) => ({
+        id: `m-${index + 1}`,
+        title: milestone.title,
+        weight: milestone.weight,
+        type: 'manual',
+        steps: (milestone.steps || []).map((step, stepIndex) => ({
+          id: step.id || `step-${stepIndex + 1}`,
+          title: step.title,
+        })),
+      })),
+    };
+    state.customGoals = [...(state.customGoals || []), goal];
+    state.goalState[id] = { confirmed: true, done: {}, steps: {} };
+    saveCustomGoals();
+    saveGoalState();
+    if (els.goalTitle) els.goalTitle.value = '';
+    if (els.goalDesc) els.goalDesc.value = '';
+    if (els.goalDeadline) els.goalDeadline.value = '';
+    if (els.goalSources) els.goalSources.value = '';
+    if (els.goalProposal) {
+      els.goalProposal.hidden = true;
+      clear(els.goalProposal);
+    }
+    renderGoals();
+    toast('Objectif créé avec ses jalons.', 'ok');
+  }
+
+  async function proposeGoal() {
+    const title = (els.goalTitle?.value || '').trim();
+    if (!title) {
+      toast('Donne un titre à l’objectif.', 'error');
+      return;
+    }
+    const draft = {
+      title,
+      description: (els.goalDesc?.value || '').trim(),
+      deadline: els.goalDeadline?.value || '',
+      sources: (els.goalSources?.value || '')
+        .split(/[\n,]+/)
+        .map((source) => source.trim())
+        .filter(Boolean),
+    };
+    const btn = els.goalPropose;
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'L’IA réfléchit…';
+    try {
+      const result = await apiJson('/api/goals/propose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify(draft),
+      });
+      renderGoalProposal(result, draft);
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Proposition de jalons impossible.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
   function renderGoals() {
     const el = els.goalsPanel;
     if (!el) return;
     renderRituals();
-    const goals = state.goals || [];
+    const goals = allGoals();
     clear(el);
     if (goals.length === 0) {
       el.hidden = true;
@@ -564,11 +709,35 @@
           'div',
           { class: 'goal-head' },
           h('span', { class: 'goal-title' }, goal.title),
-          h('span', { class: 'goal-percent' }, confirmed ? `${progress}%` : 'À valider')
+          h(
+            'span',
+            { class: 'goal-percent' },
+            confirmed
+              ? `${Number.isInteger(progress) ? progress : progress.toFixed(1)} %`
+              : 'À valider'
+          )
         )
       );
       if (goal.description) {
         card.append(h('p', { class: 'goal-desc' }, goal.description));
+      }
+      if (goal.deadline) {
+        card.append(h('p', { class: 'goal-desc' }, `Échéance : ${formatDate(goal.deadline)}`));
+      }
+      if (Array.isArray(goal.sources) && goal.sources.length > 0) {
+        const sources = h('p', { class: 'goal-sources' });
+        for (const source of goal.sources.slice(0, 5)) {
+          if (!/^https?:\/\//i.test(source)) continue;
+          sources.append(
+            h(
+              'a',
+              { href: source, target: '_blank', rel: 'noreferrer' },
+              source.replace(/^https?:\/\//i, '').slice(0, 60)
+            ),
+            ' '
+          );
+        }
+        if (sources.childNodes.length > 0) card.append(sources);
       }
       card.append(
         h(
@@ -601,16 +770,40 @@
       for (const milestone of goal.milestones || []) {
         const done = goalMilestoneDone(goal, milestone);
         const auto = milestone.type === 'completed_tasks';
+        const steps = Array.isArray(milestone.steps) ? milestone.steps : [];
+        const entry = goalEntry(goal);
+        const stepDoneCount = steps.filter((step) =>
+          window.GoalProgress.stepDone(entry, milestone, step)
+        ).length;
         const meta = auto
-          ? `${milestone.completed_count || 0}/${milestone.count} tâche(s) terminée(s)`
-          : `${milestone.weight} %`;
+          ? `${milestone.completed_count || 0}/${milestone.count} tâche(s) · ${milestone.weight} %`
+          : steps.length > 0
+            ? `${stepDoneCount}/${steps.length} étape(s) · ${milestone.weight} %`
+            : `${milestone.weight} %`;
         const row = h(
           'div',
           { class: `goal-milestone${done ? ' is-done' : ''}` },
           h('span', { class: 'goal-milestone-title' }, `${done ? '✓ ' : ''}${milestone.title}`),
           h('span', { class: 'goal-milestone-meta' }, meta)
         );
-        if (!auto && confirmed) {
+
+        if (steps.length > 0 && confirmed) {
+          const stepList = h('div', { class: 'goal-steps' });
+          for (const step of steps) {
+            const stepDone = window.GoalProgress.stepDone(entry, milestone, step);
+            const stepBtn = h(
+              'button',
+              {
+                type: 'button',
+                class: `goal-step${stepDone ? ' is-done' : ''}`,
+              },
+              `${stepDone ? '✓' : '○'} ${step.title}`
+            );
+            stepBtn.addEventListener('click', () => toggleGoalStep(goal, milestone, step));
+            stepList.append(stepBtn);
+          }
+          row.append(stepList);
+        } else if (!auto && confirmed) {
           const btn = h(
             'button',
             { type: 'button', class: 'btn btn-ghost btn-small' },
@@ -624,6 +817,15 @@
       card.append(list);
       if (confirmed && next) {
         card.append(h('p', { class: 'goal-next' }, `Prochain jalon : ${next.title}`));
+      }
+      if (goal.custom) {
+        const remove = h(
+          'button',
+          { type: 'button', class: 'btn btn-ghost btn-small goal-remove' },
+          'Supprimer cet objectif'
+        );
+        remove.addEventListener('click', () => deleteCustomGoal(goal));
+        card.append(remove);
       }
       el.append(card);
     }
@@ -1073,6 +1275,7 @@
       render();
       ensureDefaultDay();
       loadGoals();
+      if (state.screen === 'order') refreshOrderStartTimes();
       els.loading.hidden = true;
       els.content.hidden = false;
       if (force && !silent) toast('Données rafraîchies depuis Todoist.', 'ok');
@@ -1364,10 +1567,19 @@
     }
     const panel = document.querySelector(`[data-screen-panel="${name}"]`);
     if (panel) panel.scrollTop = 0;
+    if (name === 'order') refreshOrderStartTimes();
     try {
       localStorage.setItem('todoist-triage:screen', name);
     } catch {
       /* stockage indisponible */
+    }
+  }
+
+  /** Recale les champs Début sur l'heure actuelle quand on ouvre Ordre. */
+  function refreshOrderStartTimes() {
+    if (currentFocusDate() !== state.data?.meta?.today) return;
+    if (adjustStartTimesToNow() && els.dayOrderHint) {
+      els.dayOrderHint.textContent = 'Début recalé sur l’heure actuelle.';
     }
   }
 
@@ -5656,6 +5868,7 @@
   els.assistantClearDone.addEventListener('click', clearDoneNotes);
 
   // Nettoyage approfondi.
+  els.goalPropose?.addEventListener('click', proposeGoal);
   els.cleanupScanBtn.addEventListener('click', scanCleanup);
 
   // Fenêtre de préparation et détail de tâche.
@@ -5681,6 +5894,7 @@
   state.reminderPlans = loadReminderPlans();
   state.orderNotes = loadOrderNotes();
   state.goalState = loadGoalState();
+  state.customGoals = loadCustomGoals();
   state.rituals = loadNoteMap(RITUALS_KEY);
   if (els.softMode) {
     try {
@@ -5700,6 +5914,12 @@
     /* stockage indisponible */
   }
   setScreen(state.screen);
+  setInterval(() => {
+    if (state.screen === 'order') refreshOrderStartTimes();
+  }, 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.screen === 'order') refreshOrderStartTimes();
+  });
   if ('serviceWorker' in navigator) {
     // `updateViaCache: 'none'` : le navigateur ne réutilise pas un vieux sw.js
     // en cache HTTP, sinon les mises à jour de l'app peuvent rester bloquées.

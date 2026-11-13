@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 45.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 46.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1161,6 +1161,23 @@ la tâche **et toutes ses sous-tâches ensemble**, à la même date.
 - **ADHD / anti-surcharge** documenté dans `LIFE_CONTEXT` et dans le prompt des
   suggestions : 1 priorité, micro-action 2 min, réduire la liste.
 
+## Itération 46 — objectifs créés par l’IA et progression par étapes
+
+- **Ordre limité au jour** : les tâches dont l’échéance est un autre jour ne sont
+  plus ajoutées comme parents. Seules les tâches dues aujourd’hui (ou en retard)
+  et leurs sous-tâches entrent dans l’ordre. « Rempoter violette » au 16/11 ne
+  pollue plus la journée du 13.
+- **Débuts recalculés** : à l’ouverture de l’onglet Ordre, au retour sur l’app et
+  toutes les minutes, les champs Début sont recalés sur l’heure actuelle.
+- **Création d’objectif** dans Objectifs : titre, description, date limite,
+  sources (liens YouTube/cours…), puis l’IA propose 3 à 6 jalons pondérés.
+  L’objectif est enregistré localement avec ses jalons.
+- **Progression exacte** : un jalon de 20 % divisé en 4 étapes donne **5 % par
+  étape** ; un jalon automatique de 20 % avec 4 tâches donne aussi 5 % par tâche.
+  Le calcul est dans `public/goal-progress.js`, testé.
+- Les objectifs personnalisés sont inclus dans les suggestions IA (prochain
+  jalon, progression).
+
 ## Automatisations Todoist — comment les brancher sur Triage
 
 Todoist Automations est en bêta sur les offres **Pro / Business**. Elle peut
@@ -1407,7 +1424,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 45 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 46 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
