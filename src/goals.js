@@ -43,6 +43,10 @@ function readGoals(file = defaultFile()) {
               milestone.type === 'completed_tasks'
                 ? Math.max(1, Math.min(500, Number(milestone.count) || 1))
                 : null,
+            keywords: (Array.isArray(milestone.keywords) ? milestone.keywords : [])
+              .map((keyword) => String(keyword || '').trim().toLowerCase())
+              .filter(Boolean)
+              .slice(0, 8),
           })),
       }));
   } catch {
@@ -50,7 +54,7 @@ function readGoals(file = defaultFile()) {
   }
 }
 
-function countCompleted(snapshot, keywords) {
+function countCompleted(snapshot, keywords, excludeIds = new Set()) {
   const recent = snapshot?.completed?.recent;
   if (!Array.isArray(recent) || keywords.length === 0) return 0;
   const projectNames = new Map(
@@ -58,6 +62,7 @@ function countCompleted(snapshot, keywords) {
   );
   let count = 0;
   for (const item of recent) {
+    if (item.id && excludeIds.has(String(item.id))) continue;
     const haystack = `${item.title || ''} ${
       projectNames.get(String(item.project_id || '')) || ''
     }`.toLowerCase();
@@ -67,19 +72,28 @@ function countCompleted(snapshot, keywords) {
 }
 
 /** Ajoute les compteurs automatiques aux définitions d'objectifs. */
-function evaluateGoals(snapshot, goals = readGoals()) {
+function evaluateGoals(snapshot, goals = readGoals(), excludeIds = new Set()) {
   return goals.map((goal) => {
-    const completed = countCompleted(snapshot, goal.keywords);
+    const completed = countCompleted(snapshot, goal.keywords, excludeIds);
     return {
       ...goal,
       completed_count: completed,
-      milestones: goal.milestones.map((milestone) => ({
-        ...milestone,
-        completed_count:
-          milestone.type === 'completed_tasks' ? completed : null,
-        auto_done:
-          milestone.type === 'completed_tasks' && completed >= milestone.count,
-      })),
+      milestones: goal.milestones.map((milestone) => {
+        const milestoneKeywords = Array.isArray(milestone.keywords) && milestone.keywords.length > 0
+          ? milestone.keywords
+          : goal.keywords;
+        const milestoneCompleted =
+          milestone.type === 'completed_tasks'
+            ? countCompleted(snapshot, milestoneKeywords, excludeIds)
+            : null;
+        return {
+          ...milestone,
+          completed_count: milestoneCompleted,
+          auto_done:
+            milestone.type === 'completed_tasks' &&
+            milestoneCompleted >= milestone.count,
+        };
+      }),
     };
   });
 }

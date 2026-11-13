@@ -128,7 +128,7 @@
       "keywords": ["puzzle", "pièce"],
       "confirmed": true,
       "milestones": [
-        { "id": "bords", "title": "Trier et poser les bords", "weight": 20, "type": "manual" },
+        { "id": "bords", "title": "Trier et poser les bords", "weight": 20, "type": "completed_tasks", "count": 1, "keywords": ["bord"] },
         { "id": "quart", "title": "25 % du puzzle", "weight": 20, "type": "manual" },
         { "id": "moitie", "title": "50 % du puzzle", "weight": 20, "type": "manual" },
         { "id": "trois-quarts", "title": "75 % du puzzle", "weight": 20, "type": "manual" },

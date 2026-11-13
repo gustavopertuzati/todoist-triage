@@ -19,6 +19,7 @@ const { normalizeCheckin } = require('./checkin');
 const { addDaysIso, isValidIsoDate } = require('./dates');
 const { readLifeContext } = require('./lifeContext');
 const { stripTimeMarker } = require('./taskTitles');
+const { getTaskComments } = require('./todoist');
 
 const SYSTEM_PROMPT = [
   'Tu proposes quelques nouvelles tâches concrètes pour une journée.',
@@ -59,6 +60,8 @@ function buildSuggestPrompt(digest, maxTasks) {
     '- Priorité 1 (P1) à 4 (P4) ; taille L, M ou S.',
     '- Les projets de "life_context" marqués comme quasi quotidiens ou avec une échéance proche doivent être proposés presque chaque jour, en variant les actions (sport : gym ou maison ; lecture : 40 pages ; permis : tests).',
     '- Si un projet est bloqué, propose une petite action qui débloque concrètement.',
+    '- Lis "completed_with_comments". Si un commentaire indique que la tâche n’est pas réellement terminée (ex. « juste séparé les bords encore ensemble »), propose une nouvelle tâche pour finir le travail et mets l’identifiant dans "partial_completions".',
+    '- Une tâche partielle ne doit pas être considérée comme accomplie dans les jalons.',
     '- Évite les tâches de communication personnelle non demandées (mail, WhatsApp, appels).',
     digest.exclude?.length
       ? `- À NE PAS PROPOSER (déjà suggérées/créées) : ${digest.exclude.join(' ; ')}.`
@@ -83,7 +86,8 @@ function buildSuggestPrompt(digest, maxTasks) {
     'Réponds EXACTEMENT par ce JSON :',
     '{"summary":"phrase courte expliquant tes suggestions",',
     ' "tasks":[{"title":"...","project_id":"...","life_area":"...","due_date":"AAAA-MM-JJ",',
-    ' "size":"L|M|S","priority":1,"reason":"..."}]}',
+    ' "size":"L|M|S","priority":1,"reason":"..."}],',
+    ' "partial_completions":[{"task_id":"...","reason":"..."}]}',
     '',
     'Données :',
     JSON.stringify(digest),
@@ -247,12 +251,43 @@ async function generateTaskSuggestions(
     .filter((goal) => goal.id && goal.title)
     .slice(0, 10);
 
+  // Les commentaires des tâches terminées aujourd'hui peuvent révéler une
+  // complétion partielle (« j'ai juste séparé les bords »). On les lit au
+  // moment des suggestions (pas à chaque chargement) pour économiser le quota.
+  const completedToday = Array.isArray(snapshot?.completed?.today)
+    ? snapshot.completed.today.slice(0, 12)
+    : [];
+  const completedWithComments = (
+    await Promise.all(
+      completedToday.map(async (item) => {
+        if (!item.id) return null;
+        try {
+          const result = await getTaskComments(item.id);
+          const comments = (Array.isArray(result?.results) ? result.results : [])
+            .filter((comment) => comment && comment.is_deleted !== true)
+            .map((comment) => String(comment.content || '').trim())
+            .filter(Boolean)
+            .slice(0, 3);
+          if (comments.length === 0) return null;
+          return {
+            id: String(item.id),
+            title: String(item.title || '').slice(0, 160),
+            comments: comments.join(' | ').slice(0, 600),
+          };
+        } catch {
+          return null;
+        }
+      })
+    )
+  ).filter(Boolean);
+
   const digest = {
     ...buildDayDigest(snapshot, date, normalizeCheckin(checkin)),
     life_context: readLifeContext(),
     exclude: cleanExclude,
     instruction: String(instruction || '').trim().slice(0, 500) || null,
     goals: cleanGoals,
+    completed_with_comments: completedWithComments,
   };
   const signature = signatureOf(digest);
   const cached = cache.get(String(date));
@@ -320,10 +355,27 @@ async function generateTaskSuggestions(
     finalSummary = `${finalSummary ? `${finalSummary} ` : ''}(${dropped} suggestion(s) écartée(s).)`;
   }
 
+  const commentIds = new Set(completedWithComments.map((item) => item.id));
+  const partials = new Map();
+  for (const source of [first.data, second?.data]) {
+    const raw = Array.isArray(source?.partial_completions)
+      ? source.partial_completions
+      : [];
+    for (const item of raw) {
+      const id = String(item?.task_id || '');
+      if (!commentIds.has(id) || partials.has(id)) continue;
+      partials.set(id, {
+        task_id: id,
+        reason: String(item?.reason || '').trim().slice(0, 240) || null,
+      });
+    }
+  }
+
   const entry = {
     signature,
     items,
     summary: finalSummary,
+    partial_completions: [...partials.values()],
     generatedAt: Date.now(),
     usage: first.usage,
     model: first.model,

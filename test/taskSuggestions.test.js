@@ -168,4 +168,6 @@ test('buildSuggestPrompt interdit les doublons et les tâches vagues', () => {
   assert.match(prompt, /date future/);
   assert.match(prompt, /quasi quotidiens/);
   assert.match(prompt, /presque chaque jour/);
+  assert.match(prompt, /completed_with_comments/);
+  assert.match(prompt, /partial_completions/);
 });

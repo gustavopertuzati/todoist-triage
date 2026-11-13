@@ -20,9 +20,9 @@ const snapshot = {
   projects: [{ id: 'p1', name: 'Permis' }],
   completed: {
     recent: [
-      { title: 'Test iTheorie 92%', project_id: 'p1' },
-      { title: 'Réviser le permis', project_id: 'p1' },
-      { title: 'Faire les courses', project_id: 'p2' },
+      { id: 'c1', title: 'Test iTheorie 92%', project_id: 'p1' },
+      { id: 'c2', title: 'Réviser le permis', project_id: 'p1' },
+      { id: 'c3', title: 'Faire les courses', project_id: 'p2' },
     ],
   },
 };
@@ -30,6 +30,12 @@ const snapshot = {
 test('countCompleted compte les tâches liées aux mots-clés', () => {
   assert.equal(countCompleted(snapshot, ['itheorie', 'permis']), 2);
   assert.equal(countCompleted(snapshot, ['inconnu']), 0);
+});
+
+test('evaluateGoals exclut une tâche partielle', () => {
+  const [evaluated] = evaluateGoals(snapshot, [goal], new Set(['c1']));
+  assert.equal(evaluated.completed_count, 1);
+  assert.equal(evaluated.milestones[0].completed_count, 1);
 });
 
 test('evaluateGoals calcule les jalons automatiques', () => {
@@ -53,6 +59,25 @@ test('normalizeMilestones normalise les poids à 100 et garde les étapes', () =
   );
   assert.equal(milestones[0].steps.length, 4);
   assert.equal(milestones[0].type, 'manual');
+});
+
+test('un jalon peut avoir ses propres mots-clés', () => {
+  const puzzleGoal = {
+    id: 'puzzle',
+    title: 'Puzzle',
+    keywords: ['puzzle'],
+    milestones: [
+      { id: 'bords', title: 'Bords', weight: 100, type: 'completed_tasks', count: 1, keywords: ['bord'] },
+    ],
+  };
+  const snap = {
+    projects: [],
+    completed: { recent: [{ id: 'x1', title: 'Bords du puzzle' }, { id: 'x2', title: 'Puzzle 50%' }] },
+  };
+  const [evaluated] = evaluateGoals(snap, [puzzleGoal]);
+  assert.equal(evaluated.completed_count, 2);
+  assert.equal(evaluated.milestones[0].completed_count, 1);
+  assert.equal(evaluated.milestones[0].auto_done, true);
 });
 
 test('readGoals charge les objectifs et leurs jalons', () => {

@@ -1012,6 +1012,7 @@ function createApp() {
         ok: true,
         date,
         proposals: result.items,
+        partial_completions: result.partial_completions || [],
         strategy: result.summary || null,
         cached: Boolean(result.cached),
         usage: result.usage || null,
@@ -1265,9 +1266,15 @@ function createApp() {
    */
   app.get('/api/goals', requireApiAuth, asyncHandler(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
+    const excludeIds = new Set(
+      String(req.query?.exclude || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+    );
     const { snapshot } = await getSnapshot({ force: false });
-    const goals = evaluateGoals(snapshot, readGoals());
-    res.json({ ok: true, goals });
+    const goals = evaluateGoals(snapshot, readGoals(), excludeIds);
+    res.json({ ok: true, goals, excluded: excludeIds.size });
   }));
 
   app.post(

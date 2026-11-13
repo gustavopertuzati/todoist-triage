@@ -3364,3 +3364,18 @@ body {
   margin-top: 6px;
 }
 
+
+.partial-note {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.partial-note p {
+  margin-bottom: 6px;
+}
+

@@ -258,4 +258,6 @@ module.exports = {
   // Lectures ciblées, pour vérifier qu'une écriture a bien pris effet.
   getTask: (taskId) => requestJson(`/tasks/${encodeURIComponent(taskId)}`),
   getProject: (projectId) => requestJson(`/projects/${encodeURIComponent(projectId)}`),
+  getTaskComments: (taskId) =>
+    requestJson('/comments', { query: { task_id: taskId } }),
 };

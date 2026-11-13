@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 46.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 47.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1178,6 +1178,23 @@ la tâche **et toutes ses sous-tâches ensemble**, à la même date.
 - Les objectifs personnalisés sont inclus dans les suggestions IA (prochain
   jalon, progression).
 
+## Itération 47 — commentaires et complétions partielles
+
+Quand une tâche est terminée avec un commentaire, la tâche peut en réalité être
+seulement partielle (ex. « j’ai juste séparé les bords encore ensemble »).
+
+- À chaque **Suggérer de nouvelles tâches**, l’app lit les commentaires des
+  tâches terminées aujourd’hui (max 12, uniquement à la demande).
+- L’IA reçoit ces commentaires et :
+  - propose une nouvelle tâche pour finir le travail ;
+  - renvoie `partial_completions` avec les identifiants des tâches partielles.
+- Les tâches partielles sont exclues des **compteurs automatiques des jalons**
+  (`GET /api/goals?exclude=...`), donc la progression redescend si nécessaire.
+- L’écran Objectifs affiche un avertissement et un bouton **« Réintégrer ces
+  tâches »** en cas d’erreur.
+- Le jalon « Trier et poser les bords » du puzzle est maintenant un jalon
+  automatique (mot-clé `bord`) : une complétion partielle ne le valide plus.
+
 ## Automatisations Todoist — comment les brancher sur Triage
 
 Todoist Automations est en bêta sur les offres **Pro / Business**. Elle peut
@@ -1424,7 +1441,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 46 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 47 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

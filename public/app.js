@@ -74,6 +74,7 @@
     goals: [],
     customGoals: [],
     goalState: {},
+    partialCompletions: {},
     goalsLoaded: false,
     rituals: {},
     reportChain: Promise.resolve(),
@@ -241,6 +242,7 @@
   const SOFT_MODE_KEY = 'todoist-triage:soft-mode';
   const RITUALS_KEY = 'todoist-triage:rituals';
   const CUSTOM_GOALS_KEY = 'todoist-triage:custom-goals';
+  const PARTIAL_COMPLETIONS_KEY = 'todoist-triage:partial-completions';
   const ACCEPTED_TASKS_KEY = 'todoist-triage:accepted-tasks';
   const IGNORED_TASKS_KEY = 'todoist-triage:ignored-tasks';
 
@@ -402,6 +404,17 @@
     return [...(state.goals || []), ...(state.customGoals || [])];
   }
 
+  function savePartialCompletions() {
+    try {
+      localStorage.setItem(
+        PARTIAL_COMPLETIONS_KEY,
+        JSON.stringify(state.partialCompletions || {})
+      );
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
   function goalEntry(goal) {
     return state.goalState[goal.id] || {};
   }
@@ -447,7 +460,11 @@
 
   async function loadGoals() {
     try {
-      const result = await apiJson('/api/goals');
+      const exclude = Object.keys(state.partialCompletions || {});
+      const query = exclude.length
+        ? `?exclude=${encodeURIComponent(exclude.join(','))}`
+        : '';
+      const result = await apiJson(`/api/goals${query}`);
       state.goals = Array.isArray(result.goals) ? result.goals : [];
       state.goalsLoaded = true;
       renderGoals();
@@ -699,6 +716,34 @@
     }
     el.hidden = false;
     el.append(h('h3', { class: 'section-title' }, 'Objectifs & jalons'));
+    const partials = Object.entries(state.partialCompletions || {});
+    if (partials.length > 0) {
+      const note = h('div', { class: 'partial-note' });
+      note.append(
+        h(
+          'p',
+          {},
+          `${partials.length} tâche(s) partielle(s) exclue(s) des jalons : ${
+            partials
+              .map(([, value]) => value.title || 'tâche terminée')
+              .slice(0, 3)
+              .join(', ')
+          }`
+        )
+      );
+      const clear = h(
+        'button',
+        { type: 'button', class: 'btn btn-ghost btn-small' },
+        'Réintégrer ces tâches'
+      );
+      clear.addEventListener('click', () => {
+        state.partialCompletions = {};
+        savePartialCompletions();
+        loadGoals();
+      });
+      note.append(clear);
+      el.append(note);
+    }
     for (const goal of goals) {
       const confirmed = goalConfirmed(goal);
       const progress = goalProgress(goal);
@@ -3081,13 +3126,33 @@
           ...state.daySuggestions.map((item) => item.title),
         ]),
       ].slice(-50);
+      const partials = Array.isArray(result.partial_completions)
+        ? result.partial_completions
+        : [];
+      if (partials.length > 0) {
+        const completed = state.data?.completed?.today || [];
+        for (const partial of partials) {
+          const id = String(partial.task_id || '');
+          if (!id) continue;
+          const match = completed.find((item) => String(item.id) === id);
+          state.partialCompletions[id] = {
+            reason: partial.reason || null,
+            title: match?.title || null,
+          };
+        }
+        savePartialCompletions();
+        loadGoals();
+      }
       state.suggestionsLoading = false;
       renderDayPlan();
+      const partialNote = partials.length
+        ? ` · ${partials.length} tâche(s) partielle(s) exclue(s) des jalons.`
+        : '';
       toast(
         state.daySuggestions.length
-          ? `${state.daySuggestions.length} nouvelle(s) tâche(s) suggérée(s).`
-          : 'Rien de pertinent à créer pour cette journée.',
-        'ok'
+          ? `${state.daySuggestions.length} nouvelle(s) tâche(s) suggérée(s).${partialNote}`
+          : `Rien de pertinent à créer pour cette journée.${partialNote}`,
+        partials.length ? 'error' : 'ok'
       );
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
@@ -5895,6 +5960,7 @@
   state.orderNotes = loadOrderNotes();
   state.goalState = loadGoalState();
   state.customGoals = loadCustomGoals();
+  state.partialCompletions = loadNoteMap(PARTIAL_COMPLETIONS_KEY);
   state.rituals = loadNoteMap(RITUALS_KEY);
   if (els.softMode) {
     try {

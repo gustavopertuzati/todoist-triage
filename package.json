@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.46.0",
+  "version": "0.47.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 46 : objectifs créés par l'IA, progression par étapes et ordre limité au jour).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 47 : commentaires de complétion partielle et jalons ajustés).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
