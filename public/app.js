@@ -74,6 +74,7 @@
     goals: [],
     goalState: {},
     goalsLoaded: false,
+    rituals: {},
     reportChain: Promise.resolve(),
     reportQueueSize: 0,
     startAdjusted: false,
@@ -117,6 +118,7 @@
     orderNote: document.getElementById('order-note'),
     planNote: document.getElementById('plan-note'),
     suggestionNote: document.getElementById('suggestion-note'),
+    softMode: document.getElementById('soft-mode'),
     timeConfirm: document.getElementById('time-confirm'),
     dayOrderEmpty: document.getElementById('day-order-empty'),
     dayOrder: document.getElementById('day-order'),
@@ -130,6 +132,7 @@
     proposalsCount: document.getElementById('proposals-count'),
     capacity: document.getElementById('capacity'),
     goalsPanel: document.getElementById('goals-panel'),
+    ritualsPanel: document.getElementById('rituals-panel'),
     dayPlan: document.getElementById('day-plan'),
     weekRecap: document.getElementById('week-recap'),
     proposalsNote: document.getElementById('proposals-note'),
@@ -228,6 +231,8 @@
   const GOAL_STATE_KEY = 'todoist-triage:goal-state';
   const PLAN_NOTES_KEY = 'todoist-triage:plan-notes';
   const SUGGESTION_NOTES_KEY = 'todoist-triage:suggestion-notes';
+  const SOFT_MODE_KEY = 'todoist-triage:soft-mode';
+  const RITUALS_KEY = 'todoist-triage:rituals';
   const ACCEPTED_TASKS_KEY = 'todoist-triage:accepted-tasks';
   const IGNORED_TASKS_KEY = 'todoist-triage:ignored-tasks';
 
@@ -420,6 +425,7 @@
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
       state.goalsLoaded = true;
+      renderRituals();
     }
   }
 
@@ -439,9 +445,107 @@
     toast('Jalons validés : le suivi de progression est actif.', 'ok');
   }
 
+  const RITUAL_DEFS = [
+    { id: 'duolingo', title: 'Duolingo', detail: '1 leçon — 2 min' },
+    { id: 'reading', title: 'Lire', detail: '2 pages — 3 min' },
+    { id: 'sport', title: 'Bouger', detail: '5 min à la maison' },
+  ];
+
+  function ritualDates(id) {
+    return Array.isArray(state.rituals[id]) ? state.rituals[id] : [];
+  }
+
+  function ritualDoneToday(id) {
+    return ritualDates(id).includes(localTodayIso());
+  }
+
+  function ritualStreak(id) {
+    const dates = new Set(ritualDates(id));
+    let cursor = localTodayIso();
+    if (!dates.has(cursor)) cursor = addDaysIso(cursor, -1);
+    let streak = 0;
+    while (dates.has(cursor) && streak < 3650) {
+      streak += 1;
+      cursor = addDaysIso(cursor, -1);
+    }
+    return streak;
+  }
+
+  function saveRituals() {
+    try {
+      localStorage.setItem(RITUALS_KEY, JSON.stringify(state.rituals));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  function toggleRitual(id) {
+    const today = localTodayIso();
+    const dates = new Set(ritualDates(id));
+    if (dates.has(today)) dates.delete(today);
+    else dates.add(today);
+    state.rituals[id] = [...dates].sort();
+    saveRituals();
+    renderRituals();
+  }
+
+  function renderRituals() {
+    const el = els.ritualsPanel;
+    if (!el) return;
+    clear(el);
+    el.hidden = false;
+    el.append(h('h3', { class: 'section-title' }, 'Rituels anti-surcharge'));
+    el.append(
+      h(
+        'p',
+        { class: 'fine-print' },
+        'Une seule micro-action par jour. Le but est de ne pas casser la chaîne, pas de tout faire.'
+      )
+    );
+    const next = (state.goals || [])
+      .filter((goal) => goalConfirmed(goal))
+      .map((goal) => ({ goal, milestone: nextGoalMilestone(goal) }))
+      .find((item) => item.milestone);
+    if (next) {
+      el.append(
+        h(
+          'p',
+          { class: 'goal-next' },
+          `Micro-action possible : ${next.milestone.title} (${next.goal.title})`
+        )
+      );
+    }
+    const list = h('div', { class: 'ritual-list' });
+    for (const ritual of RITUAL_DEFS) {
+      const done = ritualDoneToday(ritual.id);
+      const btn = h(
+        'button',
+        { type: 'button', class: done ? 'btn btn-ghost btn-small' : 'btn btn-primary btn-small' },
+        done ? 'Annuler' : 'Fait aujourd’hui'
+      );
+      btn.addEventListener('click', () => toggleRitual(ritual.id));
+      list.append(
+        h(
+          'div',
+          { class: 'ritual-row' },
+          h(
+            'div',
+            { class: 'ritual-body' },
+            h('span', { class: 'ritual-title' }, ritual.title),
+            h('span', { class: 'ritual-detail' }, ritual.detail)
+          ),
+          h('span', { class: 'ritual-streak' }, `🔥 ${ritualStreak(ritual.id)} j`),
+          btn
+        )
+      );
+    }
+    el.append(list);
+  }
+
   function renderGoals() {
     const el = els.goalsPanel;
     if (!el) return;
+    renderRituals();
     const goals = state.goals || [];
     clear(el);
     if (goals.length === 0) {
@@ -1245,7 +1349,7 @@
     renderDayOrder();
   }
 
-  const SCREENS = ['today', 'tasks', 'order', 'plan', 'clean', 'projects'];
+  const SCREENS = ['today', 'tasks', 'order', 'plan', 'goals', 'clean', 'projects'];
 
   function setScreen(name) {
     if (!SCREENS.includes(name)) return;
@@ -1308,6 +1412,8 @@
         body: JSON.stringify({
           date,
           force: alreadyLoaded,
+          refresh: true,
+          soft: Boolean(els.softMode?.checked),
           instruction: (els.orderNote?.value || '').trim().slice(0, 500),
           ...state.scheduleSettings,
         }),
@@ -1394,6 +1500,7 @@
           date,
           force: true,
           ai: false,
+          soft: Boolean(els.softMode?.checked),
           ...state.scheduleSettings,
         }),
       });
@@ -5498,6 +5605,19 @@
   els.orderNote?.addEventListener('input', () => {
     saveOrderNote(currentFocusDate(), els.orderNote.value);
   });
+  els.softMode?.addEventListener('change', () => {
+    try {
+      localStorage.setItem(SOFT_MODE_KEY, els.softMode.checked ? '1' : '0');
+    } catch {
+      /* stockage indisponible */
+    }
+    toast(
+      els.softMode.checked
+        ? 'Mode doux activé : 3 tâches max au prochain calcul.'
+        : 'Mode doux désactivé.',
+      'ok'
+    );
+  });
   els.planNote?.addEventListener('input', () => {
     saveNoteMap(PLAN_NOTES_KEY, state.planNotes, currentFocusDate(), els.planNote.value);
   });
@@ -5561,6 +5681,14 @@
   state.reminderPlans = loadReminderPlans();
   state.orderNotes = loadOrderNotes();
   state.goalState = loadGoalState();
+  state.rituals = loadNoteMap(RITUALS_KEY);
+  if (els.softMode) {
+    try {
+      els.softMode.checked = localStorage.getItem(SOFT_MODE_KEY) === '1';
+    } catch {
+      /* stockage indisponible */
+    }
+  }
   state.planNotes = loadNoteMap(PLAN_NOTES_KEY);
   state.suggestionNotes = loadNoteMap(SUGGESTION_NOTES_KEY);
   state.scheduleSettings = loadScheduleSettings();

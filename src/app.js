@@ -522,14 +522,18 @@ function createApp() {
         lunchEnd: req.body?.lunchEnd,
       };
       const useAi = req.body?.ai !== false;
+      const refresh = req.body?.refresh === true;
+      const soft = req.body?.soft === true;
       const instruction =
         typeof req.body?.instruction === 'string' ? req.body.instruction.slice(0, 500) : '';
-      const { snapshot } = await getSnapshot({ force: false });
+      // Un recalcul manuel relit Todoist pour ne pas garder une tâche supprimée.
+      const { snapshot } = await getSnapshot({ force: refresh });
       const result = await generateDayOrder(snapshot, date, {
         force,
         schedule,
         useAi,
         instruction,
+        soft,
       });
 
       return res.json({

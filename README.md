@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 44.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 45.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1146,6 +1146,45 @@ la tâche **et toutes ses sous-tâches ensemble**, à la même date.
   (ménage, lessive, vaisselle, rangement…). Le prompt demande de regrouper les
   tâches extérieures et de respecter une consigne « dehors en fin de journée ».
 
+## Itération 45 — page Objectifs, rituels, mode doux et corrections
+
+- **Onglet Objectifs** dédié : tous les projets de `LIFE_CONTEXT` ont des jalons
+  pondérés, avec progression, prochain jalon et validation des cases.
+- **Rituels anti-surcharge** : Duolingo 2 min, lire 2 pages, bouger 5 min, avec
+  série quotidienne (`🔥 n j`). Une seule micro-action par jour.
+- **Mode doux** dans Planifier : limite le planning à **3 tâches actives** ; le
+  reste est proposé au report.
+- **Lecture** : 1,5 min par page (40 pages ≈ 60 min, 80 ≈ 120 min), imposé même
+  si l'IA propose 15 min.
+- **Tâche supprimée** : un recalcul manuel relit Todoist (`refresh`) et ne garde
+  plus une tâche supprimée.
+- **ADHD / anti-surcharge** documenté dans `LIFE_CONTEXT` et dans le prompt des
+  suggestions : 1 priorité, micro-action 2 min, réduire la liste.
+
+## Automatisations Todoist — comment les brancher sur Triage
+
+Todoist Automations est en bêta sur les offres **Pro / Business**. Elle peut
+exécuter des workflows récurrents même quand Triage est fermé. Utilisation
+recommandée avec ce qui existe déjà :
+
+1. **Tâches en retard → aujourd’hui, chaque nuit.** Délègue ce reset à
+   Automations ; Triage garde la réorganisation fine et les propositions.
+2. **Ré-ranking hebdomadaire de la boîte de réception.** Automations peut
+   déclencher un tri ; Triage fournit l’analyse et l’ordre du jour.
+3. **Gmail / Google Calendar / Notion → tâche Todoist.** Automations gère les
+   déclencheurs externes ; Triage gère ensuite le planning et les jalons.
+4. **Rappels de bilan quotidien** via une notification push Todoist, sans
+   écrire dans WhatsApp/mail.
+
+Pour créer une automatisation en langage naturel, connecte un client MCP à
+`https://ai.todoist.net/mcp/automations` (ChatGPT, Claude, OpenCode…) puis
+demande par exemple : « Chaque soir à 23 h, remets mes tâches en retard à
+aujourd’hui. » Garde les actions destructives derrière **Human in the Loop**.
+
+Ce que Triage garde : lecture des projets, ordre du jour, reports, jalons,
+objectifs et suggestions. Ce qu’Automations apporte : déclencheurs horaires et
+connexions externes, même app fermée.
+
 ## Carnet « Notes & idées » pour OpenCode
 
 En bas à droite, un bouton ouvre un petit carnet. On y note en une phrase une
@@ -1368,7 +1407,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 44 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 45 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,

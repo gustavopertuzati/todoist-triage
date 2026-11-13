@@ -1,8 +1,8 @@
 {
   "name": "todoist-triage",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "private": true,
-  "description": "Petite app personnelle pour trier un Todoist encombré (itération 44 : quota, reports fiables et contexte intérieur/extérieur).",
+  "description": "Petite app personnelle pour trier un Todoist encombré (itération 45 : page objectifs, rituels anti-surcharge, mode doux et corrections).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

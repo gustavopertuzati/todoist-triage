@@ -18,6 +18,7 @@ const {
   suggestPostponeDate,
   generateDayOrder,
   detectContext,
+  readingMinutes,
 } = require('../src/dayOrder');
 
 const TODAY = '2026-11-05';
@@ -799,6 +800,46 @@ test('generateDayOrder sans IA inclut toutes les tâches et sous-tâches', async
   );
   assert.ok(result.variants.length > 0);
   assert.match(result.summary, /sans IA/);
+});
+
+test('le mode doux ne planifie que 3 tâches actives', () => {
+  const tasks = Array.from({ length: 5 }, (_, index) =>
+    dayTask(`t${index}`, 2, 'S', 15, `Tâche ${index}`)
+  );
+  const execution = tasks.map((task) => ({
+    id: task.id,
+    minutes: task.minutes,
+    context: 'other',
+  }));
+  const variants = buildScheduleVariants(tasks, execution, {
+    date: TODAY,
+    phoneStart: '09:00',
+    otherStart: '09:00',
+    end: '17:00',
+    breakMinutes: 0,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    soft: true,
+  });
+  const variant = variants.find((item) => item.key === 'priorite');
+  const scheduled = variant.items.filter((item) => !item.unscheduled);
+  const unscheduled = variant.items.filter((item) => item.unscheduled);
+  assert.equal(scheduled.length, 3);
+  assert.equal(unscheduled.length, 2);
+});
+
+test('la lecture est estimée à 1,5 min par page', () => {
+  assert.equal(readingMinutes({ title: 'Lire 40 pages' }), 60);
+  assert.equal(readingMinutes({ title: 'Lire 80 pages du livre' }), 120);
+  assert.equal(readingMinutes({ title: 'Appeler le dentiste' }), null);
+  const tasks = [
+    dayTask('read', 1, 'M', 15, 'Lire 80 pages du livre'),
+  ];
+  const { execution } = validateOrderResponse(
+    { order: [{ id: 'read', minutes: 15, context: 'other' }] },
+    tasks
+  );
+  assert.equal(execution.find((entry) => entry.id === 'read').minutes, 120);
 });
 
 test('detectContext reconnaît les tâches extérieures et intérieures', () => {

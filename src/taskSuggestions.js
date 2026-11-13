@@ -42,6 +42,7 @@ function buildSuggestPrompt(digest, maxTasks) {
     '',
     'Règles :',
     '- Propose plusieurs idées différentes (au moins 3 si possible), pas une seule.',
+    '- Anti-surcharge : privilégie 1 priorité + 2 petites actions ; si la charge est élevée, propose une micro-action de 2 minutes au lieu d’une grosse tâche.',
     '- Varie les objectifs/projets quand c’est pertinent.',
     '- Ne propose pas les titres listés dans "exclude" (déjà suggérés ou créés).',
     '- Chaque tâche doit faire avancer un projet/objectif réel de "life_context", pas une tâche générique.',

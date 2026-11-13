@@ -1,38 +1,151 @@
 {
-  "updated_at": "2026-11-10",
+  "updated_at": "2026-11-13",
   "goals": [
+    {
+      "id": "opencode",
+      "title": "Configurer OpenCode AI & agents",
+      "description": "Contrôler le téléphone et déléguer, avec des garde-fous stricts.",
+      "keywords": ["opencode", "agent", "openrouter", "groq"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "permissions", "title": "Définir les permissions minimales", "weight": 15, "type": "manual" },
+        { "id": "agents-3", "title": "Créer 3 agents restreints", "weight": 20, "type": "manual" },
+        { "id": "actions-5", "title": "Tester 5 actions réversibles", "weight": 25, "type": "completed_tasks", "count": 5 },
+        { "id": "garde-fous", "title": "Documenter les garde-fous", "weight": 20, "type": "manual" },
+        { "id": "stable-2-semaines", "title": "Utiliser 2 semaines sans incident", "weight": 20, "type": "manual" }
+      ]
+    },
+    {
+      "id": "jobops",
+      "title": "Suivre les candidatures sur JobOps",
+      "description": "Trouver un travail sans spammer ni mentir.",
+      "keywords": ["jobops", "candidature", "cv", "entretien", "emploi"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "cv", "title": "CV et profil à jour", "weight": 15, "type": "manual" },
+        { "id": "candidatures-5", "title": "Envoyer 5 candidatures ciblées", "weight": 20, "type": "completed_tasks", "count": 5 },
+        { "id": "candidatures-10", "title": "Envoyer 10 candidatures ciblées", "weight": 20, "type": "completed_tasks", "count": 10 },
+        { "id": "entretiens-3", "title": "Décrocher 3 entretiens", "weight": 20, "type": "manual" },
+        { "id": "offre", "title": "Recevoir une offre", "weight": 25, "type": "manual" }
+      ]
+    },
+    {
+      "id": "n8n",
+      "title": "Maintenir les workflows n8n",
+      "description": "Reconstruire et documenter les automatisations.",
+      "keywords": ["n8n", "workflow", "webhook", "automatisation"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "courrier", "title": "Reconstruire le workflow courrier", "weight": 30, "type": "manual" },
+        { "id": "erreurs", "title": "Workflow global des erreurs", "weight": 25, "type": "manual" },
+        { "id": "whatsapp", "title": "Intégration WhatsApp Meta", "weight": 25, "type": "manual" },
+        { "id": "doc", "title": "Documenter les workflows", "weight": 20, "type": "manual" }
+      ]
+    },
+    {
+      "id": "aws",
+      "title": "Étudier AWS Developer Associate",
+      "description": "Reprendre l’apprentissage par petits pas.",
+      "keywords": ["aws", "langchain", "spring ai", "certification"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "module-1", "title": "Terminer le module 1", "weight": 20, "type": "manual" },
+        { "id": "labs-5", "title": "Faire 5 labs pratiques", "weight": 20, "type": "completed_tasks", "count": 5 },
+        { "id": "examen-blanc", "title": "Examen blanc ≥ 70 %", "weight": 30, "type": "manual" },
+        { "id": "certification", "title": "Obtenir la certification", "weight": 30, "type": "manual" }
+      ]
+    },
+    {
+      "id": "calories",
+      "title": "Suivi calorique (~1600 kcal/j)",
+      "description": "Tenir une routine simple sans tout peser.",
+      "keywords": ["calorie", "lose it", "repas", "peser"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "jours-7", "title": "7 jours suivis", "weight": 20, "type": "completed_tasks", "count": 7 },
+        { "id": "jours-14", "title": "14 jours suivis", "weight": 30, "type": "completed_tasks", "count": 14 },
+        { "id": "jours-21", "title": "21 jours suivis", "weight": 25, "type": "completed_tasks", "count": 21 },
+        { "id": "mois-1", "title": "1 mois stable", "weight": 25, "type": "manual" }
+      ]
+    },
+    {
+      "id": "sport",
+      "title": "Faire les séances de sport",
+      "description": "NonStop Gym Servette + maison, quasi quotidien.",
+      "keywords": ["sport", "gym", "fitness", "musculation", "séance", "nonstop", "cardio"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "seances-6", "title": "3 séances/semaine pendant 2 semaines", "weight": 20, "type": "completed_tasks", "count": 6 },
+        { "id": "seances-16", "title": "4 séances/semaine pendant 4 semaines", "weight": 30, "type": "completed_tasks", "count": 16 },
+        { "id": "mois-1", "title": "1 mois régulier", "weight": 20, "type": "manual" },
+        { "id": "mois-3", "title": "3 mois régulier", "weight": 30, "type": "manual" }
+      ]
+    },
     {
       "id": "itheorie",
       "title": "Réussir la théorie du permis (iTheorie)",
       "description": "Objectif : 90 % de réussite, 3 tests consécutifs.",
       "keywords": ["itheorie", "theorie", "théorie", "permis"],
-      "confirmed": false,
+      "confirmed": true,
       "milestones": [
-        {
-          "id": "tests-10",
-          "title": "Faire 10 tests d'entraînement",
-          "weight": 10,
-          "type": "completed_tasks",
-          "count": 10
-        },
-        {
-          "id": "score-80",
-          "title": "Atteindre 80 % une première fois",
-          "weight": 15,
-          "type": "manual"
-        },
-        {
-          "id": "streak-90",
-          "title": "Enchaîner 3 tests ≥ 90 %",
-          "weight": 30,
-          "type": "manual"
-        },
-        {
-          "id": "exam",
-          "title": "Réussir l'examen officiel",
-          "weight": 45,
-          "type": "manual"
-        }
+        { "id": "tests-10", "title": "Faire 10 tests d'entraînement", "weight": 10, "type": "completed_tasks", "count": 10 },
+        { "id": "score-80", "title": "Atteindre 80 % une première fois", "weight": 15, "type": "manual" },
+        { "id": "streak-90", "title": "Enchaîner 3 tests ≥ 90 %", "weight": 30, "type": "manual" },
+        { "id": "exam", "title": "Réussir l'examen officiel", "weight": 45, "type": "manual" }
+      ]
+    },
+    {
+      "id": "reading",
+      "title": "Lire 7 livres d'ici le 01.01.2027",
+      "description": "40 pages par jour de semaine, ~1 h, hors week-end.",
+      "keywords": ["lire", "lecture", "livre", "pages"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "sessions-5", "title": "5 sessions de 40 pages", "weight": 10, "type": "completed_tasks", "count": 5 },
+        { "id": "livre-1", "title": "Terminer le livre 1", "weight": 15, "type": "manual" },
+        { "id": "livres-3", "title": "Terminer 3 livres", "weight": 20, "type": "manual" },
+        { "id": "livres-5", "title": "Terminer 5 livres", "weight": 25, "type": "manual" },
+        { "id": "livres-7", "title": "Terminer les 7 livres", "weight": 30, "type": "manual" }
+      ]
+    },
+    {
+      "id": "plants",
+      "title": "Entretenir et bouturer les plantes",
+      "description": "Sauver les violettes et bouturer les plantes d'intérieur.",
+      "keywords": ["plante", "arrosage", "arroser", "bouture", "violette"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "arrosage-7", "title": "Arroser 7 jours", "weight": 20, "type": "completed_tasks", "count": 7 },
+        { "id": "violettes", "title": "Sauver les violettes", "weight": 30, "type": "manual" },
+        { "id": "boutures-2", "title": "Faire 2 boutures", "weight": 25, "type": "manual" },
+        { "id": "mois-1", "title": "1 mois sans perte", "weight": 25, "type": "manual" }
+      ]
+    },
+    {
+      "id": "puzzle",
+      "title": "Avancer le puzzle « Map of the Universe »",
+      "description": "1500 pièces, à faire avec Marco.",
+      "keywords": ["puzzle", "pièce"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "bords", "title": "Trier et poser les bords", "weight": 20, "type": "manual" },
+        { "id": "quart", "title": "25 % du puzzle", "weight": 20, "type": "manual" },
+        { "id": "moitie", "title": "50 % du puzzle", "weight": 20, "type": "manual" },
+        { "id": "trois-quarts", "title": "75 % du puzzle", "weight": 20, "type": "manual" },
+        { "id": "fini", "title": "Terminer le puzzle", "weight": 20, "type": "manual" }
+      ]
+    },
+    {
+      "id": "public",
+      "title": "Préparation avant le public",
+      "description": "Douche, soin et tenue avant les rendez-vous publics.",
+      "keywords": ["douche", "soin", "coiffeur", "tenue", "public"],
+      "confirmed": true,
+      "milestones": [
+        { "id": "prep-3", "title": "Routine avant 3 événements publics", "weight": 30, "type": "completed_tasks", "count": 3 },
+        { "id": "coiffeur", "title": "Prendre un rendez-vous coiffeur", "weight": 20, "type": "manual" },
+        { "id": "prep-5", "title": "Routine avant 5 événements", "weight": 25, "type": "manual" },
+        { "id": "mois-1", "title": "1 mois de routine stable", "weight": 25, "type": "manual" }
       ]
     }
   ]

@@ -81,6 +81,7 @@
           <button type="button" class="screen-tab" data-screen-tab="tasks">Tâches</button>
           <button type="button" class="screen-tab" data-screen-tab="order">Ordre</button>
           <button type="button" class="screen-tab" data-screen-tab="plan">Planifier</button>
+          <button type="button" class="screen-tab" data-screen-tab="goals">Objectifs</button>
           <button type="button" class="screen-tab" data-screen-tab="clean">Nettoyage</button>
           <button type="button" class="screen-tab" data-screen-tab="projects">Projets</button>
         </nav>
@@ -203,7 +204,6 @@
             </div>
             <span class="pill pill-readonly">Lecture seule</span>
           </div>
-          <div id="goals-panel" class="goals-panel" hidden></div>
           <label class="order-note">
             <span>Consigne pour l’IA — planification (optionnel)</span>
             <textarea
@@ -212,6 +212,10 @@
               maxlength="500"
               placeholder="Ex. : garder la matinée libre ; ne rien planifier après 16 h ; privilégier les petites tâches."
             ></textarea>
+          </label>
+          <label class="soft-mode">
+            <input id="soft-mode" type="checkbox" />
+            <span>Mode doux : ne planifier que 3 tâches maximum</span>
           </label>
           <label class="order-note">
             <span>Consigne pour les suggestions de tâches (optionnel)</span>
@@ -226,6 +230,21 @@
           <div id="day-plan" class="day-plan"></div>
           <div id="week-recap" class="week-recap" hidden></div>
         </section>
+        </section>
+
+        <section class="screen" data-screen-panel="goals">
+          <section class="panel" aria-labelledby="goals-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="goals-title">Objectifs & jalons</h2>
+                <p class="panel-sub">
+                  Progression par jalons, micro-routines et prochaine action.
+                </p>
+              </div>
+            </div>
+            <div id="goals-panel" class="goals-panel" hidden></div>
+            <div id="rituals-panel" class="goals-panel" hidden></div>
+          </section>
         </section>
 
         <section class="screen" data-screen-panel="clean">

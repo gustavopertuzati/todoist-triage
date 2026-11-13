@@ -101,6 +101,16 @@ actions, et servir à éviter les conseils déconnectés de la réalité.
 - À faire avec Marco.
 - Blocage : difficulté à lui proposer.
 
+## Énergie, ADHD et anti-surcharge
+
+- **Une seule priorité par jour.** Le reste est un bonus, pas une obligation.
+- **Micro-démarrage 2 minutes** : ouvrir le document, lire 2 pages, faire 5 min de sport.
+- Quand la charge monte : réduire la liste au lieu d'ajouter des tâches.
+- Garder les routines minimales même les jours difficiles : Duolingo 2 min,
+  2 pages de lecture, 5 min de mouvement.
+- Ne pas remplacer les habitudes (Duolingo, lecture, sport) par l'application.
+- Le mode doux de Triage limite le planning à 3 tâches actives.
+
 ## Apparence et vie publique
 
 - Se sent assez réservé / **self-conscious en public**.

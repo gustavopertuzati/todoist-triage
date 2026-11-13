@@ -39,10 +39,10 @@ test('evaluateGoals calcule les jalons automatiques', () => {
   assert.equal(evaluated.milestones[1].auto_done, false);
 });
 
-test('readGoals charge la proposition iTheorie non validée', () => {
+test('readGoals charge les objectifs et leurs jalons', () => {
   const goals = readGoals();
-  assert.ok(goals.some((item) => item.id === 'itheorie'));
+  assert.ok(goals.length >= 10);
   const itheorie = goals.find((item) => item.id === 'itheorie');
-  assert.equal(itheorie.confirmed, false);
+  assert.equal(itheorie.confirmed, true);
   assert.ok(itheorie.milestones.length >= 4);
 });

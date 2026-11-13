@@ -49,8 +49,21 @@ function detectContext(task) {
   return 'other';
 }
 
+/** Lecture : ~1,5 min par page (40 pages ≈ 1 h, 80 pages ≈ 2 h). */
+function readingMinutes(task) {
+  const text = `${task?.title || task?.display_title || task?.content || ''} ${
+    task?.note || task?.description || ''
+  }`.toLowerCase();
+  if (!/\b(lire|lecture|reading|livre|book|pages?)\b/.test(text)) return null;
+  const match = /(\d{1,3})\s*pages?\b/.exec(text);
+  if (!match) return null;
+  return Math.max(10, Math.min(480, Math.round(Number(match[1]) * 1.5)));
+}
+
 /** Durée : durée Todoist si renseignée, sinon estimation par taille. */
 function estimateMinutes(task, size, aiMinutes = null) {
+  const reading = readingMinutes(task);
+  if (reading) return reading;
   const duration = task?.duration;
   if (duration && typeof duration === 'object') {
     const amount = Number(duration.amount) || 0;
@@ -436,6 +449,7 @@ function buildOrderPrompt(digest) {
     '',
     'Pour chaque tâche :',
     '- estime "minutes" de façon réaliste (5 à 480) d’après le titre, la note, la taille et le contexte ;',
+    '- Lecture : compte environ 1,5 min par page (40 pages ≈ 60 min, 80 pages ≈ 120 min). Ne mets jamais 15 min pour 80 pages.',
     '- classe "context" parmi phone, computer, home, outside, office, other.',
     '- donne une raison courte (max 10 mots) dans "why".',
     '',
@@ -502,7 +516,9 @@ function validateOrderResponse(parsed, tasks) {
         typeof entry?.why === 'string' && entry.why.trim()
           ? entry.why.trim().slice(0, 120)
           : null,
-      minutes: normalizeMinutes(entry?.minutes, fallbackMinutes(task)),
+      minutes:
+        readingMinutes(task) ??
+        normalizeMinutes(entry?.minutes, fallbackMinutes(task)),
       context,
       wait_minutes: waitMinutes,
       parallel_with: parallelWith,
@@ -541,12 +557,22 @@ function scheduleVariant(
   key,
   label,
   ordered,
-  { phoneStart, otherStart, dayEnd, breakMinutes, lunchStart, lunchEnd, date = null }
+  {
+    phoneStart,
+    otherStart,
+    dayEnd,
+    breakMinutes,
+    lunchStart,
+    lunchEnd,
+    date = null,
+    soft = false,
+  }
 ) {
   let cursor = null;
   let lastEnd = null;
   let overflow = 0;
   let stopped = false;
+  let activeCount = 0;
   const items = [];
   const titleById = new Map(ordered.map((task) => [task.id, task.title]));
   const taskById = new Map(ordered.map((task) => [task.id, task]));
@@ -643,10 +669,10 @@ function scheduleVariant(
     start = avoidLunch(start, task.minutes, lunchStart, lunchEnd);
     start = Math.max(start, prepEnd === null ? earliest : prepEnd);
 
-    // Plus de place avant la fin de journée : on arrête net. Les tâches
-    // suivantes restent non planifiées (et seront proposées au report), au
-    // lieu de glisser après minuit.
-    if (stopped || start + task.minutes > dayEnd) {
+    // Plus de place avant la fin de journée (ou mode doux : 3 tâches max) :
+    // on arrête net. Les suivantes restent non planifiées et sont proposées
+    // au report, au lieu de glisser après minuit.
+    if (stopped || (soft && activeCount >= 3) || start + task.minutes > dayEnd) {
       stopped = true;
       overflow += task.minutes;
       items.push({
@@ -667,6 +693,7 @@ function scheduleVariant(
       return;
     }
 
+    activeCount += 1;
     const end = start + task.minutes;
     const waitMinutes = normalizeWait(task.wait_minutes);
     const parallelIds = (Array.isArray(task.parallel_with) ? task.parallel_with : [])
@@ -738,6 +765,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
   const breakMinutes = schedule.breakMinutes;
 
   const planDate = typeof options.date === 'string' ? options.date : null;
+  const soft = options.soft === true;
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const executionTasks = subtasksFirstOrder(
     execution.map((entry) => byId.get(entry.id)).filter(Boolean)
@@ -759,6 +787,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       dayEnd,
       breakMinutes,
       date: planDate,
+      soft,
       lunchStart,
       lunchEnd,
     }),
@@ -768,6 +797,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       dayEnd,
       breakMinutes,
       date: planDate,
+      soft,
       lunchStart,
       lunchEnd,
     }),
@@ -777,6 +807,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       dayEnd,
       breakMinutes,
       date: planDate,
+      soft,
       lunchStart,
       lunchEnd,
     }),
@@ -786,6 +817,7 @@ function buildScheduleVariants(tasks, execution, options = {}) {
       dayEnd,
       breakMinutes,
       date: planDate,
+      soft,
       lunchStart,
       lunchEnd,
     }),
@@ -812,7 +844,7 @@ function suggestPostponeDate(snapshot, date, size) {
  * priorité. Les moins importantes sont proposées au report en premier, mais
  * une tâche importante qui déborde est aussi proposée (l'utilisateur tranche).
  */
-function buildPostponePlan(tasks, schedule, snapshot, date) {
+function buildPostponePlan(tasks, schedule, snapshot, date, soft = false) {
   if (!Array.isArray(tasks) || tasks.length === 0) return [];
   const normalized = normalizeSchedule(schedule || {});
   const end = parseTime(normalized.end, 17 * 60);
@@ -822,6 +854,7 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
     dayEnd: end,
     breakMinutes: normalized.breakMinutes,
     date,
+    soft,
     lunchStart: parseTime(normalized.lunchStart, 12 * 60),
     lunchEnd: parseTime(normalized.lunchEnd, 13 * 60),
   });
@@ -891,12 +924,13 @@ function buildPostponePlan(tasks, schedule, snapshot, date) {
 }
 
 /** Ajoute la liste des reports possibles à un résultat d'ordre. */
-function withPostpone(result, snapshot, date) {
+function withPostpone(result, snapshot, date, soft = false) {
   const postpone = buildPostponePlan(
     result.tasks || [],
     result.schedule || {},
     snapshot,
-    date
+    date,
+    soft
   );
   return { ...result, postpone };
 }
@@ -904,7 +938,7 @@ function withPostpone(result, snapshot, date) {
 async function generateDayOrder(
   snapshot,
   date,
-  { force = false, schedule = null, useAi = true, instruction = '' } = {}
+  { force = false, schedule = null, useAi = true, instruction = '', soft = false } = {}
 ) {
   const normalizedInstruction = String(instruction || '').trim().slice(0, 500);
   const normalizedSchedule = clampScheduleToNow(
@@ -938,7 +972,8 @@ async function generateDayOrder(
         usage: null,
       },
       snapshot,
-      date
+      date,
+      soft
     );
   }
 
@@ -949,7 +984,7 @@ async function generateDayOrder(
         tasks,
         priority,
         execution: fallbackExecution,
-        variants: buildScheduleVariants(tasks, fallbackExecution, { ...normalizedSchedule, date }),
+        variants: buildScheduleVariants(tasks, fallbackExecution, { ...normalizedSchedule, date, soft }),
         schedule: normalizedSchedule,
         changed: 0,
         summary: useAi
@@ -959,7 +994,8 @@ async function generateDayOrder(
         usage: null,
       },
       snapshot,
-      date
+      date,
+      soft
     );
   }
 
@@ -971,7 +1007,9 @@ async function generateDayOrder(
     cached.signature === signature &&
     (config.aiCacheTtlMs === 0 || Date.now() - cached.generatedAt < config.aiCacheTtlMs);
 
-  if (fresh && !force) return withPostpone({ ...cached, cached: true }, snapshot, date);
+  if (fresh && !force) {
+    return withPostpone({ ...cached, cached: true }, snapshot, date, soft);
+  }
 
   let data;
   let usage = null;
@@ -993,7 +1031,7 @@ async function generateDayOrder(
         tasks,
         priority,
         execution: fallbackExecution,
-        variants: buildScheduleVariants(tasks, fallbackExecution, { ...normalizedSchedule, date }),
+        variants: buildScheduleVariants(tasks, fallbackExecution, { ...normalizedSchedule, date, soft }),
         schedule: normalizedSchedule,
         changed: 0,
         summary: 'IA indisponible : ordre de priorité utilisé.',
@@ -1001,7 +1039,8 @@ async function generateDayOrder(
         usage: null,
       },
       snapshot,
-      date
+      date,
+      soft
     );
   }
 
@@ -1024,6 +1063,7 @@ async function generateDayOrder(
   const variants = buildScheduleVariants(tasks, execution, {
     ...normalizedSchedule,
     date,
+    soft,
   });
   const entry = {
     signature,
@@ -1041,7 +1081,7 @@ async function generateDayOrder(
   };
   cache.set(String(date), entry);
 
-  return withPostpone({ ...entry, cached: false }, snapshot, date);
+  return withPostpone({ ...entry, cached: false }, snapshot, date, soft);
 }
 
 function clearDayOrderCache() {
@@ -1054,6 +1094,7 @@ module.exports = {
   priorityOrder,
   buildDayOrderDigest,
   buildOrderPrompt,
+  readingMinutes,
   validateOrderResponse,
   normalizeSchedule,
   clampScheduleToNow,
