@@ -24,6 +24,14 @@
     dayPlan: null,
     dayLoading: false,
     dayError: null,
+    review: {
+      loading: false,
+      error: null,
+      data: null,
+      answers: {},
+      submitting: false,
+      result: null,
+    },
     checkinQuestions: [],
     checkinDefaults: {},
     checkins: {},
@@ -109,6 +117,13 @@
     logoutBtn: document.getElementById('logout-btn'),
     todayLabel: document.getElementById('today-label'),
     syncedAt: document.getElementById('synced-at'),
+    reviewCallout: document.getElementById('review-callout'),
+    reviewCalloutTitle: document.getElementById('review-callout-title'),
+    reviewCalloutText: document.getElementById('review-callout-text'),
+    reviewCalloutBtn: document.getElementById('review-callout-btn'),
+    reviewBadge: document.getElementById('review-badge'),
+    reviewPanel: document.getElementById('review-panel'),
+    reviewCount: document.getElementById('review-count'),
     warningsPanel: document.getElementById('warnings-panel'),
     warningsList: document.getElementById('warnings-list'),
     widgetTitle: document.getElementById('widget-title'),
@@ -455,6 +470,7 @@
         title: goal.title,
         progress: goalProgress(goal),
         next_milestone: nextGoalMilestone(goal)?.title || null,
+        pace: goal.adaptive_pace || goal.pace || null,
       }));
   }
 
@@ -765,6 +781,40 @@
       );
       if (goal.description) {
         card.append(h('p', { class: 'goal-desc' }, goal.description));
+      }
+      const pace = goal.adaptive_pace || goal.pace || null;
+      if (pace) {
+        const value = Number(pace.current ?? pace.value);
+        const base = Number(pace.base);
+        if (Number.isFinite(value) && value > 0) {
+          card.append(
+            h(
+              'p',
+              { class: 'goal-pace' },
+              base && value !== base
+                ? `Rythme adapté : ${value} ${pace.unit || ''}/jour (objectif de départ ${base}).`
+                : `Rythme : ${value} ${pace.unit || ''}/jour.`
+            )
+          );
+          if (pace.paused_until) {
+            card.append(
+              h('p', { class: 'goal-desc' }, `⏸ En pause jusqu’au ${formatDate(pace.paused_until)}.`)
+            );
+          }
+          if (base && value !== base) {
+            card.append(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'btn btn-ghost btn-small',
+                  onclick: () => resetAdaptiveGoal(goal.id),
+                },
+                'Revenir à l’objectif de départ'
+              )
+            );
+          }
+        }
       }
       if (goal.deadline) {
         card.append(h('p', { class: 'goal-desc' }, `Échéance : ${formatDate(goal.deadline)}`));
@@ -1320,6 +1370,7 @@
       render();
       ensureDefaultDay();
       loadGoals();
+      loadReview();
       if (state.screen === 'order') refreshOrderStartTimes();
       els.loading.hidden = true;
       els.content.hidden = false;
@@ -1346,6 +1397,7 @@
     els.footerVersion.textContent = meta.app_version || '';
     renderWarnings(warnings);
     renderKpis(summary);
+    renderReview();
     renderWidget();
     renderPlanner();
     renderWeekRecap();
@@ -1597,7 +1649,7 @@
     renderDayOrder();
   }
 
-  const SCREENS = ['today', 'tasks', 'order', 'plan', 'goals', 'clean', 'projects'];
+  const SCREENS = ['today', 'review', 'tasks', 'order', 'plan', 'goals', 'clean', 'projects'];
 
   function setScreen(name) {
     if (!SCREENS.includes(name)) return;
@@ -1613,6 +1665,8 @@
     const panel = document.querySelector(`[data-screen-panel="${name}"]`);
     if (panel) panel.scrollTop = 0;
     if (name === 'order') refreshOrderStartTimes();
+    renderReview();
+    if (name === 'review' && !state.review.data && !state.review.loading) loadReview();
     try {
       localStorage.setItem('todoist-triage:screen', name);
     } catch {
@@ -3259,6 +3313,12 @@
       els.dayPlan.append(notes);
     }
 
+    if (Array.isArray(plan.review_hints) && plan.review_hints.length > 0) {
+      const hints = h('ul', { class: 'day-notes review-day-hints' });
+      for (const hint of plan.review_hints) hints.append(h('li', {}, `Bilan : ${hint}`));
+      els.dayPlan.append(hints);
+    }
+
     const toRemove = plan.to_remove
       ? plan.to_remove.L + plan.to_remove.M + plan.to_remove.S
       : 0;
@@ -3476,6 +3536,501 @@
       );
     }
     for (const line of lines) els.weekRecap.append(line);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bilan de la veille et adaptation (itération 48)
+  // ---------------------------------------------------------------------------
+
+  async function loadReview() {
+    if (state.review.loading) return;
+    state.review.loading = true;
+    if (els.reviewPanel) renderReview();
+    try {
+      const result = await apiJson('/api/review');
+      state.review.data = result;
+      state.review.error = null;
+      if (
+        Array.isArray(result.success_updates) &&
+        result.success_updates.some((item) => item.kind === 'raise')
+      ) {
+        loadGoals();
+      }
+      // Reprend les réponses déjà données pour ne pas perdre le travail en cours.
+      const answers = { ...(state.review.answers || {}) };
+      for (const answer of result.answers || []) {
+        if (answer?.taskId) {
+          answers[answer.taskId] = {
+            reason: answer.reason || null,
+            action: answer.action || 'auto',
+            note: answer.note || '',
+          };
+        }
+      }
+      state.review.answers = answers;
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.review.error = error.message || 'Impossible de lire le bilan de la veille.';
+    } finally {
+      state.review.loading = false;
+      renderReview();
+    }
+  }
+
+  function reviewAnswer(taskId) {
+    const id = String(taskId);
+    if (!state.review.answers[id]) {
+      state.review.answers[id] = { reason: null, action: 'auto', note: '' };
+    }
+    return state.review.answers[id];
+  }
+
+  function reviewReasonLabel(reason) {
+    const list = state.review.data?.reasons || [];
+    return (list.find((item) => item.value === reason) || {}).label || reason;
+  }
+
+  function renderReview() {
+    const data = state.review.data;
+    const pending = Number(data?.pending_count) || 0;
+    const showCallout = Boolean(
+      data && pending > 0 && !state.review.result && state.screen !== 'review'
+    );
+    if (els.reviewCallout) els.reviewCallout.hidden = !showCallout;
+    if (els.reviewCalloutText && data) {
+      els.reviewCalloutText.textContent =
+        pending === 1
+          ? '1 tâche prévue hier n’a pas été faite. Dis-moi pourquoi et j’adapte.'
+          : `${pending} tâches prévues hier n’ont pas été faites. Dis-moi pourquoi et j’adapte.`;
+    }
+    if (els.reviewBadge) {
+      els.reviewBadge.hidden = pending <= 0;
+      els.reviewBadge.textContent = String(pending);
+    }
+    if (els.reviewCount) {
+      els.reviewCount.textContent = state.review.result
+        ? 'Fait'
+        : pending > 0
+          ? `${pending} à revoir`
+          : data?.reviewed
+            ? 'Fait'
+            : '0';
+    }
+
+    const panel = els.reviewPanel;
+    if (!panel) return;
+    clear(panel);
+
+    if (state.review.loading && !data) {
+      panel.append(h('p', { class: 'day-status' }, 'Lecture du bilan de la veille…'));
+      return;
+    }
+    if (state.review.error) {
+      panel.append(h('p', { class: 'day-status is-error' }, state.review.error));
+      panel.append(
+        h(
+          'button',
+          { type: 'button', class: 'btn btn-secondary btn-small', onclick: loadReview },
+          'Réessayer'
+        )
+      );
+      return;
+    }
+    if (!data) {
+      panel.append(h('p', { class: 'empty-line' }, 'Ouvre cette section après le chargement.'));
+      return;
+    }
+
+    if (state.review.result) {
+      renderReviewResult(panel, state.review.result);
+      return;
+    }
+
+    const intro = h(
+      'div',
+      { class: 'review-intro' },
+      h(
+        'p',
+        {},
+        data.unfinished.length > 0
+          ? `Hier (${formatDate(data.yesterday)}), ${data.unfinished.length} tâche(s) prévue(s) n’ont pas été terminées.`
+          : `Hier (${formatDate(data.yesterday)}), aucune tâche prévue n’est restée en suspens.`
+      ),
+      h(
+        'p',
+        { class: 'fine-print' },
+        `${data.completed_count || 0} tâche(s) terminée(s) hier. Les réponses servent tout de suite à adapter aujourd’hui.`
+      )
+    );
+    panel.append(intro);
+
+    const raises = (Array.isArray(data.success_updates) ? data.success_updates : []).filter(
+      (item) => item.kind === 'raise'
+    );
+    if (raises.length > 0) {
+      for (const raise of raises) {
+        panel.append(
+          h(
+            'p',
+            { class: 'goal-pace' },
+            `Bravo : deux réussites de suite pour ${raise.title}. Le rythme remonte de ${raise.from} à ${raise.to} ${raise.unit || ''}.`
+          )
+        );
+      }
+    }
+
+    if (data.reviewed && pending === 0) {
+      panel.append(
+        h(
+          'p',
+          { class: 'day-status' },
+          'Le bilan d’hier est déjà rempli. Tu peux ajuster le rythme ci-dessous.'
+        )
+      );
+    }
+
+    if (pending === 0) {
+      const goals = Array.isArray(data.goals) ? data.goals.filter((goal) => goal.current !== goal.base) : [];
+      if (goals.length > 0) {
+        panel.append(h('h3', { class: 'section-title' }, 'Rythmes adaptés'));
+        for (const goal of goals) panel.append(reviewGoalLine(goal));
+      }
+      const lastAdjustments = Array.isArray(data.last_adjustments)
+        ? data.last_adjustments
+        : [];
+      if (lastAdjustments.length > 0) {
+        panel.append(h('h3', { class: 'section-title' }, 'Actions du dernier bilan'));
+        const list = h('div', { class: 'proposals' });
+        for (const adjustment of lastAdjustments) list.append(reviewAdjustmentCard(adjustment));
+        panel.append(list);
+      }
+      panel.append(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn btn-secondary btn-small',
+            onclick: () => {
+              state.review.result = null;
+              loadReview();
+            },
+          },
+          'Recharger le bilan'
+        )
+      );
+      return;
+    }
+
+    if (data.review_hints || (data.hints && data.hints.length)) {
+      const hints = data.hints || data.review_hints || [];
+      if (hints.length > 0) {
+        const list = h('ul', { class: 'day-notes' });
+        for (const hint of hints) list.append(h('li', {}, hint));
+        panel.append(list);
+      }
+    }
+
+    const cards = h('div', { class: 'review-tasks' });
+    for (const task of data.unfinished) cards.append(reviewTaskCard(task));
+    panel.append(cards);
+
+    const submit = h(
+      'button',
+      { type: 'button', class: 'btn btn-primary' },
+      state.review.submitting ? 'Enregistrement…' : 'Valider le bilan et adapter'
+    );
+    submit.disabled = Boolean(state.review.submitting);
+    submit.addEventListener('click', submitReview);
+    const actions = h(
+      'div',
+      { class: 'review-actions' },
+      submit,
+      h(
+        'span',
+        { class: 'fine-print' },
+        'Aucune écriture Todoist sans validation individuelle des actions proposées.'
+      )
+    );
+    panel.append(actions);
+  }
+
+  function reviewGoalLine(goal) {
+    const value = Number(goal.current);
+    const base = Number(goal.base);
+    const unit = goal.unit || '';
+    const text = base
+      ? `${goal.title} : ${value} ${unit}/jour (objectif de départ ${base}).`
+      : `${goal.title} : rythme adapté ${value} ${unit}.`;
+    return h('p', { class: 'goal-pace' }, text);
+  }
+
+  function reviewTaskCard(task) {
+    const answer = reviewAnswer(task.task_id);
+    const card = h('article', { class: 'review-task' });
+    const head = h(
+      'div',
+      { class: 'review-task-head' },
+      h('h3', {}, task.title),
+      task.goal_title ? h('span', { class: 'pill pill-soft' }, task.goal_title) : null
+    );
+    card.append(head);
+
+    const meta = [];
+    if (task.quantity) meta.push(`quantité actuelle : ${task.quantity.label}`);
+    if (task.current && task.base && task.current !== task.base) {
+      meta.push(`rythme adapté : ${task.current} / objectif ${task.base}`);
+    }
+    if (task.last_reason) {
+      meta.push(`dernier bilan : ${reviewReasonLabel(task.last_reason).toLowerCase()}`);
+    }
+    if (meta.length > 0) card.append(h('p', { class: 'review-task-meta' }, meta.join(' · ')));
+
+    const reasons = h('div', {
+      class: 'review-reasons',
+      role: 'group',
+      'aria-label': `Pourquoi « ${task.title} » n’a pas été faite ?`,
+    });
+    for (const reason of state.review.data?.reasons || []) {
+      const active = answer.reason === reason.value;
+      const button = h(
+        'button',
+        {
+          type: 'button',
+          class: `review-reason${active ? ' is-active' : ''}`,
+          'aria-pressed': active ? 'true' : 'false',
+          title: reason.help || '',
+        },
+        reason.label
+      );
+      button.addEventListener('click', () => {
+        answer.reason = reason.value;
+        renderReview();
+      });
+      reasons.append(button);
+    }
+    card.append(reasons);
+
+    const actionSelect = h('select', { class: 'checkin-select', 'aria-label': 'Que faire ?' });
+    for (const action of state.review.data?.actions || []) {
+      actionSelect.append(h('option', { value: action.value }, action.label));
+    }
+    actionSelect.value = answer.action || 'auto';
+    actionSelect.addEventListener('change', () => {
+      answer.action = actionSelect.value;
+      renderReview();
+    });
+    card.append(h('label', { class: 'review-row' }, h('span', {}, 'Que faire ?'), actionSelect));
+
+    if (answer.reason === 'unclear' || answer.reason === 'too_big') {
+      const note = h('input', {
+        type: 'text',
+        class: 'review-note',
+        maxlength: '200',
+        placeholder:
+          answer.reason === 'unclear'
+            ? 'Un titre plus clair (optionnel)'
+            : 'Une précision (optionnel)',
+        value: answer.note || '',
+      });
+      note.addEventListener('input', () => {
+        answer.note = note.value;
+      });
+      card.append(note);
+    }
+    return card;
+  }
+
+  async function submitReview() {
+    if (state.review.submitting) return;
+    const data = state.review.data;
+    if (!data || !Array.isArray(data.unfinished)) return;
+
+    const answers = [];
+    for (const task of data.unfinished) {
+      const answer = reviewAnswer(task.task_id);
+      if (!answer.reason) {
+        toast(`Choisis une raison pour « ${task.title} ».`, 'error');
+        return;
+      }
+      answers.push({
+        taskId: task.task_id,
+        reason: answer.reason,
+        action: answer.action || 'auto',
+        note: answer.note || '',
+      });
+    }
+    if (answers.length === 0) {
+      toast('Aucune tâche à revoir.', 'ok');
+      return;
+    }
+
+    state.review.submitting = true;
+    renderReview();
+    try {
+      const result = await apiJson('/api/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ answers }),
+      });
+      state.review.result = result;
+      state.review.data.pending_count = 0;
+      state.review.data.reviewed = true;
+      state.review.data.answers = answers;
+      state.review.submitting = false;
+      toast(result.summary || 'Bilan enregistré.', 'ok');
+      loadGoals();
+      renderReview();
+      // Les consignes du bilan seront lues au prochain calcul du plan.
+      if (state.dayPlan) {
+        state.dayPlan.review_cap = result.cap || state.dayPlan.review_cap || null;
+        state.dayPlan.review_hints = result.hints || state.dayPlan.review_hints || [];
+      }
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      state.review.submitting = false;
+      toast(error.message || 'Impossible d’enregistrer le bilan.', 'error');
+      renderReview();
+    }
+  }
+
+  function renderReviewResult(panel, result) {
+    panel.append(h('p', { class: 'day-strategy' }, result.summary || 'Bilan enregistré.'));
+
+    if (Array.isArray(result.goal_updates) && result.goal_updates.length > 0) {
+      panel.append(h('h3', { class: 'section-title' }, 'Objectifs mis à jour'));
+      for (const update of result.goal_updates) {
+        const unit = update.unit || '';
+        const text =
+          update.direction === 'paused'
+            ? `${update.title} : pause jusqu’au ${formatDate(update.paused_until)}.`
+            : `${update.title} : ${update.previous} → ${update.current} ${unit}/jour (objectif de départ ${update.base}).`;
+        panel.append(h('p', { class: 'goal-pace' }, text));
+      }
+    }
+
+    if (Array.isArray(result.hints) && result.hints.length > 0) {
+      panel.append(h('h3', { class: 'section-title' }, 'Pour aujourd’hui'));
+      const list = h('ul', { class: 'day-notes' });
+      for (const hint of result.hints) list.append(h('li', {}, hint));
+      panel.append(list);
+    }
+
+    if (Array.isArray(result.adjustments) && result.adjustments.length > 0) {
+      panel.append(h('h3', { class: 'section-title' }, 'Actions à valider'));
+      const list = h('div', { class: 'proposals' });
+      for (const adjustment of result.adjustments) {
+        if (adjustment.applied || adjustment.ignored) continue;
+        list.append(reviewAdjustmentCard(adjustment));
+      }
+      if (list.childNodes.length > 0) panel.append(list);
+    }
+
+    const actions = h('div', { class: 'review-actions' });
+    actions.append(
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn btn-primary',
+          onclick: () => {
+            setScreen('plan');
+            const today = state.data?.meta?.today;
+            if (today) {
+              selectDay(today, {
+                analyze: state.data?.ai?.enabled !== false,
+                force: true,
+              });
+            }
+          },
+        },
+        'Adapter mon plan du jour'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn btn-ghost btn-small',
+          onclick: () => {
+            state.review.result = null;
+            loadReview();
+          },
+        },
+        'Recharger'
+      )
+    );
+    panel.append(actions);
+  }
+
+  function reviewAdjustmentCard(adjustment) {
+    const card = h('article', { class: `proposal review-adjustment tone-${adjustment.tone || 'ok'}` });
+    card.append(
+      h(
+        'div',
+        { class: 'proposal-head' },
+        h('span', { class: `proposal-type tone-${adjustment.tone || 'ok'}` }, adjustment.type_label || 'Adapter'),
+        h(
+          'div',
+          { class: 'proposal-title-wrap' },
+          h('span', { class: 'proposal-title' }, adjustment.title),
+          h('span', { class: 'proposal-target' }, adjustment.target?.name || '')
+        )
+      ),
+      h('p', { class: 'proposal-rationale' }, adjustment.rationale),
+      h('p', { class: 'proposal-preview' }, adjustment.preview)
+    );
+    const apply = h('button', { type: 'button', class: 'btn btn-primary' }, 'Appliquer');
+    const ignore = h('button', { type: 'button', class: 'btn btn-ghost' }, 'Ignorer');
+    apply.addEventListener('click', async () => {
+      apply.disabled = true;
+      ignore.disabled = true;
+      apply.textContent = 'Application…';
+      try {
+        const result = await sendApply(adjustment);
+        adjustment.applied = true;
+        toast(result.message || 'Action appliquée.', result.verified === false ? 'error' : 'ok');
+        loadGoals();
+        if (state.data?.meta?.today) {
+          selectDay(state.data.meta.today, { force: true });
+        }
+        renderReview();
+      } catch (error) {
+        if (error.code === 'SESSION_REQUIRED') return;
+        apply.disabled = false;
+        ignore.disabled = false;
+        apply.textContent = 'Appliquer';
+        toast(error.message || 'Application impossible.', 'error');
+      }
+    });
+    ignore.addEventListener('click', () => {
+      adjustment.ignored = true;
+      renderReview();
+      apiJson('/api/review/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ proposal_id: adjustment.id }),
+      }).catch(() => {});
+    });
+    card.append(h('div', { class: 'proposal-actions' }, apply, ignore));
+    return card;
+  }
+
+  async function resetAdaptiveGoal(goalId) {
+    try {
+      const result = await apiJson('/api/review/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ goal_id: goalId }),
+      });
+      toast(
+        `Rythme de départ rétabli : ${result.goal.current} ${result.goal.unit || ''}.`,
+        'ok'
+      );
+      loadGoals();
+      loadReview();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      toast(error.message || 'Réinitialisation impossible.', 'error');
+    }
   }
 
   function renderCheckinForm(date) {
@@ -5935,6 +6490,7 @@
   // Nettoyage approfondi.
   els.goalPropose?.addEventListener('click', proposeGoal);
   els.cleanupScanBtn.addEventListener('click', scanCleanup);
+  els.reviewCalloutBtn?.addEventListener('click', () => setScreen('review'));
 
   // Fenêtre de préparation et détail de tâche.
   for (const el of document.querySelectorAll('[data-close="prepare"]')) {

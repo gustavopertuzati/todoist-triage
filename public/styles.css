@@ -3379,3 +3379,170 @@ body {
   margin-bottom: 6px;
 }
 
+/* Itération 48 : bilan de la veille et rythmes adaptés. */
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 750;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
+.screen-tab.is-active .tab-badge {
+  background: var(--accent-ink);
+  color: var(--accent);
+}
+
+.tab-badge[hidden],
+.review-callout[hidden] {
+  display: none;
+}
+
+.review-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.review-callout strong {
+  display: block;
+  font-size: 14px;
+}
+
+.review-callout p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.review-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.review-intro {
+  display: grid;
+  gap: 4px;
+}
+
+.review-tasks {
+  display: grid;
+  gap: 10px;
+}
+
+.review-task {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.review-task-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-task-head h3 {
+  font-size: 14.5px;
+  line-height: 1.3;
+}
+
+.review-task-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-reason {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.review-reason:hover {
+  background: var(--surface-2);
+}
+
+.review-reason.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.review-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.review-note {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-adjustment .proposal-preview {
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-pace {
+  margin-top: 3px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+@media (max-width: 480px) {
+  .review-callout {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .review-callout .btn {
+    width: 100%;
+  }
+}
+

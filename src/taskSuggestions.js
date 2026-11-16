@@ -75,11 +75,18 @@ function buildSuggestPrompt(digest, maxTasks) {
           'Objectifs validés et prochains jalons :',
           ...digest.goals.map(
             (goal) =>
-              `- ${goal.title} (${goal.progress}%) — prochain jalon : ${
+              `- ${goal.title} (${goal.progress}%) - prochain jalon : ${
                 goal.next_milestone || 'à définir'
+              }${
+                goal.pace && Number(goal.pace.current || goal.pace.value) > 0
+                  ? ` - rythme adapté : ${goal.pace.current || goal.pace.value} ${
+                      goal.pace.unit || ''
+                    }/jour (objectif de départ : ${goal.pace.base || '?'})`
+                  : ''
               }`
           ),
           'Propose des tâches concrètes qui font avancer le prochain jalon non terminé.',
+          'Si un rythme adapté est indiqué, respecte-le (ne repropose pas la quantité de départ).',
         ]
       : []),
     '',

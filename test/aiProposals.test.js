@@ -100,11 +100,22 @@ test('describeDay réduit la charge autorisée si l’on est malade', () => {
   assert.match(sick.label, /allégée/i);
 });
 
+test('le bilan de la veille plafonne la journée sans supprimer la grosse tâche', () => {
+  const snapshot = snapshotWith([task({ id: 'a' })]);
+  const capped = describeDay(snapshot, DAY, GOOD, 3);
+  const total = capped.allowed.L + capped.allowed.M + capped.allowed.S;
+  assert.equal(total, 3);
+  assert.equal(capped.allowed.L, 1);
+  assert.match(capped.label, /bilan/i);
+  assert.ok(capped.notes.some((note) => /bilan de la veille/i.test(note)));
+});
+
 test('buildDayDigest est déterministe et expose la place pour ajouter', () => {
   const snapshot = snapshotWith([task({ id: 'a' }), task({ id: 'b' })]);
   const digest = buildDayDigest(snapshot, DAY, GOOD);
   assert.deepEqual(digest, buildDayDigest(snapshot, DAY, GOOD));
   assert.equal(digest.date, DAY);
+  assert.deepEqual(digest.allowed, RULE);
   assert.deepEqual(digest.can_add, RULE);
   assert.equal(digest.max_proposals, 5);
   assert.ok(Array.isArray(digest.project_context));

@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 47.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 48.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -19,7 +19,10 @@ Todoist surchargé et aide à y voir clair.
 > en ajouter une à la main, et **découper** un dernier niveau en petits morceaux. Toutes les
 > sous-tâches sont **numérotées dans l'ordre logique d'exécution** calculé par l'IA, à chaque
 > niveau. Un bouton relance un **nettoyage de plus en plus profond**. Un **carnet de notes** en bas à droite
-> garde tes idées d'amélioration pour la prochaine demande sur le projet. Tu **valides ou
+> garde tes idées d'amélioration pour la prochaine demande sur le projet. Chaque jour, un
+> **bilan de la veille** demande pourquoi les tâches n'ont pas été faites et **adapte les
+> quantités par essais/erreurs** (40 → 30 → 20 pages, puis remontée après deux réussites),
+> en mettant aussi à jour le **rythme des objectifs**. Tu **valides ou
 > ignores chaque proposition individuellement**. Tant que tu n'as pas validé, **rien n'est
 > écrit dans Todoist** ; chaque écriture validée est ensuite relue depuis l'API.
 >
@@ -1195,6 +1198,56 @@ seulement partielle (ex. « j’ai juste séparé les bords encore ensemble »).
 - Le jalon « Trier et poser les bords » du puzzle est maintenant un jalon
   automatique (mot-clé `bord`) : une complétion partielle ne le valide plus.
 
+## Itération 48 — bilan de la veille, adaptation par essais/erreurs
+
+Chaque jour, l’onglet **Bilan** regarde les tâches qui étaient prévues **hier** et
+qui n’ont pas été terminées. Pour chacune, un petit questionnaire demande
+pourquoi :
+
+- trop grande ;
+- pas la motivation ;
+- pas le temps ;
+- trop de choses dans la journée ;
+- oubliée ;
+- pas claire ;
+- imprévu ;
+- pas prioritaire.
+
+À partir des réponses, l’app propose des adaptations **concrètes et
+réversibles** :
+
+| Réponse | Adaptation |
+| --- | --- |
+| Trop grande | baisse d’un cran (« Lire 40 pages » → « Lire 30 pages ») |
+| Pas la motiv | baisse de moitié, avec micro-démarrage |
+| Pas le temps | reporte la tâche sans toucher à l’objectif |
+| Trop de choses | limite la journée à 3 tâches et reporte le reste |
+| Oubliée / imprévu | remet la tâche aujourd’hui |
+| Pas claire | propose un titre plus clair (ou prépare la première étape) |
+| Pas prioritaire | met l’objectif en pause 7 jours |
+
+Le **trial and error** est mémorisé dans `data/adaptive-state.json` (surchargeable
+avec `ADAPTIVE_STATE_FILE`) :
+
+1. un échec baisse la quantité recommandée ;
+2. deux réussites consécutives la remontent d’un cran vers l’objectif de départ ;
+3. les réponses « trop de choses » / « pas le temps » réduisent aussi la charge
+   autorisée du jour suivant (3 ou 4 tâches) ;
+4. les consignes du bilan sont transmises à l’IA de planification et aux
+   suggestions.
+
+Le rythme adapté de chaque objectif est écrit dans `GOALS.json` (`pace`) et
+affiché sur la page **Objectifs**, avec un bouton **« Revenir à l’objectif de
+départ »**.
+
+Garde-fous : le bilan n’écrit **rien** directement dans Todoist. Les changements
+(renommer, reporter, découper) apparaissent comme des **propositions à valider
+individuellement**, avec relecture et corbeille comme les autres itérations.
+
+Routes : `GET /api/review`, `POST /api/review`, `POST /api/review/reset`.
+Implémentation pure et testée : `src/dailyReview.js` ; persistance :
+`src/adaptiveState.js`.
+
 ## Automatisations Todoist — comment les brancher sur Triage
 
 Todoist Automations est en bêta sur les offres **Pro / Business**. Elle peut
@@ -1307,6 +1360,7 @@ npm run dev
 | `PREP_MAX_ITEMS` | non | `3` | Nombre maximum de tâches de préparation proposées pour une tâche. |
 | `DECOMPOSE_MAX_ITEMS` | non | `5` | Nombre maximum de sous-tâches proposées par le découpage assisté. |
 | `ASSISTANT_NOTES_FILE` | non | `data/assistant-notes.json` | Fichier JSON du carnet de notes. |
+| `ADAPTIVE_STATE_FILE` | non | `data/adaptive-state.json` | Mémoire des bilans et des rythmes adaptés. |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
 Toutes les valeurs sensibles sont lues uniquement depuis l'environnement du serveur.
@@ -1419,6 +1473,8 @@ src/lifeContext.js     lecture de LIFE_CONTEXT.md + journal de progression
 src/taskTitles.js      horaires inscrits/retirés dans le titre des tâches
 src/reminders.js       rappels Todoist natifs (création, remplacement, suppression)
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
+src/dailyReview.js     bilan de la veille, questionnaire et adaptation par essais/erreurs
+src/adaptiveState.js   mémoire privée des rythmes adaptés (data/adaptive-state.json)
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
@@ -1441,7 +1497,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 47 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 48 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -1455,7 +1511,8 @@ personnalisables**, **pauses entre tâches et pause déjeuner**, **plan de journ
 tant que l'utilisateur ne reclique pas, **notes redimensionnables**, **contexte de vie**
 pour l'agent, **propositions ancrées dans les projets et échéances**, **ignore sans
 rechargement**, **réorganisation manuelle avec recalcul des horaires**, **nettoyage
-approfondi progressif** et **carnet de notes éditable** persistant pour OpenCode. Les
-itérations suivantes (rituel du matin avec rattrapage
-automatique, planificateur de semaine, mémoire des préférences à long terme) ne sont pas
-implémentées et seront abordées après retour d'usage.
+approfondi progressif** et **carnet de notes éditable** persistant pour OpenCode, puis
+**bilan quotidien de la veille**, **adaptation des quantités par essais/erreurs** et
+**rythmes d’objectifs mis à jour automatiquement**. Les itérations suivantes
+(planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées
+et seront abordées après retour d'usage.

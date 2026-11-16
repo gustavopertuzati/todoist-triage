@@ -41,7 +41,9 @@ const {
   hasOrderPrefix,
 } = require('./renumber');
 const assistantNotes = require('./assistantNotes');
-const { readGoals, evaluateGoals } = require('./goals');
+const { readGoals, evaluateGoals, writeGoalPaces } = require('./goals');
+const dailyReview = require('./dailyReview');
+const adaptiveState = require('./adaptiveState');
 const { generateGoalMilestones } = require('./goalProposals');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
@@ -269,6 +271,7 @@ function createApp() {
       ai_model: config.aiModel,
       checkin: { questions: QUESTIONS, defaults: DEFAULTS },
       ignore_feedback: { kinds: KINDS, questionnaires: QUESTIONNAIRES },
+      review: { reasons: dailyReview.REASONS, actions: dailyReview.ACTIONS },
     });
   });
 
@@ -432,7 +435,12 @@ function createApp() {
         });
       }
 
-      const day = describeDay(snapshot, date, checkin);
+      const reviewContext = dailyReview.reviewContextFor(adaptiveState.store.get(), date);
+      const effectiveInstruction = [instruction, ...reviewContext.hints]
+        .filter(Boolean)
+        .join(' ')
+        .slice(0, 500);
+      const day = describeDay(snapshot, date, checkin, reviewContext.cap);
       const base = {
         ok: true,
         date,
@@ -447,6 +455,8 @@ function createApp() {
         total: day.total,
         planned: day.planned,
         checkin,
+        review_hints: reviewContext.hints,
+        review_cap: reviewContext.cap,
       };
 
       if (!config.aiEnabled) {
@@ -455,7 +465,14 @@ function createApp() {
 
       // Lecture seule : pas de nouvel appel au modèle.
       if (!analyze) {
-        const cached = peekDayPlan(snapshot, date, checkin, feedback, instruction);
+        const cached = peekDayPlan(
+          snapshot,
+          date,
+          checkin,
+          feedback,
+          effectiveInstruction,
+          reviewContext.cap
+        );
         if (cached) {
           return res.json({
             ...base,
@@ -477,7 +494,8 @@ function createApp() {
         force,
         checkin,
         feedback,
-        instruction,
+        instruction: effectiveInstruction,
+        reviewCap: reviewContext.cap,
       });
 
       return res.json({
@@ -999,12 +1017,17 @@ function createApp() {
       const instruction =
         typeof req.body?.instruction === 'string' ? req.body.instruction.slice(0, 500) : '';
       const goals = Array.isArray(req.body?.goals) ? req.body.goals.slice(0, 10) : [];
+      const reviewContext = dailyReview.reviewContextFor(adaptiveState.store.get(), date);
+      const effectiveInstruction = [instruction, ...reviewContext.hints]
+        .filter(Boolean)
+        .join(' ')
+        .slice(0, 500);
       const { snapshot } = await getSnapshot({ force: false });
       const result = await generateTaskSuggestions(snapshot, date, {
         checkin,
         force,
         exclude,
-        instruction,
+        instruction: effectiveInstruction,
         goals,
       });
 
@@ -1261,6 +1284,192 @@ function createApp() {
   );
 
   /**
+   * Bilan de la veille : tâches prévues hier et non terminées, questionnaire
+   * adapté, et réussites détectées (qui peuvent faire remonter un rythme).
+   * Lecture seule : aucune écriture Todoist.
+   */
+  app.get(
+    '/api/review',
+    requireApiAuth,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const { snapshot } = await getSnapshot({ force: false });
+      const date = snapshot.meta.today;
+      const state = dailyReview.clone(adaptiveState.store.get());
+      let successes = { changed: false, items: [], completed_count: 0 };
+      try {
+        successes = dailyReview.recordSuccesses({
+          snapshot,
+          state,
+          date,
+          timezone: config.timezone,
+        });
+        if (successes.changed) {
+          adaptiveState.store.replace(state);
+          const raises = successes.items.filter((item) => item.kind === 'raise');
+          if (raises.length > 0) {
+            try {
+              writeGoalPaces(
+                raises.map((item) => ({
+                  id: item.goal_id,
+                  pace: {
+                    value: item.to,
+                    unit: item.unit,
+                    base: state.goals?.[item.goal_id]?.base ?? null,
+                    updated_at: new Date().toISOString(),
+                    reason: 'Deux réussites de suite : le rythme remonte vers l’objectif.',
+                  },
+                }))
+              );
+            } catch (error) {
+              console.warn('[review] GOALS.json non mis à jour :', error?.code || error?.name);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('[review] réussites non enregistrées :', error?.code || error?.name);
+      }
+      const review = dailyReview.buildReview({
+        snapshot,
+        date,
+        state,
+        goals: readGoals(),
+      });
+      if (review.last_adjustments.length > 0) {
+        rememberItems(review.last_adjustments);
+      }
+      return res.json({
+        ok: true,
+        ...review,
+        success_updates: successes.items,
+      });
+    })
+  );
+
+  /**
+   * Enregistre les réponses du bilan. Les adaptations sont :
+   *   - mémorisées (rythme des objectifs) ;
+   *   - renvoyées comme propositions Todoist à valider individuellement.
+   */
+  app.post(
+    '/api/review',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const answers = dailyReview.normalizeAnswers(req.body?.answers);
+      if (answers.length === 0) {
+        return res.status(400).json({
+          error: {
+            code: 'REVIEW_EMPTY',
+            message: 'Indique au moins une raison pour une tâche non terminée.',
+          },
+        });
+      }
+
+      // Une soumission de bilan relit Todoist : les tâches ont pu bouger
+      // depuis le chargement de la page.
+      const { snapshot } = await getSnapshot({ force: true });
+      const date = snapshot.meta.today;
+      const state = dailyReview.clone(adaptiveState.store.get());
+      const result = dailyReview.applyReview({
+        snapshot,
+        date,
+        state,
+        goals: readGoals(),
+        answers,
+      });
+
+      let goalFileUpdated = [];
+      try {
+        goalFileUpdated = writeGoalPaces(
+          result.goal_updates.map((update) => ({ id: update.id, pace: update.pace }))
+        );
+      } catch (error) {
+        // GOALS.json peut être en lecture seule (déploiement) : le rythme
+        // adapté reste disponible dans l'état privé et dans /api/goals.
+        console.warn('[review] GOALS.json non mis à jour :', error?.code || error?.name);
+      }
+
+      adaptiveState.store.replace(state);
+      if (result.proposals.length > 0) rememberItems(result.proposals);
+
+      return res.json({
+        ok: true,
+        ...result,
+        goal_file_updated: goalFileUpdated,
+      });
+    })
+  );
+
+  /** Revenir au rythme de départ d'un objectif adapté. */
+  app.post(
+    '/api/review/reset',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const goalId = typeof req.body?.goal_id === 'string' ? req.body.goal_id.trim() : '';
+      if (!goalId) {
+        return res.status(400).json({
+          error: { code: 'BAD_GOAL', message: 'Objectif inconnu.' },
+        });
+      }
+      const { snapshot } = await getSnapshot({ force: false });
+      const state = dailyReview.clone(adaptiveState.store.get());
+      const reset = dailyReview.resetGoalPace(state, goalId, snapshot.meta.today);
+      if (!reset) {
+        return res.status(404).json({
+          error: { code: 'GOAL_NOT_ADAPTED', message: 'Cet objectif n’a pas encore été adapté.' },
+        });
+      }
+      adaptiveState.store.replace(state);
+      try {
+        writeGoalPaces([
+          {
+            id: reset.id,
+            pace: {
+              value: reset.current,
+              unit: reset.unit,
+              base: reset.base,
+              updated_at: new Date().toISOString(),
+              reason: 'Rythme de départ rétabli',
+            },
+          },
+        ]);
+      } catch (error) {
+        console.warn('[review] GOALS.json non mis à jour :', error?.code || error?.name);
+      }
+      return res.json({ ok: true, goal: reset });
+    })
+  );
+
+  /** Écarte une action du bilan sans l'appliquer. */
+  app.post(
+    '/api/review/dismiss',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const proposalId =
+        typeof req.body?.proposal_id === 'string' ? req.body.proposal_id.trim() : '';
+      if (!proposalId) {
+        return res.status(400).json({
+          error: { code: 'BAD_PROPOSAL', message: 'Action inconnue.' },
+        });
+      }
+      const state = dailyReview.clone(adaptiveState.store.get());
+      const changed = dailyReview.removeReviewProposal(state, proposalId);
+      if (changed) adaptiveState.store.replace(state);
+      removeAiProposal(proposalId);
+      return res.json({ ok: true, changed });
+    })
+  );
+
+  /**
    * Objectifs et jalons : définitions GOALS.json + compteurs de tâches
    * terminées correspondantes (lecture seule côté serveur).
    */
@@ -1273,7 +1482,29 @@ function createApp() {
         .filter(Boolean)
     );
     const { snapshot } = await getSnapshot({ force: false });
-    const goals = evaluateGoals(snapshot, readGoals(), excludeIds);
+    const definitions = readGoals();
+    const adaptive = adaptiveState.store.get();
+    const goals = evaluateGoals(snapshot, definitions, excludeIds).map((goal) => {
+      const paceState = adaptive.goals?.[goal.id] || null;
+      return {
+        ...goal,
+        adaptive_pace: paceState
+          ? {
+              current: paceState.current,
+              base: paceState.base,
+              unit: paceState.unit,
+              paused_until:
+                paceState.paused_until && paceState.paused_until >= snapshot.meta.today
+                  ? paceState.paused_until
+                  : null,
+              success_streak: paceState.success_streak || 0,
+              fail_streak: paceState.fail_streak || 0,
+              updated_at: paceState.updated_at || null,
+              history: (paceState.history || []).slice(-6),
+            }
+          : null,
+      };
+    });
     res.json({ ok: true, goals, excluded: excludeIds.size });
   }));
 
@@ -1525,6 +1756,12 @@ function createApp() {
       // la proposition appliquée, sans toucher au reste du lot.
       clearCache();
       removeAiProposal(id);
+      if (proposal.source === 'review') {
+        const adaptive = dailyReview.clone(adaptiveState.store.get());
+        if (dailyReview.removeReviewProposal(adaptive, id)) {
+          adaptiveState.store.replace(adaptive);
+        }
+      }
 
       return res.json({
         ok: true,

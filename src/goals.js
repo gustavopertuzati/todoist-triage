@@ -32,6 +32,7 @@ function readGoals(file = defaultFile()) {
           .filter(Boolean)
           .slice(0, 12),
         confirmed: goal.confirmed === true,
+        pace: sanitizePace(goal.pace),
         milestones: (Array.isArray(goal.milestones) ? goal.milestones : [])
           .filter((milestone) => milestone && typeof milestone.id === 'string')
           .map((milestone) => ({
@@ -52,6 +53,58 @@ function readGoals(file = defaultFile()) {
   } catch {
     return [];
   }
+}
+
+function sanitizePace(pace) {
+  if (!pace || typeof pace !== 'object') return null;
+  const value = Number(pace.value);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const base = Number(pace.base);
+  return {
+    value: Math.round(value * 10) / 10,
+    unit: typeof pace.unit === 'string' ? pace.unit.slice(0, 24) : null,
+    base: Number.isFinite(base) && base > 0 ? Math.round(base * 10) / 10 : null,
+    updated_at: typeof pace.updated_at === 'string' ? pace.updated_at.slice(0, 40) : null,
+    reason: typeof pace.reason === 'string' ? pace.reason.slice(0, 200) : null,
+    paused_until:
+      typeof pace.paused_until === 'string' ? pace.paused_until.slice(0, 10) : null,
+  };
+}
+
+/**
+ * Écrit le rythme adapté dans GOALS.json (fichier local, pas Todoist).
+ * Les autres champs et l'ordre des objectifs sont conservés.
+ *
+ * @param {{id:string, pace:object}[]} updates
+ * @returns {string[]} identifiants réellement modifiés
+ */
+function writeGoalPaces(updates, file = defaultFile()) {
+  if (!Array.isArray(updates) || updates.length === 0) return [];
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!Array.isArray(parsed.goals)) return [];
+  const wanted = new Map();
+  for (const update of updates) {
+    const pace = sanitizePace(update?.pace);
+    if (update?.id && pace) wanted.set(String(update.id), pace);
+  }
+  if (wanted.size === 0) return [];
+
+  const changed = [];
+  for (const goal of parsed.goals) {
+    if (!goal || typeof goal.id !== 'string') continue;
+    const pace = wanted.get(goal.id);
+    if (!pace) continue;
+    goal.pace = pace;
+    changed.push(goal.id);
+  }
+  if (changed.length === 0) return [];
+
+  parsed.updated_at = new Date().toISOString().slice(0, 10);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, file);
+  return changed;
 }
 
 function countCompleted(snapshot, keywords, excludeIds = new Set()) {
@@ -101,6 +154,8 @@ function evaluateGoals(snapshot, goals = readGoals(), excludeIds = new Set()) {
 module.exports = {
   defaultFile,
   readGoals,
+  sanitizePace,
+  writeGoalPaces,
   countCompleted,
   evaluateGoals,
 };

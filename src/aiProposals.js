@@ -43,6 +43,20 @@ function total(load) {
   return load.L + load.M + load.S;
 }
 
+/** Plafonne le nombre total de tâches (bilan de la veille : « trop de choses »). */
+function capAllowed(load, maxTotal) {
+  const result = { ...load };
+  // On retire d'abord les petites tâches : quand la journée est surchargée,
+  // mieux vaut garder les tâches qui font réellement avancer l'objectif.
+  const order = ['S', 'M', 'L'];
+  while (total(result) > maxTotal) {
+    const key = order.find((item) => result[item] > 0);
+    if (!key) break;
+    result[key] -= 1;
+  }
+  return result;
+}
+
 const STORE_TTL_MS = 2 * 60 * 60 * 1000;
 const STORE_MAX = 400;
 let store = new Map();
@@ -103,9 +117,21 @@ function dayInfo(snapshot, date) {
 }
 
 /** Condensé envoyé au modèle pour une journée (avec le check-in). */
-function buildDayDigest(snapshot, date, checkin, profile, instruction = '') {
+function buildDayDigest(snapshot, date, checkin, profile, instruction = '', reviewCap = null) {
   const info = dayInfo(snapshot, date);
-  const { allowed, label, notes, answers } = computeAllowed(checkin, info.rule);
+  const computed = computeAllowed(checkin, info.rule);
+  let allowed = computed.allowed;
+  let label = computed.label;
+  let notes = computed.notes;
+  const answers = computed.answers;
+  if (reviewCap && total(allowed) > reviewCap) {
+    allowed = capAllowed(allowed, reviewCap);
+    label = 'Journée allégée par le bilan de la veille';
+    notes = [
+      ...notes,
+      `Bilan de la veille : pas plus de ${reviewCap} tâches aujourd’hui.`,
+    ];
+  }
   const active = snapshot.tasks.filter((task) => !task.project_archived);
 
   const never = new Set(profile ? profile.never : []);
@@ -201,6 +227,7 @@ function buildDayDigest(snapshot, date, checkin, profile, instruction = '') {
     date,
     instruction: String(instruction || '').trim().slice(0, 500) || null,
     weekday: info.weekday,
+    review_cap: reviewCap || null,
     checkin: {
       answers: describeCheckin(answers),
       notes,
@@ -625,7 +652,7 @@ function validateDayResponse(parsed, snapshot, date, digest, profile) {
 async function generateDayProposals(
   snapshot,
   date,
-  { force = false, checkin = null, feedback = null, instruction = '' } = {}
+  { force = false, checkin = null, feedback = null, instruction = '', reviewCap = null } = {}
 ) {
   if (!config.aiEnabled) {
     throw new AiError('AI_DISABLED', 'L’IA n’est pas configurée (OPENROUTER_API_KEY manquant).');
@@ -633,7 +660,7 @@ async function generateDayProposals(
 
   const answers = normalizeCheckin(checkin);
   const profile = buildProfile(normalizeFeedback(feedback), snapshot.meta.today);
-  const digest = buildDayDigest(snapshot, date, answers, profile, instruction);
+  const digest = buildDayDigest(snapshot, date, answers, profile, instruction, reviewCap);
   const signature = signatureOf(digest);
   const cached = dayCache.get(date);
 
@@ -699,9 +726,20 @@ async function generateDayProposals(
 }
 
 /** Résumé d'une journée selon le check-in (sans IA). */
-function describeDay(snapshot, date, checkin) {
+function describeDay(snapshot, date, checkin, reviewCap = null) {
   const info = dayInfo(snapshot, date);
-  const { allowed, label, notes } = computeAllowed(checkin, info.rule);
+  const computed = computeAllowed(checkin, info.rule);
+  let allowed = computed.allowed;
+  let label = computed.label;
+  let notes = computed.notes;
+  if (reviewCap && total(allowed) > reviewCap) {
+    allowed = capAllowed(allowed, reviewCap);
+    label = 'Journée allégée par le bilan de la veille';
+    notes = [
+      ...notes,
+      `Bilan de la veille : pas plus de ${reviewCap} tâches aujourd’hui.`,
+    ];
+  }
   const canAdd = {
     L: Math.max(0, allowed.L - info.load.L),
     M: Math.max(0, allowed.M - info.load.M),
@@ -721,11 +759,11 @@ function describeDay(snapshot, date, checkin) {
  * appeler le modèle. C'est ce quasi-lecture sur rechargement qui conserve les
  * propositions existantes sans en recréer de nouvelles.
  */
-function peekDayPlan(snapshot, date, checkin, feedback, instruction = '') {
+function peekDayPlan(snapshot, date, checkin, feedback, instruction = '', reviewCap = null) {
   if (!snapshot) return null;
   const answers = normalizeCheckin(checkin);
   const profile = buildProfile(normalizeFeedback(feedback), snapshot.meta.today);
-  const digest = buildDayDigest(snapshot, date, answers, profile, instruction);
+  const digest = buildDayDigest(snapshot, date, answers, profile, instruction, reviewCap);
   const signature = signatureOf(digest);
   const entry = dayCache.get(date);
 

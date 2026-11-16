@@ -79,6 +79,9 @@
       <div id="content" hidden>
         <nav class="screens-nav" aria-label="Sections de l’application">
           <button type="button" class="screen-tab is-active" data-screen-tab="today">Aujourd’hui</button>
+          <button type="button" class="screen-tab" data-screen-tab="review">
+            Bilan<span id="review-badge" class="tab-badge" hidden>0</span>
+          </button>
           <button type="button" class="screen-tab" data-screen-tab="tasks">Tâches</button>
           <button type="button" class="screen-tab" data-screen-tab="order">Ordre</button>
           <button type="button" class="screen-tab" data-screen-tab="plan">Planifier</button>
@@ -97,6 +100,16 @@
         <section id="warnings-panel" class="alert alert-warn" hidden aria-live="polite">
           <h2>À savoir</h2>
           <ul id="warnings-list"></ul>
+        </section>
+
+        <section id="review-callout" class="review-callout" hidden aria-live="polite">
+          <div>
+            <strong id="review-callout-title">Bilan de la veille</strong>
+            <p id="review-callout-text">Dis-moi pourquoi certaines tâches n’ont pas été faites.</p>
+          </div>
+          <button id="review-callout-btn" type="button" class="btn btn-primary btn-small">
+            Faire le bilan
+          </button>
         </section>
 
         <section id="kpis" class="kpis" aria-label="Résumé"></section>
@@ -118,6 +131,22 @@
             ci-dessous.
           </p>
         </section>
+        </section>
+
+        <section class="screen" data-screen-panel="review">
+          <section class="panel" aria-labelledby="review-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="review-title">Bilan de la veille</h2>
+                <p class="panel-sub">
+                  Ce qui n’a pas été fait hier, pourquoi, et ce qu’on adapte aujourd’hui.
+                  Les changements Todoist restent des propositions à valider.
+                </p>
+              </div>
+              <span id="review-count" class="pill">0</span>
+            </div>
+            <div id="review-panel" class="review-panel" aria-live="polite"></div>
+          </section>
         </section>
 
         <section class="screen" data-screen-panel="tasks">
