@@ -6550,6 +6550,44 @@
       .then((registration) => registration.update())
       .catch(() => {});
   }
+
+  // Auto-mise à jour : si le serveur tourne sur une version plus récente que
+  // la page chargée, on recharge une seule fois avec un paramètre qui contourne
+  // le cache et le service worker. Évite de rester bloqué sur un ancien onglet.
+  const BUILD_VERSION =
+    document.querySelector('meta[name="app-version"]')?.getAttribute('content') || null;
+  let updateCheckInFlight = false;
+  async function checkForUpdate() {
+    if (!BUILD_VERSION || updateCheckInFlight) return;
+    updateCheckInFlight = true;
+    try {
+      const response = await fetch('/healthz', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = await response.json();
+      const next = typeof data?.version === 'string' ? data.version : null;
+      if (!next || next === BUILD_VERSION) return;
+      const key = `todoist-triage:reloaded:${next}`;
+      try {
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, '1');
+      } catch {
+        /* stockage indisponible : on recharge quand même */
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set('v', next);
+      window.location.replace(url.toString());
+    } catch {
+      /* hors-ligne : on réessaiera plus tard */
+    } finally {
+      updateCheckInFlight = false;
+    }
+  }
+  setTimeout(checkForUpdate, 2000);
+  setInterval(checkForUpdate, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) checkForUpdate();
+  });
+
   (async () => {
     try {
       const session = await apiJson('/api/session');
