@@ -51,3 +51,32 @@ test('le prochain jalon ignore ceux déjà terminés', () => {
   const entry = { done: { m2: true } };
   assert.equal(nextMilestone(g, entry).id, 'm1');
 });
+
+test('les micro-rituels ajoutent une petite progression visible', () => {
+  const g = goal();
+  const entry = { steps: { m1: { s1: true } } };
+  assert.equal(goalProgress(g, entry), 5);
+  assert.equal(goalProgress(g, entry, 2.5), 7.5);
+});
+
+test('les rituels ne font jamais croire qu’un objectif est terminé', () => {
+  const g = goal();
+  const entry = { steps: { m1: { s1: true, s2: true, s3: true, s4: true } } };
+  assert.equal(goalProgress(g, entry, 10), 30);
+  const almost = {
+    ...g,
+    milestones: g.milestones.map((milestone) => ({
+      ...milestone,
+      weight: 50,
+      steps: undefined,
+      type: 'manual',
+    })),
+  };
+  assert.equal(goalProgress(almost, { done: { m1: true } }, 10), 60);
+});
+
+test('tous les jalons terminés donnent 100 % même avec des rituels', () => {
+  const g = goal();
+  const entry = { steps: { m1: { s1: true, s2: true, s3: true, s4: true } }, done: { m2: true } };
+  assert.equal(goalProgress(g, entry, 10), 100);
+});

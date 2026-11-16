@@ -3277,6 +3277,67 @@ body {
   white-space: nowrap;
 }
 
+.ritual-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.ritual-count {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.ritual-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ritual-undo {
+  min-width: 34px;
+  padding: 0 8px;
+}
+
+.goal-ritual {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.goal-ritual-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.goal-ritual-title {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.goal-ritual-detail {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.goal-ritual-bonus-line {
+  margin-top: 4px;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
 
 .goal-create {
   margin-bottom: 12px;

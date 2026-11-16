@@ -3,9 +3,9 @@
 /* Service worker : réseau d'abord, cache en secours (mode hors-ligne limité).
    Les données Todoist ne sont jamais mises en cache (ni le cookie de session). */
 
-const CACHE = 'tri-v7';
-const VERSION = '0.48.1';
-const SHELL = [`/?v=${VERSION}`, '/login', `/styles.css?v=${VERSION}`, `/schedule-settings.js?v=${VERSION}`, `/goal-progress.js?v=${VERSION}`, `/app.js?v=${VERSION}`, '/login.js', '/favicon.svg', '/manifest.webmanifest'];
+const CACHE = 'tri-v8';
+const VERSION = '0.49.0';
+const SHELL = [`/?v=${VERSION}`, '/login', `/styles.css?v=${VERSION}`, `/schedule-settings.js?v=${VERSION}`, `/goal-progress.js?v=${VERSION}`, `/rituals.js?v=${VERSION}`, `/app.js?v=${VERSION}`, '/login.js', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

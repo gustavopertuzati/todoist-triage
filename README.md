@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 48.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 49.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -22,7 +22,9 @@ Todoist surchargé et aide à y voir clair.
 > garde tes idées d'amélioration pour la prochaine demande sur le projet. Chaque jour, un
 > **bilan de la veille** demande pourquoi les tâches n'ont pas été faites et **adapte les
 > quantités par essais/erreurs** (40 → 30 → 20 pages, puis remontée après deux réussites),
-> en mettant aussi à jour le **rythme des objectifs**. Tu **valides ou
+> en mettant aussi à jour le **rythme des objectifs**. Chaque objectif a aussi un
+> **micro-rituel de 2 à 5 min** répétable dans la journée, et la progression bouge
+> immédiatement. Tu **valides ou
 > ignores chaque proposition individuellement**. Tant que tu n'as pas validé, **rien n'est
 > écrit dans Todoist** ; chaque écriture validée est ensuite relue depuis l'API.
 >
@@ -1154,7 +1156,8 @@ la tâche **et toutes ses sous-tâches ensemble**, à la même date.
 - **Onglet Objectifs** dédié : tous les projets de `LIFE_CONTEXT` ont des jalons
   pondérés, avec progression, prochain jalon et validation des cases.
 - **Rituels anti-surcharge** : Duolingo 2 min, lire 2 pages, bouger 5 min, avec
-  série quotidienne (`🔥 n j`). Une seule micro-action par jour.
+  série quotidienne (`🔥 n j`). Une seule micro-action par jour à l’époque ;
+  depuis l’itération 49, les passages sont cumulables.
 - **Mode doux** dans Planifier : limite le planning à **3 tâches actives** ; le
   reste est proposé au report.
 - **Lecture** : 1,5 min par page (40 pages ≈ 60 min, 80 ≈ 120 min), imposé même
@@ -1247,6 +1250,42 @@ individuellement**, avec relecture et corbeille comme les autres itérations.
 Routes : `GET /api/review`, `POST /api/review`, `POST /api/review/reset`.
 Implémentation pure et testée : `src/dailyReview.js` ; persistance :
 `src/adaptiveState.js`.
+
+## Itération 49 — micro-rituels cumulatifs et progression en direct
+
+Les **Rituels anti-surcharge** ne sont plus limités à une fois par jour :
+
+- un clic sur **« Fait +1 »** ajoute un passage ; le compteur du jour s’additionne
+  (`Aujourd’hui ×3`) et la série de jours reste calculée par jour ;
+- le bouton **« − »** retire un passage en cas d’erreur ;
+- l’ancien format (un tableau de dates) est lu automatiquement et converti.
+
+Chaque objectif confirmé reçoit aussi **un petit rituel de 2 à 5 min**, affiché
+directement dans sa carte (et non tous ensemble sur une page) :
+
+| Objectif | Petit rituel |
+| --- | --- |
+| OpenCode | Tester une action réversible |
+| JobOps | Ajouter une preuve au CV |
+| n8n | Noter une étape de workflow |
+| AWS | Réviser une notion |
+| Calories | Noter un repas |
+| iTheorie | Une question de théorie |
+| Plantes | Vérifier une plante |
+| Puzzle | Placer 3 pièces |
+| Public | Un geste de préparation |
+
+La lecture et le sport restent dans le bloc du haut (2 pages / 5 min) et
+comptent pour leurs objectifs respectifs.
+
+**Progression en direct.** Chaque passage apporte **+0,5 %** à l’objectif lié,
+plafonné à **+10 %** au total. Le pourcentage de l’objectif, la barre et les
+suggestions IA sont recalculés immédiatement, sans recharger la page. Les
+rituels ne peuvent jamais afficher 100 % avant que les vrais jalons soient
+terminés (maximum 99,9 %).
+
+Implémentation pure et testée : `public/rituals.js` ; calcul de progression :
+`public/goal-progress.js`.
 
 ## Automatisations Todoist — comment les brancher sur Triage
 
@@ -1478,7 +1517,7 @@ src/adaptiveState.js   mémoire privée des rythmes adaptés (data/adaptive-stat
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
-public/                CSS, JS, manifest PWA, icônes et service worker
+public/                CSS, JS (dont rituals.js), manifest PWA, icônes et service worker
 test/                  tests unitaires (node:test)
 LIFE_CONTEXT.md        contexte de vie/projets lu par l'agent OpenCode
 AGENTS.md              consignes de travail de l'agent
@@ -1497,7 +1536,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 48 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 49 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -1512,7 +1551,8 @@ tant que l'utilisateur ne reclique pas, **notes redimensionnables**, **contexte 
 pour l'agent, **propositions ancrées dans les projets et échéances**, **ignore sans
 rechargement**, **réorganisation manuelle avec recalcul des horaires**, **nettoyage
 approfondi progressif** et **carnet de notes éditable** persistant pour OpenCode, puis
-**bilan quotidien de la veille**, **adaptation des quantités par essais/erreurs** et
-**rythmes d’objectifs mis à jour automatiquement**. Les itérations suivantes
+**bilan quotidien de la veille**, **adaptation des quantités par essais/erreurs**,
+**rythmes d’objectifs mis à jour automatiquement**, puis **micro-rituels cumulatifs**
+avec progression en direct. Les itérations suivantes
 (planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées
 et seront abordées après retour d'usage.

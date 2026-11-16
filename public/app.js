@@ -444,7 +444,11 @@
 
   function goalProgress(goal) {
     if (!goalConfirmed(goal)) return 0;
-    return window.GoalProgress.goalProgress(goal, goalEntry(goal));
+    return window.GoalProgress.goalProgress(
+      goal,
+      goalEntry(goal),
+      ritualBonusForGoal(goal.id)
+    );
   }
 
   function nextGoalMilestone(goal) {
@@ -516,30 +520,33 @@
     toast('Jalons validés : le suivi de progression est actif.', 'ok');
   }
 
-  const RITUAL_DEFS = [
-    { id: 'duolingo', title: 'Duolingo', detail: '1 leçon — 2 min' },
-    { id: 'reading', title: 'Lire', detail: '2 pages — 3 min' },
-    { id: 'sport', title: 'Bouger', detail: '5 min à la maison' },
-  ];
-
-  function ritualDates(id) {
-    return Array.isArray(state.rituals[id]) ? state.rituals[id] : [];
+  function formatPercent(value) {
+    const number = Number(value) || 0;
+    return Number.isInteger(number) ? String(number) : number.toFixed(1);
   }
 
-  function ritualDoneToday(id) {
-    return ritualDates(id).includes(localTodayIso());
+  function ritualToday() {
+    return state.data?.meta?.today || localTodayIso();
+  }
+
+  function ritualTotal(id) {
+    return window.Rituals ? window.Rituals.total(state.rituals[id]) : 0;
+  }
+
+  function ritualTodayCount(id) {
+    return window.Rituals
+      ? window.Rituals.countToday(state.rituals[id], ritualToday())
+      : 0;
   }
 
   function ritualStreak(id) {
-    const dates = new Set(ritualDates(id));
-    let cursor = localTodayIso();
-    if (!dates.has(cursor)) cursor = addDaysIso(cursor, -1);
-    let streak = 0;
-    while (dates.has(cursor) && streak < 3650) {
-      streak += 1;
-      cursor = addDaysIso(cursor, -1);
-    }
-    return streak;
+    return window.Rituals
+      ? window.Rituals.streak(state.rituals[id], ritualToday())
+      : 0;
+  }
+
+  function ritualBonusForGoal(goalId) {
+    return window.Rituals ? window.Rituals.bonusForGoal(goalId, state.rituals) : 0;
   }
 
   function saveRituals() {
@@ -550,19 +557,46 @@
     }
   }
 
-  function toggleRitual(id) {
-    const today = localTodayIso();
-    const dates = new Set(ritualDates(id));
-    if (dates.has(today)) dates.delete(today);
-    else dates.add(today);
-    state.rituals[id] = [...dates].sort();
+  function changeRitual(id, delta) {
+    if (!window.Rituals) return;
+    const today = ritualToday();
+    const next =
+      delta >= 0
+        ? window.Rituals.addOne(state.rituals[id], today)
+        : window.Rituals.removeOne(state.rituals[id], today);
+    state.rituals[id] = next;
     saveRituals();
+    // Progression recalculée tout de suite, sans recharger la page.
     renderRituals();
+    renderGoals();
+  }
+
+  function ritualActions(id) {
+    const count = ritualTodayCount(id);
+    const add = h(
+      'button',
+      { type: 'button', class: 'btn btn-primary btn-small ritual-add' },
+      'Fait +1'
+    );
+    add.addEventListener('click', () => changeRitual(id, 1));
+    const undo = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn btn-ghost btn-small ritual-undo',
+        'aria-label': 'Retirer un passage d’aujourd’hui',
+        title: 'Retirer un passage d’aujourd’hui',
+      },
+      '−'
+    );
+    undo.addEventListener('click', () => changeRitual(id, -1));
+    undo.disabled = count <= 0;
+    return h('div', { class: 'ritual-actions' }, add, undo);
   }
 
   function renderRituals() {
     const el = els.ritualsPanel;
-    if (!el) return;
+    if (!el || !window.Rituals) return;
     clear(el);
     el.hidden = false;
     el.append(h('h3', { class: 'section-title' }, 'Rituels anti-surcharge'));
@@ -570,7 +604,7 @@
       h(
         'p',
         { class: 'fine-print' },
-        'Une seule micro-action par jour. Le but est de ne pas casser la chaîne, pas de tout faire.'
+        'Chaque passage compte. Tu peux en faire plusieurs par jour : le compteur s’additionne.'
       )
     );
     const next = allGoals()
@@ -587,14 +621,8 @@
       );
     }
     const list = h('div', { class: 'ritual-list' });
-    for (const ritual of RITUAL_DEFS) {
-      const done = ritualDoneToday(ritual.id);
-      const btn = h(
-        'button',
-        { type: 'button', class: done ? 'btn btn-ghost btn-small' : 'btn btn-primary btn-small' },
-        done ? 'Annuler' : 'Fait aujourd’hui'
-      );
-      btn.addEventListener('click', () => toggleRitual(ritual.id));
+    for (const ritual of window.Rituals.UNIVERSAL) {
+      const count = ritualTodayCount(ritual.id);
       list.append(
         h(
           'div',
@@ -605,12 +633,40 @@
             h('span', { class: 'ritual-title' }, ritual.title),
             h('span', { class: 'ritual-detail' }, ritual.detail)
           ),
-          h('span', { class: 'ritual-streak' }, `🔥 ${ritualStreak(ritual.id)} j`),
-          btn
+          h(
+            'div',
+            { class: 'ritual-stats' },
+            h('span', { class: 'ritual-count' }, `Aujourd’hui ×${count}`),
+            h('span', { class: 'ritual-streak' }, `🔥 ${ritualStreak(ritual.id)} j`)
+          ),
+          ritualActions(ritual.id)
         )
       );
     }
     el.append(list);
+  }
+
+  function renderGoalRitual(goal) {
+    if (!window.Rituals) return null;
+    const ritual = window.Rituals.goalCardRitual(goal.id);
+    if (!ritual) return null;
+    const count = ritualTodayCount(ritual.id);
+    const total = ritualTotal(ritual.id);
+    return h(
+      'div',
+      { class: 'goal-ritual' },
+      h(
+        'div',
+        { class: 'goal-ritual-body' },
+        h('span', { class: 'goal-ritual-title' }, `＋ ${ritual.title}`),
+        h(
+          'span',
+          { class: 'goal-ritual-detail' },
+          `${ritual.detail} · aujourd’hui ×${count}${total !== count ? ` · total ×${total}` : ''}`
+        )
+      ),
+      ritualActions(ritual.id)
+    );
   }
 
   function renderGoalProposal(proposal, draft) {
@@ -816,6 +872,8 @@
           }
         }
       }
+      const ritualRow = renderGoalRitual(goal);
+      if (ritualRow) card.append(ritualRow);
       if (goal.deadline) {
         card.append(h('p', { class: 'goal-desc' }, `Échéance : ${formatDate(goal.deadline)}`));
       }
@@ -844,6 +902,16 @@
           })
         )
       );
+      const ritualBonus = ritualBonusForGoal(goal.id);
+      if (confirmed && ritualBonus > 0) {
+        card.append(
+          h(
+            'p',
+            { class: 'goal-ritual-bonus-line' },
+            `Dont +${formatPercent(ritualBonus)} % grâce aux micro-rituels.`
+          )
+        );
+      }
       if (!confirmed) {
         card.append(
           h(

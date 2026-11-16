@@ -45,7 +45,7 @@
     return milestoneFraction(milestone, entry) >= 1;
   }
 
-  function goalProgress(goal, entry) {
+  function goalProgress(goal, entry, ritualBonus = 0) {
     if (!(goal?.confirmed || entry?.confirmed)) return 0;
     const milestones = Array.isArray(goal?.milestones) ? goal.milestones : [];
     const total = milestones.reduce(
@@ -58,7 +58,13 @@
         sum + (Number(milestone.weight) || 0) * milestoneFraction(milestone, entry),
       0
     );
-    return Math.round((done / total) * 1000) / 10;
+    const base = (done / total) * 100;
+    const allDone = milestones.every((milestone) => milestoneFraction(milestone, entry) >= 1);
+    if (allDone) return 100;
+    // Les micro-rituels ajoutent une petite progression visible sans jamais
+    // faire croire qu'un objectif est terminé avant ses vrais jalons.
+    const bonus = Math.max(0, Math.min(20, Number(ritualBonus) || 0));
+    return Math.round(Math.min(99.9, base + bonus) * 10) / 10;
   }
 
   function nextMilestone(goal, entry) {
