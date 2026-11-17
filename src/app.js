@@ -31,6 +31,7 @@ const { generatePreparation, generateDecomposition } = require('./prepare');
 const { generateSubtaskOrder } = require('./subtaskOrder');
 const { generateDayOrder } = require('./dayOrder');
 const { generateTaskSuggestions } = require('./taskSuggestions');
+const { watchProposalsForDate } = require('./watchlist');
 const { stripTimeMarker, isValidClock } = require('./taskTitles');
 const { timeMode, hasModeLabel, labelsForMode, AUTO_LABEL } = require('./timeMode');
 const { replaceReminders } = require('./reminders');
@@ -537,8 +538,10 @@ function createApp() {
         review_cap: reviewContext.cap,
       };
 
+      const watch = watchProposalsForDate(snapshot, date);
+      if (watch.length > 0) rememberItems(watch);
       if (!config.aiEnabled) {
-        return res.json({ ...base, ai: false, proposals: [], splits: [], renames: [], strategy: null, cached: false });
+        return res.json({ ...base, ai: false, proposals: watch, splits: [], renames: [], strategy: null, cached: false });
       }
 
       // Lecture seule : pas de nouvel appel au modèle.
@@ -556,7 +559,7 @@ function createApp() {
             ...base,
             ai: true,
             analyzed: true,
-            proposals: cached.items,
+            proposals: [...watch, ...cached.items],
             splits: cached.splits || [],
             renames: cached.renames || [],
             strategy: cached.strategy || null,
@@ -565,7 +568,7 @@ function createApp() {
           });
         }
         // Rien en cache : on ne montre que l'état du jour, sans générer.
-        return res.json({ ...base, ai: true, analyzed: false, proposals: [], splits: [], renames: [], strategy: null, cached: false });
+        return res.json({ ...base, ai: true, analyzed: false, proposals: watch, splits: [], renames: [], strategy: null, cached: false });
       }
 
       const plan = await generateDayProposals(snapshot, date, {
@@ -580,7 +583,7 @@ function createApp() {
         ...base,
         ai: true,
         analyzed: true,
-        proposals: plan.items,
+        proposals: [...watch, ...plan.items],
         splits: plan.splits || [],
         renames: plan.renames || [],
         strategy: plan.summary || null,

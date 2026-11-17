@@ -10,6 +10,7 @@
 const { config } = require('./config');
 const { fullSync, completedSince } = require('./todoist');
 const { buildSnapshot } = require('./snapshot');
+const { injectWatchProposals } = require('./watchlist');
 const { todayInTimeZone } = require('./dates');
 
 let cached = null; // { snapshot, storedAt }
@@ -61,7 +62,7 @@ async function loadSnapshot({ deep = 0 } = {}) {
 
   const [sync, completed] = await Promise.all([syncPromise, completedPromise]);
 
-  return buildSnapshot({
+  const snapshot = buildSnapshot({
     sync,
     completed,
     today,
@@ -88,6 +89,8 @@ async function loadSnapshot({ deep = 0 } = {}) {
     generatedAt,
     appVersion: config.appVersion,
   });
+
+  return injectWatchProposals(snapshot);
 }
 
 /**

@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 50.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 51.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1323,6 +1323,25 @@ Routes : `GET /api/itheorie`, `POST /api/itheorie/extract`,
 `POST /api/itheorie`, `POST /api/itheorie/reset`.
 Implémentation pure et testée : `src/itheorie.js` ; vision : `src/ai.js`.
 
+## Itération 51 — veille technologique proposée
+
+Les six outils retenus dans les notes —
+**Vite.js, CesiumJS, Robocopy, Excel Pro, Visual Studio Pro, Windev** —
+sont ajoutés comme **propositions Todoist** à valider une par une.
+
+- Dates espacées sur des jours creux : 27.11, 30.11, 02.12, 04.12, 07.12 et
+  09.12.2026.
+- Projet cible : **QG – Vie Gustavo** ; priorité P3 pour Vite.js, P4 pour les
+  autres ; durée indicative 30 min.
+- Les propositions apparaissent dans **Nettoyage guidé** et sur le **jour
+  correspondant** dans **Planifier**.
+- Une tâche déjà créée ou terminée n’est plus reproposée. Une date passée est
+  reproposée pour le jour même.
+- Tout reste réversible : rien n’est écrit dans Todoist avant validation.
+
+Implémentation pure et testée : `src/watchlist.js` ; injection dans
+`src/exportService.js` et `src/app.js`.
+
 ## Automatisations Todoist — comment les brancher sur Triage
 
 Todoist Automations est en bêta sur les offres **Pro / Business**. Elle peut
@@ -1554,6 +1573,7 @@ src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/dailyReview.js     bilan de la veille, questionnaire et adaptation par essais/erreurs
 src/adaptiveState.js   mémoire privée des rythmes adaptés (data/adaptive-state.json)
 src/itheorie.js        import iTheorie, fusion des tests et préparation calculée
+src/watchlist.js       propositions de veille technologique datées
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
@@ -1576,7 +1596,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 50 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 51 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -1594,6 +1614,6 @@ approfondi progressif** et **carnet de notes éditable** persistant pour OpenCod
 **bilan quotidien de la veille**, **adaptation des quantités par essais/erreurs**,
 **rythmes d’objectifs mis à jour automatiquement**, **micro-rituels cumulatifs**
 avec progression en direct, puis **suivi iTheorie par captures** avec préparation
-calculée. Les itérations suivantes
+calculée et **veille technologique proposée**. Les itérations suivantes
 (planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées
 et seront abordées après retour d'usage.

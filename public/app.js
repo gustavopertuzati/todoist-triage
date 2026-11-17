@@ -3391,6 +3391,11 @@
 
   function ignoreSuggestion(proposal) {
     state.daySuggestions = state.daySuggestions.filter((item) => item.id !== proposal.id);
+    if (proposal.source === 'watchlist') {
+      state.ignored.add(proposal.id);
+      saveIgnoredProposals();
+      renderProposals();
+    }
     renderDayPlan();
   }
 
