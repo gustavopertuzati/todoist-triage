@@ -44,10 +44,11 @@ const assistantNotes = require('./assistantNotes');
 const { readGoals, evaluateGoals, writeGoalPaces } = require('./goals');
 const dailyReview = require('./dailyReview');
 const adaptiveState = require('./adaptiveState');
+const itheorie = require('./itheorie');
 const { generateGoalMilestones } = require('./goalProposals');
 const { normalizeCheckin, QUESTIONS, DEFAULTS } = require('./checkin');
 const { QUESTIONNAIRES, KINDS } = require('./feedback');
-const { AiError } = require('./ai');
+const { AiError, chatJsonVision } = require('./ai');
 const { isValidIsoDate } = require('./dates');
 const recycleBin = require('./recycleBin');
 
@@ -221,6 +222,83 @@ function createApp() {
     });
     next();
   });
+
+  /**
+   * Extraction iTheorie : reçoit 1 à 4 captures en data URL, les fait lire par
+   * le modèle de vision, et renvoie un brouillon. Rien n'est enregistré ici.
+   * Route déclarée AVANT le parseur JSON global (16 kb) car les images sont
+   * volumineuses.
+   */
+  app.post(
+    '/api/itheorie/extract',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    express.json({ limit: '20mb' }),
+    asyncHandler(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      if (!config.aiEnabled) {
+        return res.status(503).json({
+          error: {
+            code: 'AI_VISION_DISABLED',
+            message: 'L’IA n’est pas configurée : utilise la saisie manuelle.',
+          },
+        });
+      }
+
+      const rawImages = Array.isArray(req.body?.images) ? req.body.images : [];
+      const images = [];
+      for (const entry of rawImages.slice(0, config.aiVisionMaxImages)) {
+        const value = typeof entry === 'string' ? entry : entry?.dataUrl;
+        if (typeof value !== 'string') continue;
+        if (!/^data:image\/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+$/.test(value)) continue;
+        if (value.length > 7_000_000) continue;
+        images.push(value);
+      }
+      if (images.length === 0) {
+        return res.status(400).json({
+          error: {
+            code: 'NO_IMAGE',
+            message: 'Ajoute au moins une capture (PNG, JPEG ou WebP).',
+          },
+        });
+      }
+
+      try {
+        const result = await chatJsonVision({
+          system:
+            'Tu extrais des données de captures d’écran de l’app iTheorie. ' +
+            'Tu réponds uniquement par un objet JSON valide, sans texte autour.',
+          user: itheorie.buildExtractionPrompt(),
+          images,
+          maxTokens: 4000,
+        });
+        const extracted = itheorie.normalizeExtraction(result.data);
+        const draft = itheorie.mergeSnapshot(itheorie.store.get(), extracted);
+        return res.json({
+          ok: true,
+          draft,
+          extracted,
+          model: result.model,
+          usage: result.usage,
+        });
+      } catch (error) {
+        if (error instanceof AiError) {
+          return res.status(502).json({
+            error: {
+              code: error.code,
+              message:
+                error.code === 'AI_NOT_CONFIGURED'
+                  ? 'Aucune clé OpenRouter : utilise la saisie manuelle.'
+                  : error.message,
+            },
+          });
+        }
+        throw error;
+      }
+    })
+  );
+
   app.use(express.json({ limit: '16kb' }));
 
   const publicDir = path.join(__dirname, '..', 'public');
@@ -1552,6 +1630,55 @@ function createApp() {
    * Persisté dans data/assistant-notes.json : l'agent OpenCode peut le relire
    * à la prochaine demande pour appliquer toute la liste.
    */
+  /** iTheorie : snapshot courant + indicateurs calculés. */
+  app.get('/api/itheorie', requireApiAuth, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const snapshot = itheorie.store.get();
+    res.json({
+      ok: true,
+      snapshot,
+      metrics: itheorie.computeProgress(snapshot),
+      vision_model: config.aiVisionModel,
+      ai_enabled: config.aiEnabled,
+    });
+  });
+
+  /**
+   * Enregistre un snapshot corrigé. `replace_tests: true` remplace exactement
+   * la liste affichée (saisie manuelle / correction d'une lecture IA).
+   */
+  app.post(
+    '/api/itheorie',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const patch = req.body?.snapshot || req.body || {};
+      const snapshot = itheorie.store.merge(patch, {
+        replaceTests: req.body?.replace_tests === true,
+      });
+      return res.json({
+        ok: true,
+        snapshot,
+        metrics: itheorie.computeProgress(snapshot),
+      });
+    }
+  );
+
+  /** Remet le suivi iTheorie à zéro (les captures ne sont pas conservées). */
+  app.post(
+    '/api/itheorie/reset',
+    requireApiAuth,
+    requireSameOrigin,
+    requireAppHeader,
+    (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const snapshot = itheorie.store.reset();
+      return res.json({ ok: true, snapshot, metrics: itheorie.computeProgress(snapshot) });
+    }
+  );
+
   app.get('/api/notes', requireApiAuth, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.json({

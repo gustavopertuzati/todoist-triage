@@ -32,6 +32,17 @@
       submitting: false,
       result: null,
     },
+    itheorie: {
+      loading: false,
+      error: null,
+      data: null,
+      metrics: null,
+      draft: null,
+      extracting: false,
+      saving: false,
+      status: null,
+      statusKind: null,
+    },
     checkinQuestions: [],
     checkinDefaults: {},
     checkins: {},
@@ -124,6 +135,15 @@
     reviewBadge: document.getElementById('review-badge'),
     reviewPanel: document.getElementById('review-panel'),
     reviewCount: document.getElementById('review-count'),
+    itheorieBadge: document.getElementById('itheorie-badge'),
+    itheorieUpdated: document.getElementById('itheorie-updated'),
+    itheorieDashboard: document.getElementById('itheorie-dashboard'),
+    itheorieImportBtn: document.getElementById('itheorie-import-btn'),
+    itheorieManualBtn: document.getElementById('itheorie-manual-btn'),
+    itheorieResetBtn: document.getElementById('itheorie-reset-btn'),
+    itheorieFiles: document.getElementById('itheorie-files'),
+    itheorieStatus: document.getElementById('itheorie-status'),
+    itheorieDraft: document.getElementById('itheorie-draft'),
     warningsPanel: document.getElementById('warnings-panel'),
     warningsList: document.getElementById('warnings-list'),
     widgetTitle: document.getElementById('widget-title'),
@@ -442,8 +462,40 @@
     return window.GoalProgress.milestoneDone(milestone, goalEntry(goal));
   }
 
+  function itheorieMilestoneState(milestoneId) {
+    const metrics = state.itheorie?.metrics;
+    if (!metrics) return null;
+    if (milestoneId === 'tests-10') {
+      return {
+        done: metrics.tests_finished >= 10,
+        meta: `${metrics.tests_finished}/10 tests terminés`,
+      };
+    }
+    if (milestoneId === 'score-80') {
+      return {
+        done: Number(metrics.best_score) >= 80,
+        meta: `meilleur score : ${itheoriePercent(metrics.best_score)} %`,
+      };
+    }
+    if (milestoneId === 'streak-90') {
+      return {
+        done: Number(metrics.best_streak_90) >= 3,
+        meta: `${metrics.current_streak_90}/3 consécutifs · record ${metrics.best_streak_90}`,
+      };
+    }
+    return null;
+  }
+
   function goalProgress(goal) {
     if (!goalConfirmed(goal)) return 0;
+    if (
+      goal.id === 'itheorie' &&
+      state.itheorie?.metrics &&
+      state.itheorie.metrics.readiness !== null &&
+      state.itheorie.metrics.readiness !== undefined
+    ) {
+      return state.itheorie.metrics.readiness;
+    }
     return window.GoalProgress.goalProgress(
       goal,
       goalEntry(goal),
@@ -452,6 +504,15 @@
   }
 
   function nextGoalMilestone(goal) {
+    if (goal.id === 'itheorie' && state.itheorie?.metrics) {
+      const milestones = Array.isArray(goal.milestones) ? goal.milestones : [];
+      return (
+        milestones.find((milestone) => {
+          const computed = itheorieMilestoneState(milestone.id);
+          return computed ? !computed.done : !goalMilestoneDone(goal, milestone);
+        }) || null
+      );
+    }
     return window.GoalProgress.nextMilestone(goal, goalEntry(goal));
   }
 
@@ -872,6 +933,33 @@
           }
         }
       }
+      if (
+        goal.id === 'itheorie' &&
+        state.itheorie?.metrics &&
+        state.itheorie.metrics.readiness !== null
+      ) {
+        const m = state.itheorie.metrics;
+        card.append(
+          h(
+            'p',
+            { class: 'goal-pace' },
+            `iTheorie : ${itheoriePercent(m.readiness)} % / ${m.target} % · catalogue ${itheoriePercent(
+              m.catalogue_pct
+            )} % · derniers tests ${itheoriePercent(m.last_five_average)} %`
+          )
+        );
+        card.append(
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn btn-secondary btn-small',
+              onclick: () => setScreen('itheorie'),
+            },
+            '📷 Voir / mettre à jour iTheorie'
+          )
+        );
+      }
       const ritualRow = renderGoalRitual(goal);
       if (ritualRow) card.append(ritualRow);
       if (goal.deadline) {
@@ -931,18 +1019,27 @@
 
       const list = h('div', { class: 'goal-milestones' });
       for (const milestone of goal.milestones || []) {
-        const done = goalMilestoneDone(goal, milestone);
+        let done = goalMilestoneDone(goal, milestone);
         const auto = milestone.type === 'completed_tasks';
         const steps = Array.isArray(milestone.steps) ? milestone.steps : [];
         const entry = goalEntry(goal);
         const stepDoneCount = steps.filter((step) =>
           window.GoalProgress.stepDone(entry, milestone, step)
         ).length;
-        const meta = auto
+        let meta = auto
           ? `${milestone.completed_count || 0}/${milestone.count} tâche(s) · ${milestone.weight} %`
           : steps.length > 0
             ? `${stepDoneCount}/${steps.length} étape(s) · ${milestone.weight} %`
             : `${milestone.weight} %`;
+        let computed = false;
+        if (goal.id === 'itheorie') {
+          const itheorieState = itheorieMilestoneState(milestone.id);
+          if (itheorieState) {
+            done = itheorieState.done;
+            meta = itheorieState.meta;
+            computed = true;
+          }
+        }
         const row = h(
           'div',
           { class: `goal-milestone${done ? ' is-done' : ''}` },
@@ -966,7 +1063,7 @@
             stepList.append(stepBtn);
           }
           row.append(stepList);
-        } else if (!auto && confirmed) {
+        } else if (!auto && confirmed && !computed) {
           const btn = h(
             'button',
             { type: 'button', class: 'btn btn-ghost btn-small' },
@@ -1288,6 +1385,10 @@
         }
       } else if (key.startsWith('on') && typeof value === 'function') {
         element.addEventListener(key.slice(2).toLowerCase(), value);
+      } else if (key === 'style') {
+        // CSP `style-src 'self'` bloque setAttribute('style'), mais pas le
+        // CSSOM : on applique donc les styles dynamiques via cssText.
+        element.style.cssText = String(value);
       } else if (value === true) {
         element.setAttribute(key, '');
       } else {
@@ -1439,6 +1540,7 @@
       ensureDefaultDay();
       loadGoals();
       loadReview();
+      loadItheorie();
       if (state.screen === 'order') refreshOrderStartTimes();
       els.loading.hidden = true;
       els.content.hidden = false;
@@ -1466,6 +1568,7 @@
     renderWarnings(warnings);
     renderKpis(summary);
     renderReview();
+    renderItheorie();
     renderWidget();
     renderPlanner();
     renderWeekRecap();
@@ -1717,7 +1820,7 @@
     renderDayOrder();
   }
 
-  const SCREENS = ['today', 'review', 'tasks', 'order', 'plan', 'goals', 'clean', 'projects'];
+  const SCREENS = ['today', 'review', 'itheorie', 'tasks', 'order', 'plan', 'goals', 'clean', 'projects'];
 
   function setScreen(name) {
     if (!SCREENS.includes(name)) return;
@@ -1734,7 +1837,9 @@
     if (panel) panel.scrollTop = 0;
     if (name === 'order') refreshOrderStartTimes();
     renderReview();
+    renderItheorie();
     if (name === 'review' && !state.review.data && !state.review.loading) loadReview();
+    if (name === 'itheorie' && !state.itheorie.data && !state.itheorie.loading) loadItheorie();
     try {
       localStorage.setItem('todoist-triage:screen', name);
     } catch {
@@ -4098,6 +4203,543 @@
     } catch (error) {
       if (error.code === 'SESSION_REQUIRED') return;
       toast(error.message || 'Réinitialisation impossible.', 'error');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // iTheorie : import de captures et progression (itération 50)
+  // ---------------------------------------------------------------------------
+
+  function itheoriePercent(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+    return formatPercent(Number(value));
+  }
+
+  function itheorieUpdatedToday() {
+    const updated = state.itheorie.data?.updated_at;
+    const today = state.data?.meta?.today;
+    if (!updated || !today) return false;
+    const timezone = state.data?.meta?.timezone;
+    if (!timezone) return String(updated).slice(0, 10) === today;
+    try {
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: timezone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
+          .formatToParts(new Date(updated))
+          .filter((part) => part.type !== 'literal')
+          .map((part) => [part.type, part.value])
+      );
+      return `${parts.year}-${parts.month}-${parts.day}` === today;
+    } catch {
+      return String(updated).slice(0, 10) === today;
+    }
+  }
+
+  function setItheorieStatus(message, kind = 'ok') {
+    state.itheorie.status = message || null;
+    state.itheorie.statusKind = kind;
+    renderItheorieStatus();
+  }
+
+  function renderItheorieStatus() {
+    const el = els.itheorieStatus;
+    if (!el) return;
+    clear(el);
+    if (!state.itheorie.status) return;
+    el.className = `itheorie-status${
+      state.itheorie.statusKind === 'error' ? ' is-error' : ''
+    }`;
+    el.append(h('p', {}, state.itheorie.status));
+  }
+
+  async function loadItheorie() {
+    if (state.itheorie.loading) return;
+    state.itheorie.loading = true;
+    renderItheorie();
+    try {
+      const result = await apiJson('/api/itheorie');
+      state.itheorie.data = result.snapshot;
+      state.itheorie.metrics = result.metrics;
+      state.itheorie.error = null;
+      state.itheorie.loading = false;
+      renderItheorie();
+      renderGoals();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') {
+        state.itheorie.loading = false;
+        return;
+      }
+      state.itheorie.loading = false;
+      state.itheorie.error = error.message || 'Impossible de lire le suivi iTheorie.';
+      renderItheorie();
+    }
+  }
+
+  function renderItheorie() {
+    const data = state.itheorie.data;
+    const metrics = state.itheorie.metrics;
+    const pending = !data || !itheorieUpdatedToday();
+
+    if (els.itheorieBadge) {
+      els.itheorieBadge.hidden = !pending;
+      els.itheorieBadge.textContent = '!';
+    }
+    if (els.itheorieUpdated) {
+      if (!data || !data.updated_at) els.itheorieUpdated.textContent = 'Aucune capture';
+      else if (itheorieUpdatedToday()) els.itheorieUpdated.textContent = 'À jour aujourd’hui';
+      else els.itheorieUpdated.textContent = `Mis à jour le ${formatDate(String(data.updated_at).slice(0, 10))}`;
+    }
+
+    const dashboard = els.itheorieDashboard;
+    if (dashboard) {
+      clear(dashboard);
+      if (state.itheorie.loading && !data) {
+        dashboard.append(h('p', { class: 'day-status' }, 'Lecture du suivi iTheorie…'));
+      } else if (state.itheorie.error) {
+        dashboard.append(h('p', { class: 'day-status is-error' }, state.itheorie.error));
+        dashboard.append(
+          h(
+            'button',
+            { type: 'button', class: 'btn btn-secondary btn-small', onclick: loadItheorie },
+            'Réessayer'
+          )
+        );
+      } else if (!metrics || metrics.readiness === null || metrics.readiness === undefined) {
+        dashboard.append(
+          h(
+            'div',
+            { class: 'itheorie-empty' },
+            h('p', {}, 'Importe tes deux captures iTheorie pour démarrer le suivi.'),
+            h(
+              'p',
+              { class: 'fine-print' },
+              'Écran Test + écran Succès (ou Apprendre). Tu pourras corriger les chiffres avant d’enregistrer.'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'btn btn-primary btn-small',
+                onclick: () => els.itheorieFiles?.click(),
+              },
+              '📷 Choisir les captures'
+            )
+          )
+        );
+      } else {
+        renderItheorieDashboard(dashboard, data, metrics);
+      }
+    }
+
+    if (els.itheorieImportBtn) els.itheorieImportBtn.disabled = Boolean(state.itheorie.extracting);
+    if (els.itheorieManualBtn) els.itheorieManualBtn.disabled = Boolean(state.itheorie.extracting);
+    if (els.itheorieFiles) els.itheorieFiles.disabled = Boolean(state.itheorie.extracting);
+    if (els.itheorieResetBtn) els.itheorieResetBtn.disabled = Boolean(state.itheorie.saving);
+
+    renderItheorieDraft();
+    renderItheorieStatus();
+  }
+
+  function renderItheorieDashboard(container, data, metrics) {
+    const readiness = Number(metrics.readiness);
+    const target = Number(metrics.target) || 90;
+    const progress = Number(metrics.progress_to_target) || 0;
+
+    container.append(
+      h(
+        'div',
+        { class: 'itheorie-hero' },
+        h(
+          'div',
+          { class: 'itheorie-score-block' },
+          h('span', { class: 'itheorie-score' }, `${itheoriePercent(readiness)} %`),
+          h('span', { class: 'itheorie-target' }, `/ ${target} %`)
+        ),
+        h(
+          'div',
+          { class: 'itheorie-hero-body' },
+          h('p', { class: 'itheorie-formula' }, 'Préparation = 50 % catalogue + 50 % moyenne des 5 derniers tests'),
+          h(
+            'div',
+            { class: 'itheorie-progress' },
+            h('div', { class: 'itheorie-progress-fill', style: `width:${Math.min(100, progress)}%` })
+          ),
+          h(
+            'p',
+            { class: 'fine-print' },
+            metrics.gap > 0
+              ? `Il manque ${itheoriePercent(metrics.gap)} point(s) pour atteindre l’objectif.`
+              : 'Objectif atteint : garde ce rythme jusqu’à l’examen.'
+          )
+        )
+      )
+    );
+
+    const cards = [
+      ['Catalogue', `${itheoriePercent(metrics.catalogue_pct)} %`],
+      [
+        'Questions vues',
+        metrics.questions_seen !== null && metrics.questions_total !== null
+          ? `${metrics.questions_seen} / ${metrics.questions_total}`
+          : '—',
+      ],
+      ['Moyenne 5 tests', `${itheoriePercent(metrics.last_five_average)} %`],
+      ['Meilleur score', `${itheoriePercent(metrics.best_score)} %`],
+      ['Tests terminés', `${metrics.tests_finished}${metrics.tests_remaining_for_10 ? ` · encore ${metrics.tests_remaining_for_10}` : ' / 10'}`],
+      ['Taux ≥ 90 %', `${itheoriePercent(metrics.success_rate)} %`],
+      ['Série ≥ 90 %', `${metrics.current_streak_90} / 3`],
+      ['Couverture', `${itheoriePercent(metrics.coverage)} %`],
+    ];
+    const grid = h('div', { class: 'itheorie-grid' });
+    for (const [label, value] of cards) {
+      grid.append(
+        h(
+          'div',
+          { class: 'itheorie-metric' },
+          h('span', { class: 'itheorie-metric-label' }, label),
+          h('strong', { class: 'itheorie-metric-value' }, value)
+        )
+      );
+    }
+    container.append(grid);
+
+    const tests = Array.isArray(data?.tests) ? data.tests.slice(-9) : [];
+    if (tests.length > 0) {
+      const chart = h('div', { class: 'itheorie-chart-wrap' });
+      chart.append(h('h3', { class: 'section-title' }, 'Derniers tests'));
+      const bars = h('div', { class: 'itheorie-chart' });
+      for (const test of tests) {
+        const score = Number(test.score);
+        const tone = score >= target ? 'is-good' : score >= 80 ? 'is-ok' : 'is-low';
+        const barHeight = Math.max(4, Math.round((Math.min(100, score) / 100) * 110));
+        bars.append(
+          h(
+            'div',
+            { class: 'itheorie-bar-wrap', title: `${formatDate(test.date)} : ${score} %` },
+            h('span', { class: 'itheorie-bar-value' }, String(score)),
+            h(
+              'div',
+              { class: 'itheorie-bar-area' },
+              h('div', {
+                class: `itheorie-bar ${tone}`,
+                style: `height:${barHeight}px`,
+              })
+            ),
+            h('span', { class: 'itheorie-bar-date' }, formatDate(test.date))
+          )
+        );
+      }
+      chart.append(bars);
+      chart.append(h('p', { class: 'fine-print' }, 'Ligne d’objectif : 90 %. Vert = réussi, orange = proche, rouge = à retravailler.'));
+      container.append(chart);
+    }
+
+    if (Array.isArray(metrics.weak_categories) && metrics.weak_categories.length > 0) {
+      const weak = h('div', { class: 'itheorie-weak' });
+      weak.append(h('h3', { class: 'section-title' }, 'À retravailler'));
+      for (const category of metrics.weak_categories) {
+        weak.append(
+          h(
+            'span',
+            { class: 'itheorie-weak-chip' },
+            `${category.name} · ${itheoriePercent(category.pct)} %`
+          )
+        );
+      }
+      container.append(weak);
+    }
+
+    const footer = h('div', { class: 'itheorie-footer' });
+    if (metrics.last_test) {
+      footer.append(
+        h(
+          'p',
+          { class: 'fine-print' },
+          `Dernier test : ${itheoriePercent(metrics.last_test.score)} % le ${formatDate(metrics.last_test.date)} · record ${itheoriePercent(metrics.best_score)} %.`
+        )
+      );
+    }
+    if (data?.source) footer.append(h('p', { class: 'fine-print' }, `Source : ${data.source}.`));
+    if (metrics.best_streak_90 > 0) {
+      footer.append(
+        h('p', { class: 'fine-print' }, `Meilleure série ≥ 90 % : ${metrics.best_streak_90} test(s).`)
+      );
+    }
+    container.append(footer);
+  }
+
+  function renderItheorieDraft() {
+    const el = els.itheorieDraft;
+    if (!el) return;
+    const draft = state.itheorie.draft;
+    if (!draft) {
+      el.hidden = true;
+      clear(el);
+      return;
+    }
+    el.hidden = false;
+    clear(el);
+
+    el.append(h('h3', { class: 'section-title' }, 'Vérifie les chiffres'));
+    el.append(
+      h(
+        'p',
+        { class: 'fine-print' },
+        'Corrige ce qui a été mal lu. Rien n’est envoyé dans Todoist : ces chiffres restent dans Triage.'
+      )
+    );
+
+    const catalogue = draft.catalogue || {};
+    const catalogueGrid = h('div', { class: 'itheorie-form-grid' });
+    const addNumberField = (label, key, min, max) => {
+      const input = h('input', {
+        type: 'number',
+        min: String(min),
+        max: String(max),
+        step: '1',
+        value: catalogue[key] ?? '',
+        'aria-label': label,
+      });
+      input.addEventListener('input', () => {
+        draft.catalogue = draft.catalogue || {};
+        draft.catalogue[key] = input.value === '' ? null : Number(input.value);
+      });
+      catalogueGrid.append(h('label', { class: 'itheorie-field' }, h('span', {}, label), input));
+    };
+    addNumberField('Catalogue correct (%)', 'correct_pct', 0, 100);
+    addNumberField('Questions vues', 'questions_seen', 0, 20000);
+    addNumberField('Total questions', 'questions_total', 0, 20000);
+    const started = h('input', {
+      type: 'number',
+      min: '0',
+      max: '10000',
+      step: '1',
+      value: draft.tests_started ?? '',
+      'aria-label': 'Tests commencés',
+    });
+    started.addEventListener('input', () => {
+      draft.tests_started = started.value === '' ? null : Number(started.value);
+    });
+    catalogueGrid.append(h('label', { class: 'itheorie-field' }, h('span', {}, 'Tests commencés'), started));
+    el.append(catalogueGrid);
+
+    const tests = Array.isArray(draft.tests) ? draft.tests : [];
+    el.append(h('h4', { class: 'itheorie-subtitle' }, `Tests terminés (${tests.length})`));
+    const list = h('div', { class: 'itheorie-test-list' });
+    tests.forEach((test, index) => {
+      const dateInput = h('input', {
+        type: 'date',
+        value: test.date || '',
+        'aria-label': `Date du test ${index + 1}`,
+      });
+      const scoreInput = h('input', {
+        type: 'number',
+        min: '0',
+        max: '100',
+        step: '1',
+        value: test.score ?? '',
+        'aria-label': `Score du test ${index + 1}`,
+      });
+      dateInput.addEventListener('input', () => {
+        test.date = dateInput.value;
+      });
+      scoreInput.addEventListener('input', () => {
+        test.score = scoreInput.value === '' ? null : Number(scoreInput.value);
+      });
+      const remove = h(
+        'button',
+        { type: 'button', class: 'btn btn-ghost btn-small', 'aria-label': 'Supprimer ce test' },
+        '−'
+      );
+      remove.addEventListener('click', () => {
+        tests.splice(index, 1);
+        renderItheorie();
+      });
+      list.append(
+        h('div', { class: 'itheorie-test-row' }, dateInput, scoreInput, h('span', {}, '%'), remove)
+      );
+    });
+    el.append(list);
+
+    const addTest = h(
+      'button',
+      { type: 'button', class: 'btn btn-secondary btn-small' },
+      '+ Ajouter un test'
+    );
+    addTest.addEventListener('click', () => {
+      draft.tests = Array.isArray(draft.tests) ? draft.tests : [];
+      draft.tests.push({ date: state.data?.meta?.today || localTodayIso(), score: 0 });
+      renderItheorie();
+    });
+    el.append(addTest);
+
+    if (Array.isArray(draft.categories) && draft.categories.length > 0) {
+      el.append(h('h4', { class: 'itheorie-subtitle' }, 'Catégories détectées'));
+      const chips = h('div', { class: 'itheorie-weak' });
+      for (const category of draft.categories) {
+        chips.append(
+          h('span', { class: 'itheorie-weak-chip' }, `${category.name} · ${itheoriePercent(category.pct)} %`)
+        );
+      }
+      el.append(chips);
+    }
+
+    const save = h(
+      'button',
+      { type: 'button', class: 'btn btn-primary btn-small' },
+      state.itheorie.saving ? 'Enregistrement…' : 'Enregistrer'
+    );
+    save.disabled = Boolean(state.itheorie.saving);
+    save.addEventListener('click', saveItheorieDraft);
+    const cancel = h(
+      'button',
+      { type: 'button', class: 'btn btn-ghost btn-small' },
+      'Annuler'
+    );
+    cancel.addEventListener('click', () => {
+      state.itheorie.draft = null;
+      renderItheorie();
+    });
+    el.append(h('div', { class: 'itheorie-actions' }, save, cancel));
+  }
+
+  async function compressItheorieFile(file) {
+    const max = 2200;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.86);
+    } catch {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Capture illisible.'));
+        reader.readAsDataURL(file);
+      });
+    }
+  }
+
+  async function handleItheorieFiles(fileList) {
+    const files = Array.from(fileList || []).filter((file) =>
+      /^image\//i.test(file.type || '')
+    );
+    if (files.length === 0) {
+      setItheorieStatus('Choisis des images PNG, JPEG ou WebP.', 'error');
+      return;
+    }
+    const selected = files.slice(0, 4);
+    if (files.length > 4) {
+      setItheorieStatus('Je garde les 4 premières captures.', 'ok');
+    }
+    state.itheorie.extracting = true;
+    state.itheorie.error = null;
+    setItheorieStatus('Lecture des captures par l’IA…');
+    renderItheorie();
+    try {
+      const images = [];
+      for (const file of selected) images.push(await compressItheorieFile(file));
+      const result = await apiJson('/api/itheorie/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ images }),
+      });
+      state.itheorie.draft = result.draft;
+      state.itheorie.extracting = false;
+      setItheorieStatus('Chiffres lus. Vérifie-les puis enregistre.');
+      renderItheorie();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') {
+        state.itheorie.extracting = false;
+        return;
+      }
+      state.itheorie.extracting = false;
+      setItheorieStatus(
+        `${error.message || 'Lecture impossible.'} Tu peux saisir les chiffres à la main.`,
+        'error'
+      );
+      openItheorieManual();
+    }
+  }
+
+  function openItheorieManual() {
+    const snapshot = state.itheorie.data || {};
+    state.itheorie.draft = JSON.parse(
+      JSON.stringify({
+        catalogue: snapshot.catalogue || {
+          correct_pct: null,
+          questions_seen: null,
+          questions_total: null,
+        },
+        tests_started: snapshot.tests_started ?? null,
+        tests: Array.isArray(snapshot.tests) ? snapshot.tests : [],
+        categories: Array.isArray(snapshot.categories) ? snapshot.categories : [],
+        source: 'saisie manuelle',
+      })
+    );
+    setItheorieStatus('Saisie manuelle : ajoute les tests et les chiffres connus.');
+    renderItheorie();
+  }
+
+  async function saveItheorieDraft() {
+    const draft = state.itheorie.draft;
+    if (!draft || state.itheorie.saving) return;
+    state.itheorie.saving = true;
+    setItheorieStatus('Enregistrement…');
+    renderItheorie();
+    try {
+      const result = await apiJson('/api/itheorie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({ snapshot: draft, replace_tests: true }),
+      });
+      state.itheorie.data = result.snapshot;
+      state.itheorie.metrics = result.metrics;
+      state.itheorie.draft = null;
+      state.itheorie.saving = false;
+      setItheorieStatus('Suivi iTheorie enregistré.');
+      renderItheorie();
+      loadGoals();
+      toast('iTheorie mis à jour.', 'ok');
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') {
+        state.itheorie.saving = false;
+        return;
+      }
+      state.itheorie.saving = false;
+      setItheorieStatus(error.message || 'Enregistrement impossible.', 'error');
+      renderItheorie();
+    }
+  }
+
+  async function resetItheorie() {
+    if (!window.confirm('Effacer le suivi iTheorie et repartir de zéro ?')) return;
+    try {
+      const result = await apiJson('/api/itheorie/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Request': '1' },
+        body: JSON.stringify({}),
+      });
+      state.itheorie.data = result.snapshot;
+      state.itheorie.metrics = result.metrics;
+      state.itheorie.draft = null;
+      setItheorieStatus('Suivi réinitialisé.');
+      renderItheorie();
+      loadGoals();
+    } catch (error) {
+      if (error.code === 'SESSION_REQUIRED') return;
+      setItheorieStatus(error.message || 'Réinitialisation impossible.', 'error');
+      renderItheorie();
     }
   }
 
@@ -6559,6 +7201,13 @@
   els.goalPropose?.addEventListener('click', proposeGoal);
   els.cleanupScanBtn.addEventListener('click', scanCleanup);
   els.reviewCalloutBtn?.addEventListener('click', () => setScreen('review'));
+  els.itheorieImportBtn?.addEventListener('click', () => els.itheorieFiles?.click());
+  els.itheorieFiles?.addEventListener('change', (event) => {
+    handleItheorieFiles(event.target.files);
+    event.target.value = '';
+  });
+  els.itheorieManualBtn?.addEventListener('click', openItheorieManual);
+  els.itheorieResetBtn?.addEventListener('click', resetItheorie);
 
   // Fenêtre de préparation et détail de tâche.
   for (const el of document.querySelectorAll('[data-close="prepare"]')) {

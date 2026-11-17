@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f7f5f0" />
-    <meta name="app-version" content="0.49.0" />
+    <meta name="app-version" content="0.50.0" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Triage pour Todoist</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -13,11 +13,11 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Triage" />
-    <link rel="stylesheet" href="/styles.css?v=0.49.0" />
-    <script src="/schedule-settings.js?v=0.49.0" defer></script>
-    <script src="/goal-progress.js?v=0.49.0" defer></script>
-    <script src="/rituals.js?v=0.49.0" defer></script>
-    <script src="/app.js?v=0.49.0" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=0.50.0" />
+    <script src="/schedule-settings.js?v=0.50.0" defer></script>
+    <script src="/goal-progress.js?v=0.50.0" defer></script>
+    <script src="/rituals.js?v=0.50.0" defer></script>
+    <script src="/app.js?v=0.50.0" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Aller au contenu</a>
@@ -84,6 +84,9 @@
           <button type="button" class="screen-tab" data-screen-tab="review">
             Bilan<span id="review-badge" class="tab-badge" hidden>0</span>
           </button>
+          <button type="button" class="screen-tab" data-screen-tab="itheorie">
+            iTheorie<span id="itheorie-badge" class="tab-badge" hidden>!</span>
+          </button>
           <button type="button" class="screen-tab" data-screen-tab="tasks">Tâches</button>
           <button type="button" class="screen-tab" data-screen-tab="order">Ordre</button>
           <button type="button" class="screen-tab" data-screen-tab="plan">Planifier</button>
@@ -148,6 +151,43 @@
               <span id="review-count" class="pill">0</span>
             </div>
             <div id="review-panel" class="review-panel" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <section class="screen" data-screen-panel="itheorie">
+          <section class="panel" aria-labelledby="itheorie-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="itheorie-title">iTheorie</h2>
+                <p class="panel-sub">
+                  Ta préparation au permis, à partir de tes captures. Aucune API iTheorie :
+                  tu envoies les écrans Test et Succès, Triage calcule le reste.
+                </p>
+              </div>
+              <span id="itheorie-updated" class="pill">—</span>
+            </div>
+            <div id="itheorie-dashboard" class="itheorie-dashboard"></div>
+            <div class="itheorie-import">
+              <div class="itheorie-actions">
+                <button id="itheorie-import-btn" class="btn btn-primary btn-small" type="button">
+                  📷 Importer des captures
+                </button>
+                <button id="itheorie-manual-btn" class="btn btn-secondary btn-small" type="button">
+                  Saisie manuelle
+                </button>
+                <button id="itheorie-reset-btn" class="btn btn-ghost btn-small" type="button">
+                  Réinitialiser
+                </button>
+              </div>
+              <input id="itheorie-files" type="file" accept="image/*" multiple hidden />
+              <p class="fine-print">
+                Envoie les écrans <strong>Test</strong> et <strong>Succès</strong> (ou Apprendre).
+                Les images sont envoyées au modèle de vision, puis jetées : seuls les chiffres
+                sont conservés. Tu peux corriger avant d’enregistrer.
+              </p>
+              <div id="itheorie-status" class="itheorie-status" aria-live="polite"></div>
+              <div id="itheorie-draft" class="itheorie-draft" hidden></div>
+            </div>
           </section>
         </section>
 

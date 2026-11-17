@@ -78,6 +78,9 @@ const config = {
   openrouterApiKey: (process.env.OPENROUTER_API_KEY || '').trim(),
   openrouterBaseUrl: (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, ''),
   aiModel: (process.env.AI_MODEL || 'deepseek/deepseek-v4.1-flash').trim(),
+  // Modèle de vision utilisé uniquement pour lire les captures iTheorie.
+  aiVisionModel: (process.env.AI_VISION_MODEL || 'google/gemini-2.5-flash').trim(),
+  aiVisionMaxImages: readInt('AI_VISION_MAX_IMAGES', 4, { min: 1, max: 8 }),
   aiTimeoutMs: readInt('AI_TIMEOUT_MS', 90000, { min: 5000, max: 300000 }),
   aiMaxTokens: readInt('AI_MAX_TOKENS', 8000, { min: 1000, max: 32000 }),
   aiReasoningMaxTokens: readInt('AI_REASONING_MAX_TOKENS', 400, { min: 0, max: 8000 }),

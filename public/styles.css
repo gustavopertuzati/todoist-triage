@@ -3607,3 +3607,295 @@ body {
   }
 }
 
+/* Itération 50 : import iTheorie et tableau de préparation. */
+.itheorie-dashboard {
+  display: grid;
+  gap: 14px;
+}
+
+.itheorie-empty {
+  display: grid;
+  gap: 8px;
+  place-items: start;
+}
+
+.itheorie-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.itheorie-score-block {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.itheorie-score {
+  color: var(--accent);
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.itheorie-target {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.itheorie-hero-body {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+}
+
+.itheorie-formula {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.itheorie-progress {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.itheorie-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.itheorie-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.itheorie-metric {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.itheorie-metric-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.itheorie-metric-value {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.itheorie-chart-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.itheorie-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 150px;
+  padding: 10px 10px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.itheorie-bar-wrap {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: end;
+  flex: 1 1 0;
+  gap: 3px;
+  height: 100%;
+  min-width: 0;
+}
+
+.itheorie-bar-area {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  height: 110px;
+  min-height: 0;
+}
+
+.itheorie-bar {
+  width: 100%;
+  max-width: 34px;
+  border-radius: 4px 4px 0 0;
+  background: var(--warn);
+}
+
+.itheorie-bar.is-good {
+  background: var(--ok);
+}
+
+.itheorie-bar.is-ok {
+  background: var(--warn);
+}
+
+.itheorie-bar.is-low {
+  background: var(--danger);
+}
+
+.itheorie-bar-value {
+  color: var(--ink);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.itheorie-bar-date {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itheorie-weak {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.itheorie-weak-chip {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.itheorie-footer {
+  display: grid;
+  gap: 2px;
+}
+
+.itheorie-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.itheorie-import {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.itheorie-status {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.itheorie-status.is-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.itheorie-draft {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.itheorie-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.itheorie-field {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.itheorie-field input {
+  min-height: 38px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.itheorie-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.itheorie-test-list {
+  display: grid;
+  gap: 6px;
+}
+
+.itheorie-test-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.itheorie-test-row input[type='date'] {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.itheorie-test-row input[type='number'] {
+  width: 72px;
+}
+
+.itheorie-test-row input {
+  min-height: 38px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+@media (max-width: 600px) {
+  .itheorie-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .itheorie-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .itheorie-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

@@ -44,12 +44,30 @@ function parseJsonLoose(text) {
 }
 
 /**
- * @param {{system: string, user: string, maxTokens?: number, temperature?: number}} params
- * @returns {Promise<object|null>} objet JSON déjà parsé
+ * Appel générique à OpenRouter, avec messages déjà construits.
+ * @returns {Promise<{data: object, usage: object|null, model: string}>}
  */
-async function chatJson({ system, user, maxTokens = config.aiMaxTokens, temperature = 0.4 }) {
+async function requestChatJson({
+  model,
+  messages,
+  maxTokens = config.aiMaxTokens,
+  temperature = 0.4,
+  reasoning = true,
+}) {
   if (!config.openrouterApiKey) {
     throw new AiError('AI_NOT_CONFIGURED', 'Aucune clé OpenRouter configurée.');
+  }
+
+  const body = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+  };
+  if (reasoning) {
+    // Les modèles de raisonnement brûlent tout le budget en réflexion s'il
+    // n'est pas plafonné : on réserve de la place pour le JSON final.
+    body.reasoning = { max_tokens: config.aiReasoningMaxTokens };
   }
 
   let response;
@@ -62,18 +80,7 @@ async function chatJson({ system, user, maxTokens = config.aiMaxTokens, temperat
         'HTTP-Referer': 'https://todoist-triage.orkestr.run',
         'X-Title': 'Triage pour Todoist',
       },
-      body: JSON.stringify({
-        model: config.aiModel,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        temperature,
-        max_tokens: maxTokens,
-        // Les modèles de raisonnement brûlent tout le budget en réflexion s'il
-        // n'est pas plafonné : on réserve de la place pour le JSON final.
-        reasoning: { max_tokens: config.aiReasoningMaxTokens },
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(config.aiTimeoutMs),
     });
   } catch (error) {
@@ -103,7 +110,58 @@ async function chatJson({ system, user, maxTokens = config.aiMaxTokens, temperat
     throw new AiError('AI_BAD_RESPONSE', 'Réponse de l’IA illisible.');
   }
 
-  return { data: parsed, usage: payload?.usage || null, model: payload?.model || config.aiModel };
+  return { data: parsed, usage: payload?.usage || null, model: payload?.model || model };
 }
 
-module.exports = { AiError, chatJson, parseJsonLoose };
+/**
+ * @param {{system: string, user: string, maxTokens?: number, temperature?: number}} params
+ * @returns {Promise<object|null>} objet JSON déjà parsé
+ */
+async function chatJson({ system, user, maxTokens = config.aiMaxTokens, temperature = 0.4 }) {
+  return requestChatJson({
+    model: config.aiModel,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    maxTokens,
+    temperature,
+    reasoning: true,
+  });
+}
+
+/**
+ * Lit une ou plusieurs images (data URLs) et renvoie un JSON strict.
+ * Utilisé uniquement pour les captures iTheorie.
+ */
+async function chatJsonVision({
+  system,
+  user,
+  images = [],
+  maxTokens = 4000,
+  temperature = 0,
+}) {
+  if (!Array.isArray(images) || images.length === 0) {
+    throw new AiError('AI_NO_IMAGE', 'Aucune capture à analyser.');
+  }
+  return requestChatJson({
+    model: config.aiVisionModel,
+    messages: [
+      { role: 'system', content: system },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: user },
+          ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+        ],
+      },
+    ],
+    maxTokens,
+    temperature,
+    // Gemini Flash n'a pas besoin d'un gros budget de raisonnement pour lire
+    // des chiffres ; on garde la réponse rapide et bornée.
+    reasoning: false,
+  });
+}
+
+module.exports = { AiError, chatJson, chatJsonVision, parseJsonLoose };

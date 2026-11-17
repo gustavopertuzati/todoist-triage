@@ -6,7 +6,7 @@ Todoist surchargé et aide à y voir clair.
 **En ligne :** <https://todoist-triage.orkestr.run> (instance configurée sur
 `Europe/Zurich`). Code : <https://github.com/gustavopertuzati/todoist-triage>.
 
-> **Itérations 1 à 49.** L'app affiche un résumé, explore les projets, **diagnostique chaque
+> **Itérations 1 à 50.** L'app affiche un résumé, explore les projets, **diagnostique chaque
 > projet**, et te laisse **planifier jour par jour** : tu choisis un jour, réponds à un
 > **check-in de 5 questions** (énergie, forme, temps, envie, humeur), et une **IA**
 > (OpenRouter, `deepseek/deepseek-v4.1-flash`) propose les tâches les plus adaptées à ton
@@ -1287,6 +1287,42 @@ terminés (maximum 99,9 %).
 Implémentation pure et testée : `public/rituals.js` ; calcul de progression :
 `public/goal-progress.js`.
 
+## Itération 50 — iTheorie par captures, préparation calculée
+
+iTheorie n’expose ni API ni export. Triage ajoute donc un onglet **iTheorie** où
+tu déposes directement les **captures d’écran** :
+
+1. écran **Test** (tests terminés, dates, scores) ;
+2. écran **Succès** ou **Apprendre** (catalogue, questions vues, catégories).
+
+Les images sont envoyées au modèle de vision (`AI_VISION_MODEL`, par défaut
+`google/gemini-2.5-flash`), lues, puis **jetées**. Seuls les chiffres sont
+conservés dans `data/itheorie.json` (surchargeable avec `ITHEORIE_FILE`).
+Un formulaire de correction permet de fixer un chiffre mal lu avant
+d’enregistrer.
+
+**Formule validée :**
+
+`Préparation = 50 % catalogue + 50 % moyenne des 5 derniers tests`
+
+- objectif : **90 %** ;
+- les tests de 2025 comptent pour le record, pas pour la moyenne récente ;
+- les tests commencés ne comptent pas ;
+- le 11 % de « taux de réussite » de l’app n’est pas utilisé comme progression
+  principale (c’est 1 test ≥ 90 sur 9, trop binaire).
+
+L’onglet affiche : préparation, catalogue, moyenne des 5 derniers, meilleur
+score, tests terminés, taux ≥ 90, série ≥ 90, couverture, graphique des derniers
+tests et catégories à retravailler.
+
+La carte Objectifs iTheorie utilise cette préparation comme pourcentage et
+auto-calcule ses jalons : `9/10 tests`, `meilleur ≥ 80`, `0/3 tests ≥ 90`.
+Les captures ne sont jamais conservées.
+
+Routes : `GET /api/itheorie`, `POST /api/itheorie/extract`,
+`POST /api/itheorie`, `POST /api/itheorie/reset`.
+Implémentation pure et testée : `src/itheorie.js` ; vision : `src/ai.js`.
+
 ## Automatisations Todoist — comment les brancher sur Triage
 
 Todoist Automations est en bêta sur les offres **Pro / Business**. Elle peut
@@ -1377,6 +1413,8 @@ npm run dev
 | `PROPOSAL_DUE_OFFSET_DAYS` | non | `7` | Décalage par défaut proposé pour dater une tâche ancienne. |
 | `OPENROUTER_API_KEY` | non | — | Clé OpenRouter. Sans elle, l'IA est désactivée (mode règles). |
 | `AI_MODEL` | non | `deepseek/deepseek-v4.1-flash` | Modèle utilisé pour proposer les échéances. |
+| `AI_VISION_MODEL` | non | `google/gemini-2.5-flash` | Modèle de vision qui lit les captures iTheorie. |
+| `AI_VISION_MAX_IMAGES` | non | `4` | Nombre maximum de captures envoyées par import. |
 | `AI_MAX_TOKENS` | non | `8000` | Budget de génération (raisonnement + JSON). |
 | `AI_REASONING_MAX_TOKENS` | non | `400` | Plafond du raisonnement du modèle. |
 | `AI_MAX_PROPOSALS` | non | `5` | Nombre maximum de propositions pour un jour donné. |
@@ -1400,6 +1438,7 @@ npm run dev
 | `DECOMPOSE_MAX_ITEMS` | non | `5` | Nombre maximum de sous-tâches proposées par le découpage assisté. |
 | `ASSISTANT_NOTES_FILE` | non | `data/assistant-notes.json` | Fichier JSON du carnet de notes. |
 | `ADAPTIVE_STATE_FILE` | non | `data/adaptive-state.json` | Mémoire des bilans et des rythmes adaptés. |
+| `ITHEORIE_FILE` | non | `data/itheorie.json` | Snapshot iTheorie (chiffres uniquement, pas les captures). |
 | `TODOIST_BASE_URL` | non | API officielle | Surcharge réservée aux tests locaux avec un faux Todoist. |
 
 Toutes les valeurs sensibles sont lues uniquement depuis l'environnement du serveur.
@@ -1514,6 +1553,7 @@ src/reminders.js       rappels Todoist natifs (création, remplacement, suppress
 src/assistantNotes.js  carnet de notes persistant pour OpenCode
 src/dailyReview.js     bilan de la veille, questionnaire et adaptation par essais/erreurs
 src/adaptiveState.js   mémoire privée des rythmes adaptés (data/adaptive-state.json)
+src/itheorie.js        import iTheorie, fusion des tests et préparation calculée
 src/exportService.js   orchestration + cache mémoire
 src/dates.js           analyse des conventions de date
 views/                 pages HTML (connexion, tableau de bord)
@@ -1536,7 +1576,7 @@ AGENTS.md              consignes de travail de l'agent
 
 ## Périmètre
 
-Itérations 1 à 49 terminées : export, lecture, diagnostic des projets, planification
+Itérations 1 à 50 terminées : export, lecture, diagnostic des projets, planification
 **jour par jour** assistée par une IA, **check-in du jour** avec **contexte multi-choix**
 et lecture des **filtres Todoist**, scission des tâches **sélective** (on ignore les
 morceaux inutiles), **nettoyage guidé** avec corbeille, confort d'usage (tout valider, PWA,
@@ -1552,7 +1592,8 @@ pour l'agent, **propositions ancrées dans les projets et échéances**, **ignor
 rechargement**, **réorganisation manuelle avec recalcul des horaires**, **nettoyage
 approfondi progressif** et **carnet de notes éditable** persistant pour OpenCode, puis
 **bilan quotidien de la veille**, **adaptation des quantités par essais/erreurs**,
-**rythmes d’objectifs mis à jour automatiquement**, puis **micro-rituels cumulatifs**
-avec progression en direct. Les itérations suivantes
+**rythmes d’objectifs mis à jour automatiquement**, **micro-rituels cumulatifs**
+avec progression en direct, puis **suivi iTheorie par captures** avec préparation
+calculée. Les itérations suivantes
 (planificateur de semaine, mémoire des préférences à long terme) ne sont pas implémentées
 et seront abordées après retour d'usage.
